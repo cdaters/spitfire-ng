@@ -1,0 +1,59 @@
+# Build output
+/target/
+**/target/
+/dist/
+
+# Editor / OS
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+/.local-development/
+
+# Logs / runtime
+logs/
+temp/
+tmp/
+/var/
+*.log
+
+# Local generated backups
+backup/
+backups/
+
+# Historical research samples
+#
+# These may contain proprietary, registered, personalized, or otherwise
+# non-redistributable historical binaries. Keep the directory documentation,
+# but never commit its contents.
+research/samples/**
+!research/samples/README.md
+
+# Optional local reverse-engineering work products
+research/work/
+research/disassembly/
+research/decompiled/
+
+# Private caller-experience captures and local acceptance evidence
+research/artifacts/
+
+# Generated documentation exports; Markdown is the maintained source
+docs/**/*.docx
+
+# Common generated files
+*.bak
+*.orig
+*.tmp

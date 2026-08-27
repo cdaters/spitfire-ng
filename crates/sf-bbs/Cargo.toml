@@ -1,0 +1,30 @@
+[package]
+name = "sf-bbs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "sf_bbs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "spitfire"
+path = "src/main.rs"
+
+[dependencies]
+chrono-tz.workspace = true
+ctrlc.workspace = true
+rpassword.workspace = true
+serde.workspace = true
+sha2.workspace = true
+sf-core = { path = "../sf-core" }
+sf-legacy = { path = "../sf-legacy" }
+serialport.workspace = true
+tempfile.workspace = true
+terminal_size.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

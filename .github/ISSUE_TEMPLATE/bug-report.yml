@@ -1,0 +1,71 @@
+name: Development Preview bug
+description: Report one reproducible, non-security SPITFIRE NG problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use this form for a security vulnerability. Use the private reporting channel on the official release page. Never attach a live board, password, private caller data, or registered historical binary.
+  - type: dropdown
+    id: version
+    attributes:
+      label: SPITFIRE NG version
+      options:
+        - 0.1.0 Development Preview
+        - Source build after 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: version_output
+    attributes:
+      label: Exact version output
+      description: Paste the sanitized output of `spitfire --version`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: macOS version, architecture, and whether this is the prebuilt archive or a source build.
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Transport and terminal
+      description: Transport, client/version, emulation, encoding, and dimensions.
+  - type: textarea
+    id: presentation
+    attributes:
+      label: Sanitized status and presentation state
+      description: Include relevant status lines for profile, menu mode, renderer, locale, node, and terminal. Remove private paths and caller data.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give a minimal numbered sequence and say whether it reproduces on a clean setup-created board.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior and sanitized logs
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed passwords, tokens, private board/caller data, private messages, contact data, and proprietary historical files.
+          required: true
+        - label: This report does not disclose an unpatched security vulnerability.
+          required: true

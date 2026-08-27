@@ -1,0 +1,176 @@
+# SPITFIRE NG canonical en-US caller/session catalog.
+caller-connection-sysop-node = Your Sysop is { $sysop } - Node { $node }
+caller-connection-product-version = SPITFIRE NG Bulletin Board System - Version { $version }
+caller-inactivity-goodbye = No activity time limit exceeded. Goodbye.
+caller-operator-disconnected = The Sysop has disconnected this session.
+caller-auth-new-question = Are you a New Caller? (Y/N): { " " }
+caller-auth-name-prompt = Caller Name: { " " }
+caller-auth-password-prompt = Password: { " " }
+caller-login-failed = Invalid caller name or password.
+caller-login-attempts-exceeded = Maximum login attempts exceeded.
+caller-registration-name-prompt = New Caller Name: { " " }
+caller-registration-name-too-long = Caller name is too long. Please try again.
+caller-registration-name-invalid = Caller name is not valid. Please try again.
+caller-registration-password-prompt = Choose Password: { " " }
+caller-registration-password-confirm = Confirm Password: { " " }
+caller-registration-complete = New caller registration complete.
+caller-registration-cancel-help = Enter /Q at any profile prompt to cancel registration.
+caller-registration-address-title = Postal Address
+caller-registration-phone-label = Phone
+caller-registration-email-label = Email
+caller-registration-birthday-invalid = Please enter a real date as YYYY-MM-DD.
+caller-registration-city-label = City
+caller-registration-required = This information is required by the Sysop.
+caller-profile-title = --- YOUR PRIVATE CALLER PROFILE ---
+caller-profile-unchanged = Caller profile was not changed.
+caller-profile-saved = Caller profile saved.
+caller-about-product = SPITFIRE NG Bulletin Board System
+caller-about-copyright = Copyright (C) 2026 Craig Daters and contributors
+caller-about-project = SPITFIRE NG Project
+caller-about-return-prompt = Press ENTER to return to Main: { " " }
+caller-welcome = Welcome, { $caller }.
+caller-context-board-time = It is presently { $timestamp } (board local).
+caller-context-call-count = You are caller #{ $caller_number }; { $calls_today ->
+    [one] this is call 1 today.
+   *[other] this is call { $calls_today } today.
+    } Times On: { $total_calls }.
+caller-context-last-call = Your last call was { $timestamp }.
+caller-context-first-call = This is your first completed caller login.
+caller-context-security-time = Security { $security }. Time remaining: { $call_minutes } minute(s) this call; { $daily_minutes } minute(s) today.
+caller-context-denial = Security notice: an earlier access attempt at { $timestamp } was denied because of { $reason }.
+caller-context-status-identity = Caller #{ $caller_number } | Security: { $security } | Calls today { $calls_today } ({ $calls_remaining } remaining) | Total { $total_calls }
+caller-context-status-time = Session: { $elapsed_minutes } minute(s) used | { $call_minutes } call minute(s) left | { $daily_minutes } daily minute(s) left
+caller-denial-invalid-credentials = invalid credentials
+caller-denial-account-unavailable = an unavailable caller account
+caller-denial-private-policy = board access policy
+caller-denial-daily-call-limit = the daily call limit
+caller-denial-daily-time-limit = the daily time limit
+caller-page-wait = Paging the Sysop; please wait...
+caller-chat-caller-prompt = Caller> { " " }
+caller-chat-sysop-line = Sysop> { $reply }
+caller-terminal-title = --- TERMINAL PREFERENCES ---
+caller-terminal-graphics-prompt = Graphics [A]uto [N] ANSI [T]ext: { " " }
+caller-terminal-graphics-invalid = Invalid graphics preference.
+caller-terminal-transfer-invalid = Invalid transfer protocol preference.
+caller-terminal-saved = Terminal preferences saved.
+caller-statistics-title = --- YOUR SPITFIRE STATISTICS ---
+caller-statistics-messages-sent = Messages Sent: { $count }
+caller-statistics-name = Caller Name: { $name }
+caller-statistics-security = Security Level: { $security }
+caller-statistics-times-on = Times On: { $count }
+caller-statistics-accumulated = Accumulated Time: { $minutes } minute(s)
+caller-statistics-waiting = New Messages Waiting: { $count }
+caller-statistics-uploads = Files Uploaded: { $count } ({ $bytes } bytes)
+caller-statistics-downloads = Files Downloaded: { $count } ({ $bytes } bytes)
+caller-message-summary-title = --- SPITFIRE MESSAGE SUMMARY ---
+caller-message-summary-waiting = Messages Waiting: { $count }
+caller-message-summary-received = Messages Already Received: { $count }
+caller-message-summary-sent = Messages Sent: { $count }
+caller-new-files-title = --- SPITFIRE NEW-FILE CHECK ---
+caller-new-files-count = New Files Since Last Check: { $count }
+caller-new-files-question = List new files now? (Y/N): { " " }
+
+file-selection-invalid = Invalid or unavailable selection.
+file-area-list-title = Available SPITFIRE File Areas:
+file-area-number-prompt = File Area Number (Enter keeps current): { " " }
+file-area-number-invalid = Invalid file-area number.
+file-area-unavailable = That file area is unavailable.
+file-search-name-prompt = File name or wildcard (extension optional; *.* is not allowed): { " " }
+file-search-pattern-invalid = That file search pattern is not valid.
+file-search-description-prompt = Description words (one to six): { " " }
+file-search-empty = No matching files are available.
+file-new-area-prompt = New Files - File Area Number (Enter = all areas; C = current; Q = quit): { " " }
+file-new-area-invalid = That file-area selection is not valid.
+file-new-date-prompt = New Files Since <L>ast Check or Date (MM-DD-YY; Q = quit) [L]: { " " }
+file-download-prompt = File to download (comma-separate a batch): { " " }
+file-download-no-batch = That protocol does not support batch downloads.
+file-download-unavailable = A requested file is unavailable for download.
+file-download-ascii-single = ASCII transfers one text file at a time.
+file-download-complete = ASCII download complete.
+file-upload-name-prompt = Filename to upload (/A = abort; batch protocols use remote names): { " " }
+file-upload-description-prompt = File description (/A = abort): { " " }
+file-upload-canceled = Upload canceled.
+file-upload-ascii-txt-only = ASCII upload accepts .TXT files only.
+file-upload-unauthorized = You are not authorized to upload to this area.
+file-upload-discarded = Upload canceled; staged data was discarded.
+file-transfer-canceled = Transfer canceled.
+
+message-selection-invalid = Invalid or unavailable selection.
+message-sysop-conference-unavailable = Conference 1 is unavailable for a Sysop comment.
+message-conference-list-title = Available SPITFIRE Message Conferences:
+message-conference-number-prompt = Conference Number (Enter keeps current): { " " }
+message-conference-number-invalid = Invalid conference number.
+message-conference-unavailable = That conference is unavailable.
+message-none-available = No messages are available.
+message-scan-title = >>>> CONFERENCE SCAN MENU <<<<
+message-scan-this = <T> This Message Conference
+message-scan-all = <A> All Message Conferences
+message-scan-queued = <O> Only Queued Conferences
+message-scan-change-queue = <C> Change Conference Queue
+message-scan-quit = <Q> Quit
+message-scan-prompt = Conference Scan Selection: { " " }
+message-scan-invalid = Invalid conference scan selection.
+message-preview-question = Preview messages without marking them received? (Y/N): { " " }
+message-scan-empty = No messages are available in that scan.
+message-no-longer-available = That message is no longer available.
+message-read-prompt = [Enter/N]ext [-/P]revious [#]message [R]eply [F]thread [Q]uit: { " " }
+message-no-later = No later visible message.
+message-no-earlier = No earlier visible message.
+message-subject-change-question = Change message subject? (Y/N): { " " }
+message-subject-new-prompt = New Subject: { " " }
+message-conference-message-unavailable = That message is unavailable in this conference.
+message-read-selection-invalid = Invalid read-message selection.
+message-thread-none = No other visible messages share this subject.
+message-thread-title = >>>> MESSAGE THREAD MENU <<<<
+message-thread-forward-back = <S> Start Of Thread  <F> Forward Read
+message-thread-back-exit = <B> Backward Read    <E> Exit Message Thread
+message-thread-prompt = Thread Selection: { " " }
+message-thread-end = End of visible message thread.
+message-thread-start = Start of visible message thread.
+message-thread-invalid = Invalid message-thread selection.
+message-queue-title = >>>> MESSAGE QUEUE MENU <<<<
+message-queue-quit = <Q> Quit To Message Menu
+message-queue-prompt = Message Queue Selection: { " " }
+message-queue-all = All accessible conferences are now queued.
+message-queue-invalid = Invalid message-queue selection.
+message-queue-current-title = Your Queued Message Conferences:
+message-field-to = To:   { $name }
+message-field-from = From: { $name }
+message-field-subject = Subj: { " " }
+message-field-private = Status: Non-Public / Private
+message-compose-to-prompt = To (Enter = All Callers, /A = abort): { " " }
+message-compose-subject-prompt = Subject (/A = abort): { " " }
+message-compose-canceled = Message canceled; nothing was saved.
+message-compose-save-question = Save this message? (Y/N): { " " }
+message-yours-title = --- YOUR SPITFIRE MESSAGES ---
+message-yours-sent = Messages Sent: { $count }
+message-yours-prompt = [R]ead received messages [S]how sent messages [Q]uit: { " " }
+message-yours-invalid = Invalid Your Messages selection.
+message-editor-quote-help = CTRL+Q reviews and quotes the original message.
+message-editor-empty = Enter at least one line before saving.
+message-editor-quote-unavailable = Quoting is available only while replying.
+message-editor-menu-one = <S>ave <E>dit <A>bort <C>ontinue <B>egin Again
+message-editor-prompt = Editor Selection: { " " }
+message-editor-cleared = Message text cleared; begin again.
+message-editor-invalid = Invalid editor selection.
+message-editor-no-text = No message text has been entered.
+message-editor-replace-line-prompt = Line Number To Replace: { " " }
+message-editor-line-invalid = Invalid line number.
+message-editor-quoted-immutable = Quoted lines cannot be edited.
+message-editor-replacement-prompt = Replacement Text: { " " }
+message-editor-replacement-too-long = Replacement would exceed the message limit.
+message-editor-edit-line-prompt = Line Number To Edit (Enter = done): { " " }
+message-editor-edited-text-prompt = Edited Text: { " " }
+message-editor-edit-too-long = Edit would exceed the message limit.
+message-editor-limit-reached = The conference line limit has been reached.
+message-editor-insert-prompt = Insert Blank Line Before (Enter = end): { " " }
+message-editor-insert-invalid = Invalid insertion line number.
+message-editor-delete-prompt = Line Or Range To Delete (for example 2-4): { " " }
+message-editor-range-invalid = Invalid line range.
+message-editor-quote-title = --- ORIGINAL MESSAGE FOR QUOTING ---
+message-editor-quote-range-prompt = Quote Line Range (for example 1-3, Enter = cancel): { " " }
+message-editor-quote-range-invalid = Invalid quote line range.
+message-editor-quote-too-long = Quoted range would exceed the message limit.
+message-personal-read-prompt = Read Conference/Message (for example 2/15, Enter = return): { " " }
+message-personal-reference-invalid = Invalid conference/message reference.
+message-personal-unavailable = That personal message is unavailable.
