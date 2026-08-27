@@ -2,10 +2,10 @@
 
 ## Development Preview 0.1.0
 
-SPITFIRE NG 0.1.0 is ready as a Development Preview. The release candidate has
-passed packaging, runtime, terminal-client, backup/restore, license, and
-privacy checks. Public publication is the next project step; no public binary
-is available yet.
+SPITFIRE NG 0.1.0 Development Preview is publicly available. The published
+Apple Silicon macOS release passed packaging, runtime, terminal-client,
+backup/restore, license, privacy, public-redownload, checksum, and first-run
+checks.
 
 ## Available today
 
@@ -30,13 +30,26 @@ is available yet.
 |---|---|
 | Version | 0.1.0 |
 | Channel | Development Preview |
+| Tag | `v0.1.0-development-preview` |
 | Platform | Apple Silicon macOS |
 | Target | `aarch64-apple-darwin` |
 | Archive | `spitfire-ng-0.1.0-development-preview-aarch64-apple-darwin.tar.gz` |
 | SHA-256 | `6c4d7ad492b1acee92481a3a577b49934c08e79822e98de50e918489a8fc9c97` |
 | Signing | No Apple Developer ID signature |
 | Notarization | Not notarized |
-| Publication | Pending |
+| Publication | [Published on GitHub](https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview) |
+
+The archive was downloaded again from the public GitHub Release and matched
+the canonical SHA-256. Expected unsigned/unnotarized Gatekeeper behavior was
+observed on Apple Silicon macOS; **System Settings → Privacy & Security → Open
+Anyway** succeeded, after which `spitfire --version` returned:
+
+```text
+SPITFIRE NG Bulletin Board System 0.1.0
+```
+
+Apple Developer ID signing and notarization are intentionally deferred and do
+not block this Development Preview.
 
 Only this target has completed package and live-client acceptance. Source code
 is intended to remain portable, but other prebuilt platforms are not claimed
@@ -69,6 +82,6 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Publish the accepted 0.1.0 Development Preview through the controlled release
-process, then verify the public download, checksum, installation, terminal
-clients, and documentation links.
+Collect sanitized public feedback, preserve the accepted 0.1.0 release
+boundary, and select the next separately reviewed roadmap milestone. Signing,
+additional binary platforms, and new features remain future scoped work.

@@ -23,9 +23,9 @@ input, multinode isolation, and tested backup and restore.
 
 ## Current status
 
-SPITFIRE NG 0.1.0 is a **Development Preview**. The source and release
-candidate are ready, but the public binary download has not been published
-yet.
+SPITFIRE NG 0.1.0 is a publicly available **Development Preview**. Source,
+operator documentation, and the accepted Apple Silicon macOS binary are
+published in this repository.
 
 Available today:
 
@@ -49,16 +49,17 @@ The current prebuilt target is Apple Silicon macOS
 
 ## Development Preview
 
-The validated release candidate is:
+The published release is:
 
 ```text
 spitfire-ng-0.1.0-development-preview-aarch64-apple-darwin.tar.gz
 SHA-256: 6c4d7ad492b1acee92481a3a577b49934c08e79822e98de50e918489a8fc9c97
 ```
 
-Until publication is complete, do not download similarly named files from
-unofficial sources. The eventual release page will carry the archive,
-checksum, manifest, and release notes together.
+Download the archive, checksum, manifest, and release notes together from the
+[official `v0.1.0-development-preview` GitHub Release](https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview).
+The published archive was downloaded again, matched the SHA-256 above, and
+returned `SPITFIRE NG Bulletin Board System 0.1.0` on Apple Silicon macOS.
 
 ## Installation
 

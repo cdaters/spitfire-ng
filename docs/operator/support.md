@@ -5,10 +5,9 @@ production service or a stable compatibility promise. Reports that clearly
 identify the exact build and reproduce a problem are welcome; response times,
 individual deployment consulting, and data recovery cannot be guaranteed.
 
-Use the issue tracker linked from the official release/download page for
-ordinary bugs. The publication checklist requires that tracker to be publicly
-reachable before the download is announced. Search existing reports first and
-file one problem per issue.
+Use the public [GitHub issue tracker](https://github.com/cdaters/spitfire-ng/issues)
+for ordinary bugs. Search existing reports first and file one problem per
+issue.
 
 ## Include this information
 
@@ -46,10 +45,11 @@ live board publicly.
 ## Security vulnerabilities
 
 Do not publish exploit instructions for an unpatched vulnerability in a public
-issue. Use the private vulnerability-reporting channel identified on the
-official release page. Publication must not proceed until that channel is
-enabled and tested. Include impact, affected version, reproduction conditions,
-and a safe way to contact you, but never send active board credentials.
+issue. Private vulnerability reporting is enabled; use **Report a
+vulnerability** on the public repository's
+[Security Advisories page](https://github.com/cdaters/spitfire-ng/security/advisories).
+Include impact, affected version, reproduction conditions, and a safe way to
+contact you, but never send active board credentials.
 
 ## Preview upgrade expectations
 

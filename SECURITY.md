@@ -9,19 +9,20 @@ The security goal is:
 ## Scope
 
 This document describes development, deployment, and Development Preview
-reporting principles. The public release/download page must identify a private
-vulnerability-reporting channel before any binary is announced.
+reporting principles. Private vulnerability reporting is enabled for this
+public repository; use the **Report a vulnerability** action on the
+[Security Advisories page](https://github.com/cdaters/spitfire-ng/security/advisories).
 
 ## Development Preview release integrity
 
-The 0.1.0 release candidate is an Apple Silicon macOS archive that is not
-signed with an Apple Developer ID and is not notarized. Verify its
+The published 0.1.0 Development Preview is an Apple Silicon macOS archive that
+is not signed with an Apple Developer ID and is not notarized. Verify its
 adjacent SHA-256 file before extraction and its internal `MANIFEST.SHA256`
 after extraction. The release builder rejects unsafe archive paths and the
 verifier rejects symlinks or missing required license/notice files. SHA-256
 detects accidental or malicious byte changes but is not publisher
 authentication; obtain the archive and checksum from the same official,
-versioned Release and compare the hash with the release-candidate manifest.
+versioned Release and compare the hash with the release manifest.
 The builder remaps local source paths and the verifier rejects private build-
 home paths in both package text and the executable.
 
@@ -336,10 +337,10 @@ impact, safe reproduction conditions, and a contact method; do not send live
 board credentials, private caller databases, or registered historical
 binaries.
 
-Publication of a Development Preview is blocked until that private channel is
-enabled and tested. Ordinary non-security bugs use the public issue tracker
-identified on the same release page and follow
-`docs/operator/support.md`.
+Private vulnerability reporting is enabled and the 0.1.0 publication gate is
+satisfied. Future releases remain blocked if that channel becomes unavailable
+or untested. Ordinary non-security bugs use the public issue tracker and
+follow `docs/operator/support.md`.
 
 ## Final Principle
 

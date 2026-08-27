@@ -40,13 +40,12 @@ outcomes rather than internal checkpoint chronology.
 
 ## Current release stage
 
-SPITFIRE NG 0.1.0 is ready to publish as an unsigned, unnotarized Development
-Preview for Apple Silicon macOS. The next step is controlled publication and a
-post-publication download/install verification pass.
+SPITFIRE NG 0.1.0 Development Preview is published for Apple Silicon macOS as
+tag `v0.1.0-development-preview`. The public-redownload checksum and bounded
+unsigned/unnotarized macOS first-run workflow have passed.
 
 Near-term release work includes:
 
-- publish and verify the accepted 0.1.0 archive;
 - collect sanitized operator feedback and reproducible bug reports;
 - decide the next tested binary platforms;
 - add signing/notarization when suitable release credentials and process are

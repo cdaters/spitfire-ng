@@ -379,8 +379,8 @@ board and an explicit `--replace` flag.
 
 ## Current limitations
 
-- The prebuilt archive is pending publication and is unsigned/unnotarized; no
-  native installer or package repository exists.
+- The published prebuilt archive is unsigned/unnotarized; no native installer
+  or package repository exists.
 - The documented acceptance host is Apple Silicon macOS. Linux and Windows are
   architectural targets, not a verified release matrix for 0.1.0.
 - Server operation is foreground-only; no supplied service/daemon or log

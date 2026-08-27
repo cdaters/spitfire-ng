@@ -1,9 +1,9 @@
 # SPITFIRE NG 0.1.0 Publication Checklist
 
-This is the single operator handoff for publishing the prepared Development
-Preview. It does not authorize or perform publication.
+**Status: COMPLETE (2026-08-27).** This is the retained publication procedure
+and completion record for the published Development Preview.
 
-## Before uploading
+## Completed pre-publication checks
 
 1. Read `release/RELEASE-CANDIDATE-MANIFEST.md` and confirm every filename,
    hash, source commit, target, and unsigned/unnotarized label matches the
@@ -19,7 +19,7 @@ Preview. It does not authorize or perform publication.
 4. Do not upload research folders, source-tree archives, screenshots with
    private values, board backups, or any historical SPITFIRE material.
 
-## Create the GitHub Release
+## Published GitHub Release
 
 Use:
 
@@ -38,7 +38,10 @@ Upload exactly:
 Do not rename or recompress the accepted archive after its final hash was
 recorded.
 
-## After the Release is public
+The release was published as specified above in the public
+[`cdaters/spitfire-ng` repository](https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview).
+
+## Completed post-publication checks
 
 1. Download both package files from the public Release into a new directory.
 2. Verify the published archive SHA-256 and compare it with the release
@@ -55,7 +58,14 @@ recorded.
 9. Only after those checks pass, update the approved `spitfirebbs.com` pages
    through the repository → DDEV → Site Safeguard → production workflow.
 
-## Website facts to publish afterward
+The public archive was downloaded again and matched SHA-256
+`6c4d7ad492b1acee92481a3a577b49934c08e79822e98de50e918489a8fc9c97`.
+The downloaded binary ran on Apple Silicon macOS after the documented bounded
+Gatekeeper **Open Anyway** workflow and reported version 0.1.0. Issues and
+private vulnerability reporting are enabled. The production website update
+completed through DDEV, Site Safeguard review, and controlled promotion.
+
+## Published website facts
 
 Update the SPITFIRE NG landing/status, Development Preview status, download,
 installation/getting-started, roadmap, and custom-display pages. State:
@@ -69,5 +79,5 @@ installation/getting-started, roadmap, and custom-display pages. State:
 - RIP, Category-B/ecosystem expansion, SFDraw, SFDATE, SFREG, production
   translations, SSH, and web administration are not included.
 
-Do not say “downloadable” or post links before the public-download verification
-above succeeds.
+These facts and download links were published only after public-download
+verification succeeded.

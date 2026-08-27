@@ -1,14 +1,16 @@
-# SPITFIRE NG 0.1.0 Development Preview Release-Candidate Manifest
+# SPITFIRE NG 0.1.0 Development Preview Release Manifest
 
-This is the finalized human-readable publication record for the accepted
-release-candidate bytes. It records readiness; it does not authorize or prove
-publication.
+This is the finalized human-readable record for the accepted and published
+Development Preview bytes.
 
-| Field | Release candidate |
+| Field | Release |
 |---|---|
 | Product | SPITFIRE NG Bulletin Board System |
 | Version | 0.1.0 |
 | Channel | development-preview |
+| Tag | `v0.1.0-development-preview` |
+| Public repository | `https://github.com/cdaters/spitfire-ng` |
+| Release | `https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview` |
 | Source commit | `75ed259b9acc030446fde500c2d5c33233c5e4fa` |
 | Target | `aarch64-apple-darwin` |
 | Platform | Apple Silicon macOS |
@@ -24,7 +26,7 @@ publication.
 | Rust toolchain | rustc 1.97.1 (8bab26f4f); cargo 1.97.1 (c980f4866) |
 | Cargo.lock SHA-256 | `efe6668eb8119d041444278eee00ad1b81e8258e4a7171d39dab222c3910ec1b` |
 | Accepted host | macOS 26.6.2 (25G83), Apple Silicon arm64 |
-| Gate status | READY TO PUBLISH; no publication performed |
+| Gate status | PUBLISHED; public-redownload verification passed |
 
 The source commit above is the private preservation repository's accepted
 build record. A fresh public repository intentionally begins with sanitized
@@ -51,6 +53,14 @@ The Mach-O is arm64 with a linker ad-hoc signature, no Developer ID/team
 identity, and no notarization. No valid code-signing identity was available on
 the build host. Archive assembly is recorded but is not claimed bit-for-bit
 reproducible.
+
+After publication, the archive was downloaded again from the public GitHub
+Release and matched the canonical SHA-256 above. On Apple Silicon macOS,
+expected Gatekeeper behavior was observed and the documented **System Settings
+→ Privacy & Security → Open Anyway** workflow succeeded. The downloaded
+binary then returned `SPITFIRE NG Bulletin Board System 0.1.0`. Developer ID
+signing and notarization remain intentionally deferred and do not block this
+Development Preview.
 
 ## Known limitations
 

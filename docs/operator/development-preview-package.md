@@ -41,8 +41,8 @@ Expected version output is:
 SPITFIRE NG Bulletin Board System 0.1.0
 ```
 
-The release candidate is checksum-protected but not signed with an Apple
-Developer ID and is not notarized. Obtain the archive and checksum from the
+The published Development Preview is checksum-protected but not signed with an
+Apple Developer ID and is not notarized. Obtain the archive and checksum from the
 same official versioned Release, compare the hash with the release manifest,
 and keep all three with your recovery records. Follow the
 [macOS first-run procedure](macos-first-run.md) if Gatekeeper blocks the first

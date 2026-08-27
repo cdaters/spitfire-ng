@@ -14,14 +14,15 @@
 ## Current distribution status
 
 Normal operators should use the identified Development Preview archive when it
-is supplied through the controlled release handoff. It contains a prebuilt
-binary and does not require Git, Cargo, or repository research fixtures.
-Verify and install it exactly as described in the
+is downloaded from the
+[official GitHub Release](https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview).
+It contains a prebuilt binary and does not require Git, Cargo, or repository
+research fixtures. Verify and install it exactly as described in the
 [Development Preview Package](development-preview-package.md).
 
-Until publication is separately authorized and completed, repository wording
-describes a validated release candidate rather than a publicly downloadable
-package.
+The published archive was downloaded again from GitHub and matched canonical
+SHA-256
+`6c4d7ad492b1acee92481a3a577b49934c08e79822e98de50e918489a8fc9c97`.
 
 Source builds are the developer/unsupported-host route. The code is designed
 for portability, but only the Apple Silicon package has release acceptance.
