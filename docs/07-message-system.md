@@ -1,7 +1,8 @@
 # SPITFIRE Message System Design
 
-> **Implementation note (2026-08-21):** Stock Core Increment 3 implements the
-> first native SQLite backend and caller-facing conference path. See the
+> **Implementation note (2026-08-27):** Stock Core Increment 3 implements the
+> first native SQLite backend/caller-facing conference path, and M040 adds the
+> bounded native caller/text discovery boundary. See the
 > canonical [Native SPITFIRE NG Message System](sfng-message-system.md) for the
 > exact schema, authorization rules, implemented commands, tests, and current
 > fidelity gaps. This document remains the broader multi-backend design.
@@ -415,11 +416,20 @@ A message posted from the browser should be indistinguishable in the message bas
 
 ## 22. Search
 
-Modern installations may provide message search.
+M040 implements stock current/all/queued Specific Caller and Text Search for
+the native backend. Discovery is typed, bounded, read-only, visibility-filtered,
+and returns references that are reauthorized on open. It does not mark a
+message read, cache body authority, or log caller query text. Original-runtime
+evidence confirms ASCII-insensitive body substrings, matching-message counts,
+and contiguous-phrase behavior for a space-containing query. NG intentionally
+retains whitespace-delimited all-term matching as a documented modernization.
+See the [Native SPITFIRE NG Message System](sfng-message-system.md).
+
+Future modern installations may extend message search.
 
 Search should operate across backend types through a common interface.
 
-Possible filters include:
+Possible later filters include:
 
     conference
     sender

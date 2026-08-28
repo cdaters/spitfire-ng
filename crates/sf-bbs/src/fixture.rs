@@ -21,7 +21,7 @@ const DISPLAY_NOTICE_FILE: &str = "GENERATED-RESOURCES.txt";
 const PROJECT_ASSET_LICENSE: &[u8] = b"SPDX-License-Identifier: MIT OR Apache-2.0\n\nCopyright (C) 2026 Craig Daters and SPITFIRE NG contributors.\nThese project-authored resources are available under the SPITFIRE NG repository's LICENSE-MIT or LICENSE-APACHE terms, at your option.\nHistorical and third-party research material is excluded and retains its original copyright and license.\n";
 
 const MAIN_MENU: &[u8] = b"M,<M>.......... Message Section,,5,E\r\nC,<C>.......... Comment To Sysop,,5,J\r\nF,<F>............. File Section,,5,Q\r\nP,<P>............ Page The Sysop,,5,H\r\nY,<Y>.......... Your Statistics,,5,G\r\nR,<R>....... Your Caller Profile,,5,Y\r\nU,<U>.... Terminal Preferences,,5,R\r\nA,<A>........... About SPITFIRE NG,,5,I\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
-const MESSAGE_MENU: &[u8] = b"C,<C>....... Change Conference,,5,Z\r\nR,<R>............. Read Messages,,5,I\r\nB,<B>........... Browse Messages,,5,J\r\nE,<E>......... Enter New Message,,5,L\r\nY,<Y>............. Your Messages,,5,G\r\nA,<A>.... Alter Conference Queue,,5,X\r\nF,<F>.............. File Section,,5,D\r\nQ,<Q>......... Quit To Main Menu,,5,C\r\n@,<@>........... Sysop Utilities,,50,R\r\nX,<X>......... Xpert Mode Toggle,,5,B\r\nG,<G>......... Goodbye & Log Off,,5,A\r\n?,<?>........ HELP With Commands,,5,?\r\n";
+const MESSAGE_MENU: &[u8] = b"C,<C>....... Change Conference,,5,Z\r\nR,<R>............. Read Messages,,5,I\r\nB,<B>........... Browse Messages,,5,J\r\nE,<E>......... Enter New Message,,5,L\r\nY,<Y>............. Your Messages,,5,G\r\nA,<A>.... Alter Conference Queue,,5,K\r\nS,<S>.. Specific Caller Messages,,5,S\r\nT,<T>............... Text Search,,5,X\r\nF,<F>.............. File Section,,5,D\r\nQ,<Q>......... Quit To Main Menu,,5,C\r\n@,<@>........... Sysop Utilities,,50,R\r\nX,<X>......... Xpert Mode Toggle,,5,B\r\nG,<G>......... Goodbye & Log Off,,5,A\r\n?,<?>........ HELP With Commands,,5,?\r\n";
 const FILE_MENU: &[u8] = b"C,<C>......... Change File Area,,5,Z\r\nL,<L>.. List Files In This Area,,5,X\r\nD,<D>.......... Download A File,,5,L\r\nU,<U>............ Upload A File,,5,I\r\nN,<N>................ New Files,,5,N\r\nT,<T>.. Text Search Description,,5,S\r\nF,<F>.............. Find A File,,5,P\r\nM,<M>.......... Message Section,,5,E\r\nQ,<Q>........ Quit To Main Menu,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -222,7 +222,7 @@ pub(crate) fn write_default_resources(
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Modern SPITFIRE NG 1.0.1\n\nThe default project-authored Development Preview presentation. Version 1.0.1 retains the accepted presentation and declares MIT OR Apache-2.0 package provenance. No Buffalo Creek resource bytes are included.\n",
+        b"# Modern SPITFIRE NG 1.1.0\n\nThe default project-authored post-preview presentation. Version 1.1.0 adds the M040 caller/text message-discovery menu surfaces and declares MIT OR Apache-2.0 package provenance. No Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&system.join("SFMAIN.MNU"), MAIN_MENU)?;
@@ -264,7 +264,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "MSG10.BBS",
-            b"\r\n>>>>>>> MESSAGE MENU <<<<<<<\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<F> Files <Q> Main      <?> Help\r\n".as_slice(),
+            b"\r\n>>>>>>> MESSAGE MENU <<<<<<<\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<S> Caller Search      <T> Text Search\r\n<F> Files <Q> Main      <?> Help\r\n".as_slice(),
         ),
         (
             "FILE10.BBS",
@@ -372,7 +372,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "MSG10.CLR",
-            "@CLS@\x1B[1;36m>>>>>>> MESSAGE MENU <<<<<<<\x1B[0m\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<F> Files <Q> Main      <?> Help\r\n",
+            "@CLS@\x1B[1;36m>>>>>>> MESSAGE MENU <<<<<<<\x1B[0m\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<S> Caller Search      <T> Text Search\r\n<F> Files <Q> Main      <?> Help\r\n",
         ),
         (
             "FILE10.CLR",
@@ -418,7 +418,7 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Minimal Terminal 1.0.1\n\nThe project-authored text-first SPITFIRE NG presentation. Version 1.0.1 retains the accepted presentation and declares MIT OR Apache-2.0 package provenance. No Buffalo Creek resource bytes are included.\n",
+        b"# Minimal Terminal 1.1.0\n\nThe project-authored text-first SPITFIRE NG presentation. Version 1.1.0 adds the M040 caller/text message-discovery menu surfaces and declares MIT OR Apache-2.0 package provenance. No Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&help_directory.join("SPITFIRE.HLP"), &minimal_help_bytes()?)?;
@@ -457,12 +457,12 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
         ),
         (
             "MSG10.BBS",
-            b"\r\nSPITFIRE NG - MESSAGE MENU\r\nC - Change conference\r\nR - Read messages\r\nB - Browse messages\r\nE - Enter a message\r\nY - Your messages\r\nA - Alter conference queue\r\nF - Files\r\nQ - Main menu\r\nX - Toggle expert mode\r\nG - Goodbye\r\n? - Help\r\n"
+            b"\r\nSPITFIRE NG - MESSAGE MENU\r\nC - Change conference\r\nR - Read messages\r\nB - Browse messages\r\nE - Enter a message\r\nY - Your messages\r\nA - Alter conference queue\r\nS - Specific caller messages\r\nT - Text search\r\nF - Files\r\nQ - Main menu\r\nX - Toggle expert mode\r\nG - Goodbye\r\n? - Help\r\n"
                 .as_slice(),
         ),
         (
             "MSG50.BBS",
-            b"\r\nSPITFIRE NG - MESSAGE MENU\r\nC - Change conference\r\nR - Read messages\r\nB - Browse messages\r\nE - Enter a message\r\nY - Your messages\r\nA - Alter conference queue\r\nF - Files\r\nQ - Main menu\r\n@ - Sysop utilities\r\nX - Toggle expert mode\r\nG - Goodbye\r\n? - Help\r\n"
+            b"\r\nSPITFIRE NG - MESSAGE MENU\r\nC - Change conference\r\nR - Read messages\r\nB - Browse messages\r\nE - Enter a message\r\nY - Your messages\r\nA - Alter conference queue\r\nS - Specific caller messages\r\nT - Text search\r\nF - Files\r\nQ - Main menu\r\n@ - Sysop utilities\r\nX - Toggle expert mode\r\nG - Goodbye\r\n? - Help\r\n"
                 .as_slice(),
         ),
         (
@@ -584,7 +584,7 @@ fn write_classic_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Classic SPITFIRE-Inspired 1.1.1\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.1.1 retains the accepted M036 presentation and updates project licensing metadata to MIT OR Apache-2.0; no caller-visible artwork changed. Modern SPITFIRE NG authentication, authorization, privacy, storage, transport, and transfer behavior remain authoritative.\n",
+        b"# Classic SPITFIRE-Inspired 1.2.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.2.0 adds the M040 caller/text message-discovery menu surfaces. Modern SPITFIRE NG authentication, authorization, privacy, storage, transport, and transfer behavior remain authoritative.\n",
     )?;
     write_new(
         &licenses.join("ASSET-LICENSE.txt"),
@@ -752,7 +752,7 @@ fn classic_display_plan() -> &'static [(&'static str, &'static str, &'static [&'
                 "Copyright (C) 1987-2010 Mike Woltz",
                 "Buffalo Creek Software",
                 "",
-                "Classic SPITFIRE-Inspired presentation 1.1.1",
+                "Classic SPITFIRE-Inspired presentation 1.2.0",
                 "Not an official Buffalo Creek Software release or endorsement.",
             ],
             false,
@@ -949,18 +949,20 @@ const CLASSIC_MAIN50: [&str; 6] = [
     "<@>...... Sysop Utilities        <X>.......... Xpert Mode",
     "<G>..... Goodbye & Log Off       <?>.. HELP With Commands",
 ];
-const CLASSIC_MSG10: [&str; 6] = [
+const CLASSIC_MSG10: [&str; 7] = [
     "<C>... Change Conference         <R>......... Read Messages",
     "<B>...... Browse Messages        <E>.... Enter New Message",
     "<Y>........ Your Messages        <A>.. Alter Conf. Queue",
+    "<S> Specific Caller Msgs         <T>.......... Text Search",
     "<F>......... File Section        <Q>.... Quit to Main Menu",
     "<X>.......... Xpert Mode         <G>..... Goodbye & Log Off",
     "<?>.. HELP With Commands",
 ];
-const CLASSIC_MSG50: [&str; 6] = [
+const CLASSIC_MSG50: [&str; 7] = [
     "<C>... Change Conference         <R>......... Read Messages",
     "<B>...... Browse Messages        <E>.... Enter New Message",
     "<Y>........ Your Messages        <A>.. Alter Conf. Queue",
+    "<S> Specific Caller Msgs         <T>.......... Text Search",
     "<F>......... File Section        <Q>.... Quit to Main Menu",
     "<@>...... Sysop Utilities        <X>.......... Xpert Mode",
     "<G>..... Goodbye & Log Off       <?>.. HELP With Commands",
@@ -1613,6 +1615,11 @@ fn classic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             "Read visible messages and safely update last-read state.",
         ),
         (
+            37,
+            "Specific Caller Messages",
+            "Find public messages to or from an active caller.",
+        ),
+        (
             38,
             "Enter New Message",
             "Post an authorized public or private message.",
@@ -1624,8 +1631,8 @@ fn classic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
         ),
         (
             40,
-            "Alter Conference Queue",
-            "Choose accessible conferences for queued message scans.",
+            "Message Text Search",
+            "Find visible bodies containing one to six exact terms.",
         ),
         (
             41,
@@ -1636,6 +1643,11 @@ fn classic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             42,
             "Quit to Main",
             "Return from the Message Menu to the Main Menu.",
+        ),
+        (
+            53,
+            "Alter Conference Queue",
+            "Choose accessible conferences for queued message scans.",
         ),
     ] {
         records[number - 1] = HelpRecord::from_lines([
@@ -1753,6 +1765,11 @@ fn synthetic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             "Read Messages",
             "Reads visible messages and updates last-read state.",
         ),
+        (
+            37,
+            "Specific Caller Messages",
+            "Finds public messages to or from an active caller.",
+        ),
         (38, "Enter A Message", "Posts a public or private message."),
         (
             39,
@@ -1761,11 +1778,16 @@ fn synthetic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
         ),
         (
             40,
-            "Alter Conference Queue",
-            "Changes the accessible conferences used by queued scans.",
+            "Message Text Search",
+            "Finds visible bodies containing one to six exact terms.",
         ),
         (41, "File Section", "Moves from Messages to the File Menu."),
         (42, "Quit To Main Menu", "Returns from Messages to Main."),
+        (
+            53,
+            "Alter Conference Queue",
+            "Changes the accessible conferences used by queued scans.",
+        ),
     ] {
         records[number - 1] = HelpRecord::from_lines([
             title.as_bytes(),

@@ -37,15 +37,16 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.0.1 baseline is project-authored and embedded for
+The canonical `en-US` 1.1.1 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 362 semantic messages across shared, caller, and operator
+copy. It contains 380 semantic messages across shared, caller, and operator
 catalogs. The embedded recovery copy does not make English a profile
 requirement and does not authorize a package to omit the en-US baseline.
-Version 1.0.1 updates the package licensing/provenance metadata: original
-project-authored catalog/package bytes are declared
-`MIT OR Apache-2.0`. External language packages retain their own compatible
-package-level license and provenance.
+Post-0.1.0 source advances the package for localized caller/text message-
+discovery labels, prompts, validation, counts, truncation feedback, and case-
+insensitive query wording. Original project-authored catalog/package bytes
+remain `MIT OR Apache-2.0`. External language packages retain their own
+compatible package-level license and provenance.
 
 ## Why Fluent
 

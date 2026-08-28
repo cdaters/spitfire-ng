@@ -587,7 +587,7 @@ mod tests {
         let report = setup_board(&root, &plan, b"test-only status password").unwrap();
         let offline = board_status(&report.config_path).unwrap();
         assert!(offline.contains("Runtime: offline"));
-        assert!(offline.contains("Active: modern-ng 1.0.1"));
+        assert!(offline.contains("Active: modern-ng 1.1.0"));
         assert!(offline.contains("Effective: active profile modern-ng"));
         assert!(offline.contains("Status: ready"));
         assert!(offline.contains("Menu presentation: display-overrides"));

@@ -21,6 +21,10 @@ outcomes rather than internal checkpoint chronology.
 - Achieved the defined ANSI/text Operator/Caller Experience Parity scope.
 - Added generated stock menus, exact-security display overrides, live caller
   context, and security-aware fallback.
+- Added post-0.1.0 stock-style Specific Caller and Text Search with bounded,
+  read-only, visibility-filtered results. Text Search keeps SPITFIRE's command
+  flow while intentionally modernizing the historical phrase limitation with
+  whitespace-delimited all-term matching.
 
 ### Presentation and language
 
@@ -43,6 +47,10 @@ outcomes rather than internal checkpoint chronology.
 SPITFIRE NG 0.1.0 Development Preview is published for Apple Silicon macOS as
 tag `v0.1.0-development-preview`. The public-redownload checksum and bounded
 unsigned/unnotarized macOS first-run workflow have passed.
+
+Public source `main` now includes post-0.1.0 message-discovery improvements.
+No new binary, tag, or release has been published; the downloadable binary
+remains the accepted 0.1.0 Development Preview.
 
 Near-term release work includes:
 

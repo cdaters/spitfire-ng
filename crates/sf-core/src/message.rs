@@ -9,6 +9,10 @@ pub const MAX_CONFERENCES: u16 = 784;
 pub const MAX_MESSAGE_SUBJECT_BYTES: usize = 72;
 pub const MAX_MESSAGE_BODY_BYTES: usize = 64 * 1024;
 pub const MAX_MESSAGE_LINES: usize = 99;
+pub const MAX_MESSAGE_SEARCH_TERMS: usize = 6;
+pub const MAX_MESSAGE_SEARCH_TERM_BYTES: usize = 64;
+pub const MAX_MESSAGE_SEARCH_RESULTS: usize = 100;
+pub const MAX_MESSAGE_SEARCH_CANDIDATES: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConferenceId(NonZeroI64);
@@ -266,6 +270,39 @@ pub struct MessageRecipient {
     pub display_name: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MessageCallerSearchDirection {
+    From,
+    To,
+    Both,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MessageDiscoveryQuery {
+    SpecificCaller {
+        caller_id: CallerId,
+        direction: MessageCallerSearchDirection,
+    },
+    /// Terms are matched as ASCII-case-insensitive substrings in the body.
+    /// Every supplied term must occur. Bytes outside ASCII remain exact so
+    /// CP437 content is never decoded or normalized.
+    Text { terms: Vec<Vec<u8>> },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessageDiscoveryMatch {
+    pub conference_id: ConferenceId,
+    pub conference_number: u16,
+    pub message_number: u64,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MessageDiscoveryResult {
+    pub matches: Vec<MessageDiscoveryMatch>,
+    pub candidates_examined: usize,
+    pub truncated: bool,
+}
+
 /// Narrow storage boundary exercised by the stock-core message session.
 /// Future SPITFIRE-file and SMB adapters must enforce the same authorization
 /// contract instead of exposing storage-specific operations to the session.
@@ -294,6 +331,12 @@ pub trait MessageBackend {
         conference: ConferenceId,
         message_number: u64,
     ) -> Result<Message, MessageError>;
+    fn discover_messages(
+        &self,
+        actor: MessageActor,
+        conferences: &[ConferenceId],
+        query: &MessageDiscoveryQuery,
+    ) -> Result<MessageDiscoveryResult, MessageError>;
     fn post(&mut self, actor: MessageActor, message: NewMessage) -> Result<Message, MessageError>;
     fn mark_read(
         &mut self,
@@ -843,6 +886,74 @@ impl MessageBackend for RuntimeDatabase {
         Ok(message)
     }
 
+    fn discover_messages(
+        &self,
+        actor: MessageActor,
+        conference_ids: &[ConferenceId],
+        query: &MessageDiscoveryQuery,
+    ) -> Result<MessageDiscoveryResult, MessageError> {
+        validate_discovery_query(query)?;
+        if conference_ids.is_empty() || conference_ids.len() > usize::from(MAX_CONFERENCES) {
+            return Err(MessageError::InvalidDiscoveryConferenceCount(
+                conference_ids.len(),
+            ));
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        let mut conferences = Vec::new();
+        for conference_id in conference_ids {
+            if seen.insert(*conference_id) {
+                let (caller, conference) =
+                    self.authorized_conference(actor, *conference_id, false)?;
+                conferences.push((caller, conference));
+            }
+        }
+        conferences.sort_by_key(|(_, conference)| conference.number);
+
+        let mut result = MessageDiscoveryResult::default();
+        'conference: for (caller, conference) in conferences {
+            let remaining = MAX_MESSAGE_SEARCH_CANDIDATES - result.candidates_examined;
+            if remaining == 0 {
+                result.truncated = true;
+                break;
+            }
+            let query_limit =
+                i64::try_from(remaining + 1).map_err(|_| MessageError::InvalidDiscoveryQuery)?;
+            let mut statement = self
+                .connection
+                .prepare(&format!(
+                    "{MESSAGE_SELECT} WHERE conference_id = ?1 AND deleted = 0 ORDER BY message_number LIMIT ?2"
+                ))
+                .map_err(MessageError::Sqlite)?;
+            let rows = statement
+                .query_map(params![conference.id.get(), query_limit], message_from_row)
+                .map_err(MessageError::Sqlite)?;
+            for row in rows {
+                if result.candidates_examined == MAX_MESSAGE_SEARCH_CANDIDATES {
+                    result.truncated = true;
+                    break 'conference;
+                }
+                let message = row.map_err(MessageError::Sqlite)?;
+                result.candidates_examined += 1;
+                if !message_visible(&message, &caller, actor.sysop_security)
+                    || !discovery_query_matches(query, &message, &caller, actor.sysop_security)
+                {
+                    continue;
+                }
+                if result.matches.len() == MAX_MESSAGE_SEARCH_RESULTS {
+                    result.truncated = true;
+                    break 'conference;
+                }
+                result.matches.push(MessageDiscoveryMatch {
+                    conference_id: conference.id,
+                    conference_number: conference.number,
+                    message_number: message.number,
+                });
+            }
+        }
+        Ok(result)
+    }
+
     fn post(&mut self, actor: MessageActor, message: NewMessage) -> Result<Message, MessageError> {
         let (caller, conference) =
             self.authorized_conference(actor, message.conference_id, true)?;
@@ -1112,6 +1223,65 @@ fn message_visible(message: &Message, caller: &Caller, sysop_security: SecurityL
         || message.recipient_caller_id == Some(caller.id)
 }
 
+fn validate_discovery_query(query: &MessageDiscoveryQuery) -> Result<(), MessageError> {
+    let MessageDiscoveryQuery::Text { terms } = query else {
+        return Ok(());
+    };
+    if terms.is_empty()
+        || terms.len() > MAX_MESSAGE_SEARCH_TERMS
+        || terms.iter().any(|term| {
+            term.is_empty()
+                || term.len() > MAX_MESSAGE_SEARCH_TERM_BYTES
+                || term
+                    .iter()
+                    .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        })
+    {
+        return Err(MessageError::InvalidDiscoveryQuery);
+    }
+    Ok(())
+}
+
+fn discovery_query_matches(
+    query: &MessageDiscoveryQuery,
+    message: &Message,
+    caller: &Caller,
+    sysop_security: SecurityLevel,
+) -> bool {
+    match query {
+        MessageDiscoveryQuery::SpecificCaller {
+            caller_id,
+            direction,
+        } => {
+            // The stock Specific Caller command limits ordinary callers to
+            // public messages. Threshold Sysops still pass the common message
+            // visibility authority; deleted rows remain unavailable under the
+            // current message-domain policy.
+            if !caller.security_level.is_sysop(sysop_security)
+                && message.visibility != MessageVisibility::Public
+            {
+                return false;
+            }
+            let from = message.author_caller_id == Some(*caller_id);
+            let to = message.recipient_caller_id == Some(*caller_id);
+            match direction {
+                MessageCallerSearchDirection::From => from,
+                MessageCallerSearchDirection::To => to,
+                MessageCallerSearchDirection::Both => from || to,
+            }
+        }
+        MessageDiscoveryQuery::Text { terms } => terms
+            .iter()
+            .all(|term| contains_bytes_ascii_case_insensitive(&message.body, term)),
+    }
+}
+
+fn contains_bytes_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
 fn validate_conference_definition(definition: &ConferenceDefinition) -> Result<(), MessageError> {
     if definition.number == 0 || definition.number > MAX_CONFERENCES {
         return Err(MessageError::InvalidConferenceNumber(definition.number));
@@ -1239,6 +1409,10 @@ pub enum MessageError {
     MessageNotFound { conference: u16, number: u64 },
     #[error("message access is denied")]
     MessageAccessDenied,
+    #[error("message discovery requires 1..={MAX_CONFERENCES} conferences, got {0}")]
+    InvalidDiscoveryConferenceCount(usize),
+    #[error("message discovery query is empty, oversized, or malformed")]
+    InvalidDiscoveryQuery,
     #[error("caller account is unavailable")]
     CallerUnavailable,
     #[error("private messages are not allowed in conference {0}")]
@@ -1358,6 +1532,12 @@ mod tests {
             visibility: MessageVisibility::Public,
             kind: MessageKind::Standard,
         }
+    }
+
+    fn message_with_body(conference_id: ConferenceId, body: &[u8]) -> NewMessage {
+        let mut message = public_message(conference_id);
+        message.body = body.to_vec();
+        message
     }
 
     #[test]
@@ -1576,6 +1756,16 @@ mod tests {
             database.conference(alice, 1),
             Err(MessageError::ConferenceAccessDenied(1))
         ));
+        assert!(matches!(
+            database.discover_messages(
+                alice,
+                &[conference.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![b"hidden".to_vec()]
+                }
+            ),
+            Err(MessageError::ConferenceAccessDenied(1))
+        ));
         database
             .connection
             .execute(
@@ -1584,6 +1774,293 @@ mod tests {
             )
             .unwrap();
         assert_eq!(database.conference(alice, 1).unwrap().number, 1);
+    }
+
+    #[test]
+    fn text_discovery_matches_sf37_case_substring_body_count_and_cp437_evidence() {
+        let (_temp, mut database, alice, bob, _stranger) = database();
+        database
+            .ensure_conference(&ConferenceDefinition {
+                number: 2,
+                name: "Second".to_owned(),
+                description: "Second messages".to_owned(),
+                access_mode: ConferenceAccessMode::AtLeast,
+                read_security: SecurityLevel::new(5).unwrap(),
+                post_security: SecurityLevel::new(5).unwrap(),
+                public_only: false,
+                maximum_lines: 50,
+                privileged_security_levels: Vec::new(),
+            })
+            .unwrap();
+        let first = database.conference(alice, 1).unwrap();
+        let second = database.conference(alice, 2).unwrap();
+        database
+            .post(alice, message_with_body(first.id, b"Alpha beta \xDB\r\n"))
+            .unwrap();
+        database
+            .post(alice, message_with_body(first.id, b"alpha BETA\r\n"))
+            .unwrap();
+        database
+            .post(alice, message_with_body(first.id, b"alphabet only\r\n"))
+            .unwrap();
+        let mut subject_only = message_with_body(first.id, b"No body match\r\n");
+        subject_only.subject = b"Alpha beta".to_vec();
+        database.post(alice, subject_only).unwrap();
+        database
+            .post(alice, message_with_body(second.id, b"Alpha beta later\r\n"))
+            .unwrap();
+        let mut private = message_with_body(first.id, b"Alpha beta private\r\n");
+        private.recipient_caller_id = Some(bob.caller_id());
+        private.recipient_name = "Bob Caller".to_owned();
+        private.visibility = MessageVisibility::Private;
+        let private = database.post(alice, private).unwrap();
+
+        let result = database
+            .discover_messages(
+                bob,
+                &[second.id, first.id, first.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![b"Alpha".to_vec(), b"beta".to_vec()],
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            result
+                .matches
+                .iter()
+                .map(|found| (found.conference_number, found.message_number))
+                .collect::<Vec<_>>(),
+            vec![(1, 1), (1, 2), (1, private.number), (2, 1)]
+        );
+        assert!(!result.truncated);
+        assert_eq!(database.last_read(bob, first.id).unwrap(), 0);
+        assert!(!database.received(bob, first.id, private.number).unwrap());
+
+        let lowercase = database
+            .discover_messages(
+                bob,
+                &[first.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![b"alpha".to_vec()],
+                },
+            )
+            .unwrap();
+        assert_eq!(lowercase.matches.len(), 4);
+        let repeated = database
+            .post(alice, message_with_body(first.id, b"Zeta Zeta\r\n"))
+            .unwrap();
+        let repeated_result = database
+            .discover_messages(
+                bob,
+                &[first.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![b"zeta".to_vec()],
+                },
+            )
+            .unwrap();
+        assert_eq!(repeated_result.matches.len(), 1);
+        assert_eq!(repeated_result.matches[0].message_number, repeated.number);
+        let cp437 = database
+            .discover_messages(
+                bob,
+                &[first.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![vec![0xDB]],
+                },
+            )
+            .unwrap();
+        assert_eq!(cp437.matches.len(), 1);
+
+        for invalid in [
+            Vec::new(),
+            vec![Vec::new()],
+            vec![vec![b'x'; MAX_MESSAGE_SEARCH_TERM_BYTES + 1]],
+            vec![b"one".to_vec(); MAX_MESSAGE_SEARCH_TERMS + 1],
+            vec![b"two words".to_vec()],
+        ] {
+            assert!(matches!(
+                database.discover_messages(
+                    bob,
+                    &[first.id],
+                    &MessageDiscoveryQuery::Text { terms: invalid }
+                ),
+                Err(MessageError::InvalidDiscoveryQuery)
+            ));
+        }
+    }
+
+    #[test]
+    fn caller_discovery_obeys_direction_visibility_deletion_and_current_authority() {
+        let (_temp, mut database, alice, bob, stranger) = database();
+        let conference = database.conference(alice, 1).unwrap();
+        let mut to_bob = public_message(conference.id);
+        to_bob.recipient_caller_id = Some(bob.caller_id());
+        to_bob.recipient_name = "Bob Caller".to_owned();
+        let to_bob = database.post(alice, to_bob).unwrap();
+        let from_bob = database.post(bob, public_message(conference.id)).unwrap();
+        let mut private = message_with_body(conference.id, b"Private discovery body\r\n");
+        private.recipient_caller_id = Some(alice.caller_id());
+        private.recipient_name = "Alice Caller".to_owned();
+        private.visibility = MessageVisibility::Private;
+        let private = database.post(bob, private).unwrap();
+        database
+            .connection
+            .execute(
+                "UPDATE messages SET deleted = 1 WHERE message_id = ?1",
+                params![from_bob.id.get()],
+            )
+            .unwrap();
+
+        let from_query = MessageDiscoveryQuery::SpecificCaller {
+            caller_id: bob.caller_id(),
+            direction: MessageCallerSearchDirection::From,
+        };
+        assert!(database
+            .discover_messages(alice, &[conference.id], &from_query)
+            .unwrap()
+            .matches
+            .is_empty());
+        let both_query = MessageDiscoveryQuery::SpecificCaller {
+            caller_id: bob.caller_id(),
+            direction: MessageCallerSearchDirection::Both,
+        };
+        assert_eq!(
+            database
+                .discover_messages(alice, &[conference.id], &both_query)
+                .unwrap()
+                .matches
+                .iter()
+                .map(|found| found.message_number)
+                .collect::<Vec<_>>(),
+            vec![to_bob.number]
+        );
+        assert!(database
+            .discover_messages(stranger, &[conference.id], &both_query)
+            .unwrap()
+            .matches
+            .iter()
+            .all(|found| found.message_number != private.number));
+
+        database
+            .connection
+            .execute(
+                "UPDATE callers SET security_level = 100 WHERE caller_id = ?1",
+                params![stranger.caller_id().get()],
+            )
+            .unwrap();
+        assert_eq!(
+            database
+                .discover_messages(stranger, &[conference.id], &both_query)
+                .unwrap()
+                .matches
+                .iter()
+                .map(|found| found.message_number)
+                .collect::<Vec<_>>(),
+            vec![to_bob.number, private.number]
+        );
+
+        let found = database
+            .discover_messages(stranger, &[conference.id], &both_query)
+            .unwrap()
+            .matches[0];
+        database
+            .set_caller_state(stranger.caller_id(), CallerState::Disabled)
+            .unwrap();
+        assert!(matches!(
+            database.message(stranger, found.conference_id, found.message_number),
+            Err(MessageError::CallerUnavailable)
+        ));
+        assert!(matches!(
+            database.discover_messages(stranger, &[conference.id], &both_query),
+            Err(MessageError::CallerUnavailable)
+        ));
+    }
+
+    #[test]
+    fn discovery_caps_results_without_unbounded_collection() {
+        let (_temp, mut database, alice, _bob, _stranger) = database();
+        let conference = database.conference(alice, 1).unwrap();
+        for index in 0..=MAX_MESSAGE_SEARCH_RESULTS {
+            database
+                .post(
+                    alice,
+                    message_with_body(
+                        conference.id,
+                        format!("bounded needle {index}\r\n").as_bytes(),
+                    ),
+                )
+                .unwrap();
+        }
+        let result = database
+            .discover_messages(
+                alice,
+                &[conference.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![b"needle".to_vec()],
+                },
+            )
+            .unwrap();
+        assert_eq!(result.matches.len(), MAX_MESSAGE_SEARCH_RESULTS);
+        assert!(result.truncated);
+        assert!(result.candidates_examined <= MAX_MESSAGE_SEARCH_CANDIDATES);
+        assert!(result
+            .matches
+            .windows(2)
+            .all(|pair| pair[0].message_number < pair[1].message_number));
+    }
+
+    #[test]
+    fn concurrent_post_and_discovery_connections_remain_consistent() {
+        let (temp, database, alice, _bob, _stranger) = database();
+        let path = temp.path().join("runtime.sqlite3");
+        let conference = database.conference(alice, 1).unwrap();
+        drop(database);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
+
+        let reader_barrier = barrier.clone();
+        let reader_path = path.clone();
+        let reader = std::thread::spawn(move || {
+            let database = RuntimeDatabase::open(&reader_path).unwrap();
+            reader_barrier.wait();
+            database
+                .discover_messages(
+                    alice,
+                    &[conference.id],
+                    &MessageDiscoveryQuery::Text {
+                        terms: vec![b"concurrent".to_vec()],
+                    },
+                )
+                .unwrap()
+        });
+
+        let writer_barrier = barrier.clone();
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || {
+            let mut database = RuntimeDatabase::open(&writer_path).unwrap();
+            writer_barrier.wait();
+            database
+                .post(
+                    alice,
+                    message_with_body(conference.id, b"concurrent message\r\n"),
+                )
+                .unwrap()
+        });
+
+        barrier.wait();
+        let during = reader.join().unwrap();
+        writer.join().unwrap();
+        assert!(during.matches.len() <= 1);
+        let database = RuntimeDatabase::open(&path).unwrap();
+        let after = database
+            .discover_messages(
+                alice,
+                &[conference.id],
+                &MessageDiscoveryQuery::Text {
+                    terms: vec![b"concurrent".to_vec()],
+                },
+            )
+            .unwrap();
+        assert_eq!(after.matches.len(), 1);
     }
 
     #[test]

@@ -62,7 +62,8 @@ the historical or architectural material to set up a board.
 - [Native Setup and Configuration](sfng-setup-configuration.md)
 - [Native Caller and Authentication](sfng-caller-authentication.md)
 - [Native Caller/Sysop Interaction](sfng-caller-sysop-interaction.md)
-- [Native Message System](sfng-message-system.md)
+- [Native Message System](sfng-message-system.md) — Conferences, queues,
+  caller/text discovery, visibility, read state, and receipts.
 - [Native File System](sfng-file-system.md)
 - [Native File Transfers](sfng-file-transfers.md)
 - [Native Multinode Runtime](sfng-multinode-runtime.md)
@@ -99,3 +100,6 @@ legal preservation downloads and original manuals.
 The release notes and manifest identify the accepted artifact. The repository
 may continue improving its public documentation without changing those
 already-validated package bytes.
+
+Current `main` includes post-0.1.0 source improvements. The release documents
+continue to describe the unchanged 0.1.0 Development Preview binary.

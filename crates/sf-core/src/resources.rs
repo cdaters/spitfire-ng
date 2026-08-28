@@ -46,7 +46,19 @@ impl MenuSection {
             ),
             Self::Message => matches!(
                 identifier,
-                b'Z' | b'J' | b'I' | b'L' | b'G' | b'X' | b'D' | b'C' | b'R' | b'A' | b'B' | b'?'
+                b'Z' | b'J'
+                    | b'I'
+                    | b'L'
+                    | b'G'
+                    | b'K'
+                    | b'S'
+                    | b'X'
+                    | b'D'
+                    | b'C'
+                    | b'R'
+                    | b'A'
+                    | b'B'
+                    | b'?'
             ),
             Self::File => matches!(
                 identifier,
@@ -184,7 +196,7 @@ pub fn render_generated_menu(
         .iter()
         .filter(|item| menu_item_is_visible(menu.section, item, security, sysop_threshold))
         .map(|item| {
-            let localized = menu_action_key(menu.section, item.identifier)
+            let localized = menu_action_key(menu.section, item.command, item.identifier)
                 .map(|key| text(key, &LocalizationArgs::new()).into_bytes())
                 .unwrap_or_else(|| menu_item_fallback_label(item));
             (item, localized)
@@ -286,7 +298,13 @@ fn menu_item_is_visible(
             ))
 }
 
-fn menu_action_key(section: MenuSection, identifier: u8) -> Option<&'static str> {
+fn menu_action_key(section: MenuSection, command: u8, identifier: u8) -> Option<&'static str> {
+    if section == MenuSection::Message
+        && command.eq_ignore_ascii_case(&b'A')
+        && identifier.eq_ignore_ascii_case(&b'X')
+    {
+        return Some("menu-action-message-queue");
+    }
     Some(match (section, identifier.to_ascii_uppercase()) {
         (MenuSection::Main, b'E') => "menu-action-main-messages",
         (MenuSection::Main, b'J') => "menu-action-main-comment",
@@ -302,7 +320,9 @@ fn menu_action_key(section: MenuSection, identifier: u8) -> Option<&'static str>
         (MenuSection::Message, b'J') => "menu-action-message-browse",
         (MenuSection::Message, b'L') => "menu-action-message-enter",
         (MenuSection::Message, b'G') => "menu-action-message-yours",
-        (MenuSection::Message, b'X') => "menu-action-message-queue",
+        (MenuSection::Message, b'K') => "menu-action-message-queue",
+        (MenuSection::Message, b'S') => "menu-action-message-search-caller",
+        (MenuSection::Message, b'X') => "menu-action-message-search-text",
         (MenuSection::Message, b'D') => "menu-action-message-files",
         (MenuSection::File, b'Z') => "menu-action-file-change",
         (MenuSection::File, b'X') => "menu-action-file-list",
@@ -802,7 +822,9 @@ mod tests {
                 (b'B', b'J'),
                 (b'E', b'L'),
                 (b'Y', b'G'),
-                (b'A', b'X'),
+                (b'A', b'K'),
+                (b'S', b'S'),
+                (b'T', b'X'),
                 (b'F', b'D'),
                 (b'Q', b'C'),
                 (b'@', b'R'),
@@ -936,7 +958,7 @@ mod tests {
     fn all_generated_sections_use_thirty_eight_thirty_stock_geometry() {
         for (section, security, visible) in [
             (MenuSection::Main, 10, 11usize),
-            (MenuSection::Message, 10, 11),
+            (MenuSection::Message, 10, 13),
             (MenuSection::File, 10, 12),
             (MenuSection::Sysop, 50, 3),
         ] {
@@ -1041,6 +1063,22 @@ mod tests {
         let output = generated_output(&menu, 10, true, 80, 25);
         assert!(contains(&output, b"<Z>........... Message Section"));
         assert!(!contains(&output, b"<M>........... Message Section"));
+    }
+
+    #[test]
+    fn pre_m040_queue_identifier_keeps_its_queue_label() {
+        let menu = MenuDefinition {
+            section: MenuSection::Message,
+            items: vec![MenuItem {
+                command: b'A',
+                description: b"<A> legacy queue".to_vec(),
+                required_security: 5,
+                identifier: b'X',
+            }],
+        };
+        let output = generated_output(&menu, 10, true, 80, 25);
+        assert!(contains(&output, b"<A>.... Alter Conference Queue"));
+        assert!(!contains(&output, b"Text Search"));
     }
 
     #[test]

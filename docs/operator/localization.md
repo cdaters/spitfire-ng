@@ -5,7 +5,7 @@ SPITFIRE NG presentation and language are separate. Selecting
 engine-owned prompts and generated-menu labels. Neither setting changes
 commands, security, authentication, or stored caller data.
 
-Clean setup installs `en-US` 1.0.1 under
+Current post-0.1.0 source setup installs `en-US` 1.1.1 under
 `SYSTEM/language-packs/en-US/` and writes:
 
 ```toml

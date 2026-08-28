@@ -2,12 +2,17 @@
 
 ## Status and authorization boundary
 
-`classic-spitfire` 1.1.1 is an installed, independently redistributable
+`classic-spitfire` 1.2.0 is an installed, independently redistributable
 profile built from project-authored resources. Its design uses corroborated
 historical visual grammar without copying original resources. Normal setup
 installs Classic beside Modern and Minimal but keeps Modern selected by
 default. Classic uses profile format/resource API 1, Modern as its base, and
 `MIT OR Apache-2.0` project licensing and provenance metadata.
+
+The post-0.1.0 source package adds independently authored Specific Caller
+Messages and Text Search menu/help surfaces. The engine remains authoritative
+for discovery and authorization; no original resource bytes or format/API
+change is involved.
 
 The target is:
 

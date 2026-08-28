@@ -1,6 +1,6 @@
 # Classic SPITFIRE-Inspired Presentation
 
-Classic SPITFIRE-Inspired 1.1.1 is an independently authored presentation
+Classic SPITFIRE-Inspired 1.2.0 is an independently authored presentation
 package installed by normal SPITFIRE NG setup. It recreates the compact,
 80-column CP437/ANSI character of the historical caller experience without
 shipping original Buffalo Creek DISPLAY, HLP, MNU, or RIP bytes.
@@ -25,8 +25,8 @@ the historically inspired live message/caller/new-file sequence before Main.
 Save the static configuration and confirm `spitfire status` reports:
 
 ```text
-Active: classic-spitfire 1.1.1
-Base: modern-ng 1.0.1
+Active: classic-spitfire 1.2.0
+Base: modern-ng 1.1.0
 Menu presentation: display-overrides
 Status: ready
 Post-login journey: stock

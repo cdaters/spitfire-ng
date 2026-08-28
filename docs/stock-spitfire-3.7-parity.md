@@ -498,6 +498,10 @@ the remaining real-client variants stay explicit. See the
 These remain stock-parity obligations, but they follow the first integrated
 board rather than blocking its first useful run.
 
+Current source records 3 VERIFIED, 0 IMPLEMENTED, 11 PARTIAL, and 11 NOT
+STARTED Category-B rows. Conference queues, caller/text message discovery, and
+named-Sysop read-only preview are the first verified advanced message features.
+
 | ID | Capability | Manual evidence | Status | Notes / acceptance direction |
 |---|---|---|---|---|
 | B-001 | Public/private-board admission, lockout, subscription expiry/warnings | SF37 §3.2–3.3, §5.4, §8.2 | PARTIAL | Public/private admission and disabled-caller lockout now use the normal verifier plus bounded stock resources. Subscription-expiry dates, warning intervals, and operator renewal remain advanced caller-maintenance work using modern unambiguous dates. |
@@ -505,20 +509,20 @@ board rather than blocking its first useful run.
 | B-003 | Bulletins, newsletter, system information, random `THOUGHTS.BBS` | SF37 §5.4, §5.9, §9.2 | NOT STARTED | Retain resource-driven presentation. |
 | B-004 | New-user and up to 24 order questionnaires | SF37 §7 | NOT STARTED | Preserve question/branch semantics; do not preserve printer dependence or unsafe automatic privilege escalation without policy controls. |
 | B-005 | `.RIP` display selection and RIP-oriented command resources | SF37 §3.3, §5.4 | NOT STARTED | Historical terminal capability; implement after text/ANSI path is stable. |
-| B-006 | Comprehensive display-resource precedence | SF37 §5.4 | NOT STARTED | The Category-A current/core journey is verified. This row retains the full caller-, bulletin-, questionnaire-, door-, event-, subscription-, maintenance-, and other advanced state-specific resource inventory plus RIP precedence. |
-| B-007 | Conference queue editing and mandatory conference 1 | SF37 §10.2 | NOT STARTED | Preserve queue semantics and new-message scan behavior. |
-| B-008 | Message search by caller or up to six text terms | SF37 §10.2 | NOT STARTED | Enforce private/deleted visibility during search. |
-| B-009 | Message threads, carbon copies, delete/undelete, move/copy/forward | SF37 §10.2, §13 | NOT STARTED | Preserve caller/Sysop permissions and revision/audit semantics. |
-| B-010 | Sysop message preview without marking received | SF37 §10.2, §13 | NOT STARTED | Read-only preview must not advance recipient state. |
+| B-006 | Comprehensive display-resource precedence | SF37 §5.4 | PARTIAL | The bounded BBS/CLR resolver, exact-security overrides, profiles, generated fallback, and localization exist. This row retains the full caller-, bulletin-, questionnaire-, door-, event-, subscription-, maintenance-, and other advanced state-specific resource inventory plus RIP precedence. |
+| B-007 | Conference queue editing and mandatory conference 1 | SF37 §10.2 | VERIFIED | The message backend persists add/remove/list/reset membership, preserves mandatory Conference 1, filters inaccessible conferences, enforces recipient queue eligibility, and drives queued scans. |
+| B-008 | Message search by caller or up to six text terms | SF37 §10.2 | VERIFIED | Current source provides bounded current/all/queued caller and body-text discovery through the authoritative visibility boundary, with result reauthorization, deterministic limits, CP437 byte preservation, and no read-state mutation. Text matching is ASCII-case-insensitive and excludes Subject. NG intentionally improves the historical contiguous-phrase limitation with whitespace-delimited all-term matching while preserving the stock command, workflow, security, scope, and presentation. |
+| B-009 | Message threads, carbon copies, delete/undelete, move/copy/forward | SF37 §10.2, §13 | PARTIAL | Replies and exact-subject thread traversal are verified. Carbon copies and authorized/audited delete, undelete, public toggle, move, copy, and forward remain. |
+| B-010 | Sysop message preview without marking received | SF37 §10.2, §13 | VERIFIED | The configured named Sysop can preview private received mail without changing receipt or last-read state; threshold-only callers do not gain the named-Sysop path. |
 | B-011 | File tagging and batch queues | SF37 §11.2, §11.4–11.5 | NOT STARTED | Preserve queue workflow independently of specific serial protocols. |
 | B-012 | File requests, duplicate upload detection, Sysop-only uploads | SF37 §5.6, §11.2 | PARTIAL | Exact case-insensitive same-area filename duplicates are race-safely rejected. File requests, digit-stripped/base-name heuristics, and Sysop validation/review remain. |
 | B-013 | Read text files and inspect ZIP archives | SF37 §11.2 | NOT STARTED | Bounds-check archive metadata and content rendering. |
 | B-014 | File ratios, daily limits, no-charge areas, preview areas, upload time credit | SF37 §3.2, §4.2, §11 | PARTIAL | Preview and no-charge area behavior are implemented. Ratios, daily transfer limits, and upload time credit remain; serial-speed estimates will not be authoritative. |
 | B-015 | File move/delete/listing maintenance | SF37 §11.2 | NOT STARTED | Privileged operations require confirmation, audit, and path confinement. |
-| B-016 | Caller record add/edit/lockout/purge protection | SF37 §8.2, §12 | NOT STARTED | Preserve history/audit rather than destructive silent edits. |
-| B-017 | Sysop logs, daily statistics, notifications, maintenance views | SF37 §8.2, §12 | NOT STARTED | Native structured logs may back SPITFIRE-style views. |
+| B-016 | Caller record add/edit/lockout/purge protection | SF37 §8.2, §12 | PARTIAL | Registration, caller self-service, and operator list/enable/disable/security-change paths exist with non-destructive states. Broader edit, subscription integration, named-Sysop protection, audit breadth, and retention/purge outcomes remain. |
+| B-017 | Sysop logs, daily statistics, notifications, maintenance views | SF37 §8.2, §12 | PARTIAL | Privacy-safe structured runtime events, operator status, paging, and notifications exist. Stable historical-style daily aggregates, bounded maintenance views, retention/rotation, and safe exports remain. |
 | B-018 | Message/caller packing and purge policies | SF37 §4, §12 | NOT STARTED | Modern storage need not require physical packing, but must reproduce retention/deletion outcomes and provide legacy maintenance adapters. |
-| B-019 | Multi-node active-caller list, Who’s On, node-to-node messages/chat | SF37 §9.2, §20 | NOT STARTED | Build on native concurrent sessions and node registry. |
+| B-019 | Multi-node active-caller list, Who’s On, node-to-node messages/chat | SF37 §9.2, §20 | PARTIAL | Concurrent node leases/status, operator active-caller inspection, and local Sysop page/chat exist. Caller-visible privacy-filtered Who's On, node invitations/messages/chat, daily quotas, and return-to-prior-section behavior remain. |
 | B-020 | Stock events A–L, enable/disable/list, caller exclusion windows | SF37 §14 | NOT STARTED | Implement in the modern scheduler after core session stability; no DOS batch/errorlevel dependence. |
 | B-021 | Local/Sysop operator controls | SF37 §8, §12–13 | PARTIAL | `spitfire console` provides status, page availability/answer/decline/chat, targeted disconnect, caller list, enable/disable, security change, and clean exit. Time grants, richer maintenance, attachable control IPC, and complete stock command breadth remain. |
 | B-022 | Screen/export/print-oriented operations | SF37 §10, §12 | NOT STARTED | Preserve export/report outcomes; printers are optional destinations, not core dependencies. |

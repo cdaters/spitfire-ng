@@ -2,9 +2,10 @@ use tracing::info;
 
 use crate::{
     render_display, render_generated_menu, AuthenticatedCaller, CallerConfig, DisplayContext,
-    Message, MessageActor, MessageBackend, MessageError, MessageKind, MessageVisibility,
-    NewMessage, SecurityLevel, SessionError, StockResources, Terminal, TerminalError,
-    MAX_MESSAGE_BODY_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
+    Message, MessageActor, MessageBackend, MessageCallerSearchDirection, MessageDiscoveryQuery,
+    MessageDiscoveryResult, MessageError, MessageKind, MessageVisibility, NewMessage,
+    SecurityLevel, SessionError, StockResources, Terminal, TerminalError, MAX_MESSAGE_BODY_BYTES,
+    MAX_MESSAGE_SEARCH_TERMS, MAX_MESSAGE_SEARCH_TERM_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
 };
 use crate::{Conference, MenuSection, MessageId, MessageRecipient, MessageSummary};
 
@@ -12,6 +13,8 @@ const MAX_MENU_COMMAND_BYTES: usize = 8;
 const MAX_CALLER_NAME_INPUT: usize = 64;
 const MAX_MESSAGE_NUMBER_INPUT: usize = 20;
 const MAX_EDITOR_LINE_BYTES: usize = 1024;
+const MAX_MESSAGE_SEARCH_INPUT_BYTES: usize =
+    MAX_MESSAGE_SEARCH_TERMS * MAX_MESSAGE_SEARCH_TERM_BYTES + (MAX_MESSAGE_SEARCH_TERMS - 1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageMenuExit {
@@ -159,7 +162,19 @@ pub(crate) fn run_message_menu(
                     });
                 }
             }
-            b'X' => alter_conference_queue(terminal, backend, actor)?,
+            b'K' => alter_conference_queue(terminal, backend, actor)?,
+            // Boards created before M040 used X for the queue entry. Preserve
+            // that independently authored menu while restoring stock K/X
+            // identifiers in newly generated resources.
+            b'X' if item.command.eq_ignore_ascii_case(&b'A') => {
+                alter_conference_queue(terminal, backend, actor)?
+            }
+            b'S' => {
+                search_messages_by_caller(terminal, backend, actor, &current)?;
+            }
+            b'X' => {
+                search_message_text(terminal, backend, actor, &current)?;
+            }
             b'D' => {
                 return Ok(MessageMenuResult {
                     exit: MessageMenuExit::File,
@@ -788,6 +803,229 @@ fn alter_conference_queue(
             )?,
         }
     }
+}
+
+fn search_messages_by_caller(
+    terminal: &mut dyn Terminal,
+    backend: &mut dyn MessageBackend,
+    actor: MessageActor,
+    current: &Conference,
+) -> Result<(), SessionError> {
+    let Some(conferences) = choose_discovery_conferences(terminal, backend, actor, current)? else {
+        return Ok(());
+    };
+    write_key(
+        terminal,
+        "message-search-caller-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(caller_name) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+        return Ok(());
+    };
+    if caller_name.is_empty() {
+        return Ok(());
+    }
+    let recipient = match backend.recipient(&caller_name) {
+        Ok(recipient) => recipient,
+        Err(MessageError::RecipientNotFound) => {
+            write_key_line(
+                terminal,
+                "message-search-caller-unavailable",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    write_key(
+        terminal,
+        "message-search-direction-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        return Ok(());
+    };
+    let direction = match first_command(&input) {
+        Some(b'F') => MessageCallerSearchDirection::From,
+        Some(b'T') => MessageCallerSearchDirection::To,
+        Some(b'B') => MessageCallerSearchDirection::Both,
+        Some(b'Q') | None => return Ok(()),
+        _ => {
+            write_key_line(
+                terminal,
+                "message-search-direction-invalid",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+    };
+    let conference_ids = conferences
+        .iter()
+        .map(|conference| conference.id)
+        .collect::<Vec<_>>();
+    let query = MessageDiscoveryQuery::SpecificCaller {
+        caller_id: recipient.caller_id,
+        direction,
+    };
+    let discovery = backend.discover_messages(actor, &conference_ids, &query)?;
+    present_discovery(terminal, backend, actor, discovery)
+}
+
+fn search_message_text(
+    terminal: &mut dyn Terminal,
+    backend: &mut dyn MessageBackend,
+    actor: MessageActor,
+    current: &Conference,
+) -> Result<(), SessionError> {
+    let Some(conferences) = choose_discovery_conferences(terminal, backend, actor, current)? else {
+        return Ok(());
+    };
+    write_key(
+        terminal,
+        "message-search-text-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(input) = terminal.read_line(MAX_EDITOR_LINE_BYTES)? else {
+        return Ok(());
+    };
+    let terms = input
+        .split(|byte| byte.is_ascii_whitespace())
+        .filter(|term| !term.is_empty())
+        .map(<[u8]>::to_vec)
+        .collect::<Vec<_>>();
+    if input.len() > MAX_MESSAGE_SEARCH_INPUT_BYTES
+        || terms.is_empty()
+        || terms.len() > MAX_MESSAGE_SEARCH_TERMS
+        || terms
+            .iter()
+            .any(|term| term.len() > MAX_MESSAGE_SEARCH_TERM_BYTES)
+    {
+        write_key_line(
+            terminal,
+            "message-search-text-invalid",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    }
+    let conference_ids = conferences
+        .iter()
+        .map(|conference| conference.id)
+        .collect::<Vec<_>>();
+    let discovery = backend.discover_messages(
+        actor,
+        &conference_ids,
+        &MessageDiscoveryQuery::Text { terms },
+    )?;
+    present_discovery(terminal, backend, actor, discovery)
+}
+
+fn choose_discovery_conferences(
+    terminal: &mut dyn Terminal,
+    backend: &dyn MessageBackend,
+    actor: MessageActor,
+    current: &Conference,
+) -> Result<Option<Vec<Conference>>, SessionError> {
+    write_key_line(
+        terminal,
+        "message-search-scope-title",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key_line(
+        terminal,
+        "message-search-scope-this",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key_line(
+        terminal,
+        "message-search-scope-all",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key_line(
+        terminal,
+        "message-search-scope-queued",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key_line(
+        terminal,
+        "message-search-scope-quit",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key(
+        terminal,
+        "message-search-scope-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        return Ok(None);
+    };
+    match first_command(&input) {
+        Some(b'T') => Ok(Some(vec![current.clone()])),
+        Some(b'A') => Ok(Some(backend.conferences(actor)?)),
+        Some(b'O') => Ok(Some(backend.queued_conferences(actor)?)),
+        Some(b'Q') | None => Ok(None),
+        _ => {
+            write_key_line(
+                terminal,
+                "message-search-scope-invalid",
+                &crate::LocalizationArgs::new(),
+            )?;
+            Ok(None)
+        }
+    }
+}
+
+fn present_discovery(
+    terminal: &mut dyn Terminal,
+    backend: &dyn MessageBackend,
+    actor: MessageActor,
+    discovery: MessageDiscoveryResult,
+) -> Result<(), SessionError> {
+    let mut displayed = 0_u64;
+    for found in discovery.matches {
+        let conference = match backend.conference(actor, found.conference_number) {
+            Ok(conference) if conference.id == found.conference_id => conference,
+            Ok(_)
+            | Err(MessageError::ConferenceNotFound(_))
+            | Err(MessageError::ConferenceAccessDenied(_)) => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let message = match backend.message(actor, conference.id, found.message_number) {
+            Ok(message) => message,
+            Err(MessageError::MessageNotFound { .. } | MessageError::MessageAccessDenied) => {
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        display_message(terminal, &conference, &message)?;
+        displayed += 1;
+        if terminal.output_aborted() {
+            break;
+        }
+        write_key(
+            terminal,
+            "message-search-continue-prompt",
+            &crate::LocalizationArgs::new(),
+        )?;
+        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+            break;
+        };
+        if first_command(&input) == Some(b'Q') {
+            break;
+        }
+    }
+    write_key_line(
+        terminal,
+        "message-search-result-count",
+        &crate::LocalizationArgs::new().with("count", displayed),
+    )?;
+    if discovery.truncated {
+        write_key_line(
+            terminal,
+            "message-search-truncated",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    Ok(())
 }
 
 fn update_one_queue_conference(
@@ -1972,6 +2210,102 @@ mod tests {
         select_and_read_messages(&mut queued, &mut database, alice, &spitfire, false).unwrap();
         assert!(contains(queued.output(), b"General scan subject"));
         assert!(!contains(queued.output(), b"SPITFIRE scan subject"));
+    }
+
+    #[test]
+    fn caller_and_text_discovery_journeys_use_scope_and_do_not_mutate_read_state() {
+        let (_temp, mut database, alice, bob) = message_database();
+        let general = database.conference(alice, 1).unwrap();
+        let spitfire = database.conference(alice, 2).unwrap();
+        let general_message = database
+            .post(
+                bob,
+                NewMessage {
+                    conference_id: general.id,
+                    recipient_caller_id: None,
+                    recipient_name: "All Callers".to_owned(),
+                    subject: b"General discovery".to_vec(),
+                    body: b"Exact needle \xDB\r\n".to_vec(),
+                    created_at: 1,
+                    parent_message_id: None,
+                    visibility: MessageVisibility::Public,
+                    kind: MessageKind::Standard,
+                },
+            )
+            .unwrap();
+        database
+            .post(
+                bob,
+                NewMessage {
+                    conference_id: spitfire.id,
+                    recipient_caller_id: None,
+                    recipient_name: "All Callers".to_owned(),
+                    subject: b"Second discovery".to_vec(),
+                    body: b"Exact needle second\r\n".to_vec(),
+                    created_at: 2,
+                    parent_message_id: None,
+                    visibility: MessageVisibility::Public,
+                    kind: MessageKind::Standard,
+                },
+            )
+            .unwrap();
+
+        let mut queued =
+            InMemoryTerminal::with_lines([b"O".to_vec(), b"Exact needle".to_vec(), Vec::new()]);
+        search_message_text(&mut queued, &mut database, alice, &spitfire).unwrap();
+        assert!(contains(queued.output(), b"General discovery"));
+        assert!(!contains(queued.output(), b"Second discovery"));
+        assert!(contains(
+            queued.output(),
+            b"1 matching message was displayed"
+        ));
+        assert_eq!(database.last_read(alice, general.id).unwrap(), 0);
+        assert!(!database
+            .received(alice, general.id, general_message.number)
+            .unwrap());
+
+        let mut caller = InMemoryTerminal::with_lines([
+            b"A".to_vec(),
+            b"Bob Caller".to_vec(),
+            b"F".to_vec(),
+            Vec::new(),
+            Vec::new(),
+        ]);
+        search_messages_by_caller(&mut caller, &mut database, alice, &general).unwrap();
+        assert!(contains(caller.output(), b"General discovery"));
+        assert!(contains(caller.output(), b"Second discovery"));
+        assert!(contains(
+            caller.output(),
+            b"2 matching messages were displayed"
+        ));
+        assert_eq!(database.last_read(alice, spitfire.id).unwrap(), 0);
+
+        let mut empty = InMemoryTerminal::with_lines([b"T".to_vec(), b"missing".to_vec()]);
+        search_message_text(&mut empty, &mut database, alice, &general).unwrap();
+        assert!(contains(
+            empty.output(),
+            b"0 matching messages were displayed"
+        ));
+
+        let mut malformed = InMemoryTerminal::with_lines([
+            b"T".to_vec(),
+            b"one two three four five six seven".to_vec(),
+        ]);
+        search_message_text(&mut malformed, &mut database, alice, &general).unwrap();
+        assert!(contains(
+            malformed.output(),
+            b"Enter one to six terms of no more than 64 bytes each."
+        ));
+
+        let mut oversized = InMemoryTerminal::with_lines([
+            b"T".to_vec(),
+            vec![b'x'; MAX_MESSAGE_SEARCH_INPUT_BYTES + 1],
+        ]);
+        search_message_text(&mut oversized, &mut database, alice, &general).unwrap();
+        assert!(contains(
+            oversized.output(),
+            b"Enter one to six terms of no more than 64 bytes each."
+        ));
     }
 
     #[test]

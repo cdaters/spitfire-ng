@@ -27,6 +27,10 @@ SPITFIRE NG 0.1.0 is a publicly available **Development Preview**. Source,
 operator documentation, and the accepted Apple Silicon macOS binary are
 published in this repository.
 
+The latest downloadable binary remains 0.1.0. The `main` branch now contains
+post-0.1.0 source improvements, including advanced caller/text message
+discovery; those improvements are not present in the published 0.1.0 archive.
+
 Available today:
 
 - accepted Stock SPITFIRE 3.7 Core Parity;
@@ -36,7 +40,8 @@ Available today:
 - engine-generated stock menus and exact-security display overrides;
 - Telnet, RAW TCP, and RLogin compatibility listeners;
 - caller registration, Argon2id authentication, profiles, and security;
-- messages, conferences, private mail, replies, queues, and receipts;
+- messages, conferences, private mail, replies, queues, receipts, and—when
+  built from current source—bounded Specific Caller and Text Search;
 - file areas, uploads, downloads, new-file checks, and supported transfer
   protocols;
 - multinode operation, operator status, cold backup, and restore;
@@ -60,6 +65,8 @@ Download the archive, checksum, manifest, and release notes together from the
 [official `v0.1.0-development-preview` GitHub Release](https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview).
 The published archive was downloaded again, matched the SHA-256 above, and
 returned `SPITFIRE NG Bulletin Board System 0.1.0` on Apple Silicon macOS.
+Synchronizing newer source does not change that accepted archive, tag, or
+checksum.
 
 ## Installation
 

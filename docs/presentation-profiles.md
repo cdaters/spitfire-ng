@@ -3,10 +3,12 @@
 ## Status and purpose
 
 This is the canonical design and validation contract for versioned
-presentation profiles. SPITFIRE NG 0.1.0 packages Modern 1.0.1, Minimal
-Terminal 1.0.1, and Classic SPITFIRE-inspired 1.1.1. Their project-authored
-metadata is licensed under `MIT OR Apache-2.0`; no profile imports historical
-assets or authorizes unimplemented commands.
+presentation profiles. The 0.1.0 binary packages Modern 1.0.1, Minimal
+Terminal 1.0.1, and Classic SPITFIRE-inspired 1.1.1. Current post-0.1.0 source
+advances those packages to Modern 1.1.0, Minimal 1.1.0, and Classic 1.2.0 for
+the independently authored Specific Caller/Text Search menu/help surfaces.
+Their project-authored metadata is licensed under `MIT OR Apache-2.0`; no
+profile imports historical assets. Profile format/resource API 1 are unchanged.
 
 A presentation profile is a bounded, declarative package of caller-visible
 resources and metadata. It changes how an already-authorized SPITFIRE NG
@@ -417,8 +419,8 @@ macros in version 1.
 
 ### Modern SPITFIRE NG
 
-Normal setup selects `modern-ng` version 1.0.1 as both
-active and base. Its strict package contains the unchanged project-authored
+Normal setup from current source selects `modern-ng` version 1.1.0 as both
+active and base. Its strict package contains the current project-authored
 `.BBS`/`.CLR` bytes and generated fixed-record `SPITFIRE.HLP`; the four board
 `.MNU` files remain outside the package as engine-authoritative configuration.
 Required prompt text remains the engine built-in layer. The profile targets a
@@ -447,8 +449,8 @@ includes:
 - deterministic Classic text → Modern compatible → built-in fallback.
 
 The stable ID is `classic-spitfire`, display name is `Classic
-SPITFIRE-Inspired`, current package version is 1.1.1, and Modern remains its
-configured base. The package targets the existing 25 general resource keys,
+SPITFIRE-Inspired`, current source package version is 1.2.0, and Modern remains
+its configured base. The package targets the existing 25 general resource keys,
 seven exact-security menu-art keys, and fixed-record help interface. It must
 use independently authored BBS/CLR/help content with complete allowed
 provenance; the original 27-entry DISPLAY archive, four `.MNU` files, original
@@ -469,7 +471,7 @@ separate compatibility path, not the distributed Classic profile.
 
 ### Minimal Terminal
 
-`minimal-terminal` version 1.0.1 targets
+`minimal-terminal` version 1.1.0 in current source targets
 plain or constrained terminals, accessibility, automation-friendly diagnostics,
 and low-capability clients. Normal setup installs the package beside Modern but
 continues to select Modern by default. A Sysop explicitly selects Minimal as

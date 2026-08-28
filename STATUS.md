@@ -7,6 +7,23 @@ Apple Silicon macOS release passed packaging, runtime, terminal-client,
 backup/restore, license, privacy, public-redownload, checksum, and first-run
 checks.
 
+The public `main` branch is now ahead of that binary release. Current source
+adds post-0.1.0 advanced message discovery; the downloadable 0.1.0 archive is
+unchanged and does not contain those additions.
+
+## Current source additions
+
+- Stock-style Message-menu Specific Caller and Text Search
+- Current, all, or queued conference scope
+- Existing message visibility/security reused for every search and result open
+- Read-only discovery with no last-read or receipt mutation
+- ASCII-case-insensitive body substring matching; Subject is not searched
+- All whitespace-delimited terms required regardless of order or separation
+
+The all-term behavior intentionally improves the historical contiguous-phrase
+limitation without changing SPITFIRE's Text Search command flow, conference
+selection, visibility, or result presentation.
+
 ## Available today
 
 - Stock SPITFIRE 3.7 Core Parity for the defined core scope
@@ -16,6 +33,7 @@ checks.
 - Telnet, RAW TCP, and RLogin compatibility listeners
 - Caller registration, authentication, privacy, profiles, and security levels
 - Message conferences, mail, replies, threads, queues, and receipts
+- Advanced caller/text message discovery in current post-0.1.0 source
 - File areas, catalogs, search, uploads, downloads, and new-file checks
 - ASCII, XMODEM, YMODEM, and ZMODEM-family transfer support as documented
 - Multinode runtime and session isolation
@@ -38,6 +56,9 @@ checks.
 | Signing | No Apple Developer ID signature |
 | Notarization | Not notarized |
 | Publication | [Published on GitHub](https://github.com/cdaters/spitfire-ng/releases/tag/v0.1.0-development-preview) |
+
+This table describes the downloadable binary release, not every later source
+change on `main`.
 
 The archive was downloaded again from the public GitHub Release and matched
 the canonical SHA-256. Expected unsigned/unnotarized Gatekeeper behavior was

@@ -2,8 +2,8 @@
 
 This is the canonical implementation and compatibility specification for the
 native message subsystem introduced in Stock SPITFIRE 3.7 Core Parity
-Increment 3 and completed through the 2026-08-22 Category-A message-
-interaction closure. It explains what is implemented, which stock behaviors
+Increment 3 and extended in post-0.1.0 source with advanced message discovery.
+It explains what is implemented, which stock behaviors
 were established from Buffalo Creek's SPITFIRE 3.7 manual, how authorization
 and persistence work, and which historical features remain incomplete.
 
@@ -47,6 +47,14 @@ Confirmed stock behavior relevant to this increment includes:
 - “Your Messages” reports new directly addressed messages, already received
   messages, messages sent, and total visible messages. A named Sysop may
   preview without marking directly addressed mail received.
+- Specific Caller Messages searches current, all, or queued conferences for
+  public messages to, from, or both to/from a resolved caller. A threshold
+  Sysop may see otherwise authorized private results.
+- Text Search accepts one to six key words, searches current, all, or queued
+  conferences, displays each visible match with a continue prompt, and reports
+  a final matching-message count. Historical evidence confirms ASCII-
+  insensitive body substrings, Subject exclusion, and contiguous-phrase
+  behavior for a space-containing query.
 - Last-message-read state is per caller and conference. Historical storage
   uses each conference's `SFMSGx.LMR`; the native backend need not reproduce
   that physical layout.
@@ -82,10 +90,11 @@ The session uses the narrow `MessageBackend` contract for:
 - recipient resolution;
 - accessible-conference listing and lookup;
 - visible-message listing and retrieval;
+- bounded caller/text discovery returning message references;
 - posting;
 - effective queued-conference lookup and replacement;
 - last-read updates and lookup; and
-- direct-message receipt lookup; and
+- direct-message receipt lookup;
 - caller received/sent/available counts.
 
 `RuntimeDatabase` is the Increment 3 SQLite implementation. The session and
@@ -93,9 +102,12 @@ transport adapters do not issue SQL. Future original-SPITFIRE, SMB, or network
 adapters must enforce the same authorization contract rather than relying on
 menu hiding.
 
-This remains deliberately narrower than the eventual backend described in
-`docs/07-message-system.md`; maintenance, deletion, network metadata, search,
-and imports will extend the boundary only when exercised.
+Discovery returns references rather than cached body/authority snapshots. The
+session reopens every result through the ordinary conference/message path
+immediately before display. This remains deliberately narrower than the
+eventual backend described in `docs/07-message-system.md`; maintenance,
+deletion, network metadata, and imports will extend the boundary only when
+exercised.
 
 ## SQLite Schemas 3 and 8
 
@@ -159,6 +171,12 @@ filtered to currently accessible conferences. Conference 1 is mandatory;
 optional conference selection is per caller and persists independently across
 nodes and reconnects.
 
+Discovery uses the same authority. Text search includes the actor's visible
+public/authored/received mail and current threshold-Sysop visibility. Specific-
+caller search adds the documented public-only restriction for ordinary
+callers. Deleted rows remain unavailable through the common message policy.
+Search terms and message content are not logged.
+
 ## Caller Experience
 
 The synthetic fixture provides two persistent conferences:
@@ -183,12 +201,27 @@ The Message Menu supports:
   conference/message;
 - `A` — add/delete/list/select queue conferences, include all accessible
   conferences, or remove all except mandatory Conference 1;
+- `S` — choose current/all/queued scope, resolve an active caller, choose
+  From/To/Both, and display authorized matching messages without changing read
+  state;
+- `T` — choose current/all/queued scope, enter one to six bounded body terms,
+  and display authorized matches one at a time without changing read state;
 - `F`, `Q`, `G`, `X`, and `?` — the existing shared navigation, logoff,
   expert-mode, and help paths.
 
 Main-menu `C` implements Comment to Sysop. It resolves the configured Sysop
 caller, stores a private `SysopComment` in Conference 1, and fails clearly
 without saving if the configured Sysop caller has not been initialized.
+
+Current-source text matching is body-only and ASCII-case-insensitive. Each
+whitespace-delimited term is a contiguous substring, and all supplied terms
+must occur regardless of order or separation. Historical SPITFIRE treated the
+tested space-containing expression as one contiguous phrase; NG intentionally
+retains the more useful all-term behavior while preserving the stock command,
+scope, visibility, presentation, and read-only behavior. CP437 bytes outside
+ASCII are not decoded, folded, or normalized. Search examines at most 10,000
+candidates and returns at most 100 ordered references; the continue prompt
+provides one-result-at-a-time paging.
 
 ## Composition and Recovery
 
@@ -245,12 +278,14 @@ physical hardware remains unverified.
 
 - Conference administration is not yet caller/Sysop interactive; the fixture
   seeds configured records through the core API.
-- Text/caller search and automatic logon/daily scanning remain follow-on work;
-  interactive This/All/Only Queued scanning is complete.
+- Caller/text discovery is verified with its all-term modernization
+  documented. Explicit OR and quoted-phrase syntax remain possible future
+  enhancements. Automatic logon/daily scanning remains follow-on work.
 - Message timestamps are stored as Unix seconds and rendered as explicit UTC;
   board-local timezone policy and exact stock date presentation remain open.
-- Deletion/undelete, copy/move/forward, carbon copies, Sysop preview, purge,
-  and maintenance are not implemented.
+- Deletion/undelete, copy/move/forward, carbon copies, purge, and broader Sysop
+  message maintenance are not implemented. Named-Sysop read-only preview is
+  verified.
 - Original SPITFIRE `.DAT/.PTR/.IDX/.LMR` is not an active backend yet.
 - SMB, QWK/LAKOTA, DOVE-Net, FidoNet, and CircuitNet are explicitly outside
   Increment 3.
@@ -265,8 +300,17 @@ disabled sessions, last-read, unread counts, cancellation/interruption,
 invalid recipients, queue persistence/enforcement, idempotent receipt state,
 sent/received accounting, reconnects, per-caller isolation, all scan scopes,
 same-subject traversal, CP437 quote bytes, every bounded editor command,
-named-Sysop preview, Sysop routing, RLogin auto-login, and the common network/
-stdio/serial/modem session path.
+named-Sysop preview, caller/text discovery scope and visibility, malformed and
+bounded terms, CP437 exact matching, deterministic result limits, concurrent
+post/search connections, no read-state mutation, Sysop routing, RLogin auto-
+login, and the common network/stdio/serial/modem session path.
+
+Live acceptance used synthetic callers over RAW/text, Qodem 1.0.1 ANSI/CP437,
+and SyncTERM 1.9rc4 ANSI. Each caller posted one public message, found it
+through text and self-From discovery, returned to Main, and logged off normally.
+A read-only database check showed last-read zero and no receipts for all three
+callers. Private test captures and original-runtime evidence are not
+distributed with the public source.
 
 The 2026-08-22 closure acceptance created a board through the normal setup
 service, installed controlled Conference 2 queue/direct/thread fixtures, and

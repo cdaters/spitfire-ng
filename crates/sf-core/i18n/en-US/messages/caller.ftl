@@ -134,6 +134,25 @@ message-queue-prompt = Message Queue Selection: { " " }
 message-queue-all = All accessible conferences are now queued.
 message-queue-invalid = Invalid message-queue selection.
 message-queue-current-title = Your Queued Message Conferences:
+message-search-scope-title = >>>> MESSAGE SEARCH SCOPE <<<<
+message-search-scope-this = <T> This Message Conference
+message-search-scope-all = <A> All Message Conferences
+message-search-scope-queued = <O> Only Queued Conferences
+message-search-scope-quit = <Q> Quit
+message-search-scope-prompt = Message Search Scope: { " " }
+message-search-scope-invalid = Invalid message-search scope.
+message-search-caller-prompt = Caller Name (Enter = quit): { " " }
+message-search-caller-unavailable = That caller is unavailable.
+message-search-direction-prompt = Search messages <F>rom, <T>o, or <B>oth (<Q>uit): { " " }
+message-search-direction-invalid = Invalid caller-search direction.
+message-search-text-prompt = Message-body terms (one to six; every term must occur): { " " }
+message-search-text-invalid = Enter one to six terms of no more than 64 bytes each.
+message-search-continue-prompt = Press ENTER to continue or Q to quit: { " " }
+message-search-result-count = { $count ->
+    [one] 1 matching message was displayed.
+   *[other] { $count } matching messages were displayed.
+    }
+message-search-truncated = Search stopped at the configured safety bound; refine the search to see later matches.
 message-field-to = To:   { $name }
 message-field-from = From: { $name }
 message-field-subject = Subj: { " " }

@@ -21,6 +21,8 @@ Enter Main `M`:
 | `E` | Enter a public or private local message. |
 | `Y` | Show received/sent/available counts and open received/sent lists. |
 | `A` | Add, remove, list, or reset the caller's conference queue. |
+| `S` | Search visible messages to/from a selected active caller. |
+| `T` | Search visible message bodies for one to six terms. |
 | `F` | Move directly to Files. |
 | `Q` | Return to Main. |
 | `G` | Log off. |
@@ -64,6 +66,27 @@ range with sender-initial prefixes; imported quote lines are immutable.
 Normal reading advances that caller's last-read pointer and records a direct
 receipt idempotently. Reconnects and rescans do not double-count it.
 
+## Search messages
+
+Current post-0.1.0 source provides Message `S` Specific Caller and `T` Text
+Search. Both select This, All, or Only Queued conferences and display one
+authorized result at a time.
+
+Specific Caller resolves an active local caller and searches messages From,
+To, or Both. Ordinary callers receive public results; existing Sysop and
+message-visibility rules remain authoritative.
+
+Text Search accepts one to six whitespace-delimited terms of at most 64 bytes
+each. Matching is ASCII-case-insensitive, body-only, and requires every term
+regardless of order or separation. Subjects are not searched. This
+intentionally improves the historical contiguous-phrase limitation while
+preserving the stock command and result flow.
+
+Search is read-only. It does not advance last-read state or create a receipt,
+and each result is reauthorized immediately before display. These commands are
+in current source but not in the downloadable 0.1.0 Development Preview
+binary.
+
 ## Your Messages
 
 Message `Y` reports:
@@ -85,7 +108,8 @@ workflow. The configured Sysop caller account must exist.
 
 ## Current boundary
 
-Local conferences, queues, privacy, receipts, replies, threads, and Your
-Messages are implemented and verified. QWK/LAKOTA, network mail, broad search,
-copy/move/forward, deletion/packing, and complete maintenance are later
-scopes. See [Native SPITFIRE NG Message System](../sfng-message-system.md).
+Local conferences, queues, privacy, receipts, replies, threads, Your Messages,
+and bounded caller/text discovery are implemented and verified in current
+source. QWK/LAKOTA, network mail, broader search syntax, copy/move/forward,
+deletion/packing, and complete maintenance are later scopes. See
+[Native SPITFIRE NG Message System](../sfng-message-system.md).

@@ -1195,11 +1195,11 @@ mod tests {
             fs::read(source.join("system/language-packs/en-US/language.toml")).unwrap()
         );
         let restored_status = crate::board_status(&restore.config_path).unwrap();
-        assert!(restored_status.contains("Active: classic-spitfire 1.1.1"));
-        assert!(restored_status.contains("Base: modern-ng 1.0.1"));
+        assert!(restored_status.contains("Active: classic-spitfire 1.2.0"));
+        assert!(restored_status.contains("Base: modern-ng 1.1.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.0.1"));
+        assert!(restored_status.contains("Package: en-US 1.1.1"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
