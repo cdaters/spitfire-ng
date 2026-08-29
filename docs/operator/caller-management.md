@@ -18,6 +18,11 @@ Optional profile fields may be blank. Required fields must validate.
 `/Q` at a profile prompt cancels the incomplete registration. Passwords are
 stored only as salted Argon2id PHC hashes.
 
+Schema 13 stores that initial caller name as the public display handle and
+compatibility real name, and derives a unique SSH-safe login identifier once.
+This preserves the familiar prompt count and gives every caller a durable
+secure-transport identity without making real name public.
+
 On a private board, new-caller registration is intentionally absent. Only an
 existing active caller whose verified account meets the private security
 threshold is admitted.
@@ -50,6 +55,7 @@ Examples:
 
 ```text
 CALLERS
+IDENTITY Example Caller|example-login|Example Handle|Example Real Name
 DISABLE Example Caller
 ENABLE Example Caller
 DELETE Example Caller
@@ -76,6 +82,15 @@ Subscription dates are inclusive board-local `YYYY-MM-DD`; `PERMANENT` clears
 the date and resolves an inapplicable expiry restriction transactionally.
 Concurrent stale updates fail instead of overwriting the newer caller state.
 
+`IDENTITY` separates the current caller into login identifier, public display
+handle, and optional private real name. Use a blank final field to clear real
+name. Login values are normalized lowercase and accept only ASCII letters,
+digits, `-`, `_`, and `.` with an alphanumeric first character. Login and
+handle collisions are rejected; stable caller/message ownership and existing
+attribution snapshots are preserved. SSH uses the login identifier,
+traditional BBS login/presentation uses the handle, and real name remains
+private unless an explicit future network policy requires it.
+
 The configured named Sysop cannot be locked out, tombstoned, made purge-
 eligible, lowered below the configured Sysop threshold, or denied by an
 accepted JOKER policy. Threshold privilege and configured identity remain
@@ -92,8 +107,9 @@ An authenticated caller can use:
 - Main `X` for session-local expert-mode menu behavior.
 
 The operator cannot see credentials. There is no host-side password reset,
-caller rename, destructive delete/packing, public profile directory, or
-arbitrary record editor in the Development Preview.
+destructive delete/packing, public profile directory, or arbitrary record
+editor in current source. The 0.1.0 downloadable binary predates the bounded
+identity command and SSH listener.
 
 ## JOKER name policy
 
@@ -125,3 +141,5 @@ denial values, JOKER rule text, subscription dates, and contact fields.
 For the complete model, see
 [Caller Access Lifecycle and Security](../sfng-caller-access.md) and
 [Native Caller and Authentication Model](../sfng-caller-authentication.md).
+For SSH mapping and host-key policy, see
+[Secure SSH Caller Transport](../sfng-secure-ssh-transport.md).

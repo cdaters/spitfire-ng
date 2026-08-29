@@ -46,7 +46,7 @@ lowercase SHA-256.
 |---|---|---|
 | Static configuration | Exact validated TOML bytes | Board root, retaining the configuration filename |
 | Operational state | A transactionally consistent SQLite backup at exact current schema | Configured logical `WORK` database filename |
-| SYSTEM resources | Every regular file below logical `SYSTEM`, recursively, including presentation-profile descriptors, provenance, and assets | Same relative path below restored `SYSTEM`; configured profiles are revalidated before acceptance |
+| SYSTEM resources | Every regular file below logical `SYSTEM`, recursively, including presentation-profile descriptors, provenance, assets, JOKER policy, and SSH host key | Same relative path below restored `SYSTEM`; configured profiles and SSH key location are revalidated before acceptance |
 | DISPLAY resources | Every regular file below logical `DISPLAY`, recursively | Same relative path below restored `DISPLAY` |
 | Cataloged file bytes | Every available or disabled catalog row's independently verified bytes | `EXTERNAL/files/<storage-key>/<filename>` |
 
@@ -54,13 +54,16 @@ SQLite remains authoritative for board identity; callers and Argon2id
 credentials; private profiles and preferences; statistics and new-file
 checkpoints; schema-12 caller lifecycle versions, authoritative base security,
 subscription expiration, reasoned security adjustments, purge protection,
-recoverable tombstones, and privacy-safe caller-access events; conferences,
+recoverable tombstones, and privacy-safe caller-access events; schema-13 login
+identifiers, public handles, private real names, and privacy-safe identity events;
+conferences,
 immutable message payload/fan-out identities,
 separately numbered delivery recipients/audiences, tombstones, visibility,
 receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
 file areas, catalog metadata, hashes, attribution, state, and accounting.
-`SYSTEM/JOKER.DAT`, when present, is preserved as exact resource bytes. The
-snapshot does not duplicate that metadata in a second model.
+`SYSTEM/JOKER.DAT` and the configured board-local SSH host key, when present,
+are preserved as exact resource bytes. The snapshot does not duplicate that
+metadata in a second model.
 
 Transient `WORK/runtime-status.toml`, incomplete `WORK/upload-staging` bytes,
 logs or other uncataloged working files, and uncataloged external bytes are
@@ -76,7 +79,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite read-only and require current schema 12, exact migration names,
+3. open SQLite read-only and require current schema 13, exact migration names,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
 4. use SQLite's backup API to create one consistent database copy, then apply
@@ -96,9 +99,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10, schema-11, and schema-12 snapshots.
+target. This build accepts exact schema-10 through schema-13 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional 10→11 and/or 11→12 migrations. Validation rejects
+applies the transactional 10→11, 11→12, and/or 12→13 migrations. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -131,7 +134,8 @@ reappear.
 
 - Treat a backup as sensitive: SQLite includes password hashes, private caller
   profiles, private messages, and operational history. Protect and copy the
-  directory with access controls appropriate to the host.
+  directory with access controls appropriate to the host. SYSTEM may contain
+  the SSH private host key and must receive the same protection.
 - Do not edit the manifest or contents. Any byte or inventory change is
   detected before restore mutation.
 - Symlinks and filesystem-special objects are rejected; manifest paths cannot
@@ -154,8 +158,9 @@ status/incomplete staging, restore to a new board, and authenticate the
 persisted caller through the common session engine. Replacement tests prove
 that post-snapshot caller/resource state is removed only after validation.
 
-Additional tests cover SQLite snapshot consistency, schema-10 exact restore
-followed by normal migration, schema-11 exact restore, older/newer refusal,
+Additional tests cover SQLite snapshot consistency, schema-10/11 exact restore
+followed by normal migration, schema-13 identity and exact SSH-key/configuration
+preservation, older/newer refusal,
 board-lock exclusion, missing catalog bytes, checksum corruption, manifest
 traversal, undeclared files, explicit replacement, rollback cleanup, and the
 Sysop CLI report. The combined workspace and existing transport,
@@ -183,3 +188,16 @@ duplicate active adjustment kinds, broken audit links, named-Sysop invariant
 violations, policy corruption, and newer versions before publication. See
 [Caller Access Lifecycle and Security](sfng-caller-access.md) for the public
 caller-access model.
+
+## Schema-13 caller identity and SSH recovery boundary
+
+Schema 13 preserves stable caller ID and credentials while adding the stored
+login identifier, public display handle, optional private real name, and
+append-only privacy-safe identity events. Recursive SYSTEM backup includes the
+configured Ed25519 host private key exactly. A restored board therefore retains
+both caller authentication identity and SSH host fingerprint.
+
+Deliberate key rotation is an operator action after backup, not a restore side
+effect. Moving the old key and starting the enabled listener generates a new
+one; clients will correctly report a changed host fingerprint. See
+[Secure SSH Caller Transport](sfng-secure-ssh-transport.md).

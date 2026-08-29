@@ -61,6 +61,9 @@ the historical or architectural material to set up a board.
 - [Nodes and Events](14-nodes-events.md)
 - [Native Setup and Configuration](sfng-setup-configuration.md)
 - [Native Caller and Authentication](sfng-caller-authentication.md)
+- [Secure SSH Caller Transport](sfng-secure-ssh-transport.md) — Current-source
+  caller identity, authentication, no-shell, host-key, configuration, PTY,
+  encoding, diagnostics, client, and recovery contract.
 - [Caller Access Lifecycle and Security](sfng-caller-access.md) — Active,
   Locked Out, and recoverable Deleted states; base/effective security;
   subscription and JOKER policy; named-Sysop protection; audit, concurrency,

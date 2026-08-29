@@ -2,6 +2,7 @@ mod modem;
 mod raw;
 mod rlogin;
 mod serial;
+mod ssh;
 mod stdio;
 mod telnet;
 
@@ -9,6 +10,9 @@ pub use modem::ModemTerminal;
 pub use raw::RawTcpTerminal;
 pub use rlogin::RloginTerminal;
 pub use serial::SerialTerminal;
+pub(crate) use ssh::{
+    host_key_fingerprint, load_or_generate_host_key, serve_ssh_listener, SshListenerOptions,
+};
 pub use stdio::StdioTerminal;
 pub use telnet::TelnetTerminal;
 

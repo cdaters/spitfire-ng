@@ -45,7 +45,7 @@ and other secrets never enter node status.
 All enabled transports feed the same allocation path:
 
 ```text
-Telnet / raw / RLogin / shell / serial / modem / future SSH
+Telnet / raw / RLogin / SSH / shell / serial / modem
                             |
                             v
                  lowest available enabled node

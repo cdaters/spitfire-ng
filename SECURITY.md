@@ -59,7 +59,23 @@ Telnet support is a compatibility feature, not a statement that plaintext transp
 
 ### SSH
 
-SSH should be supported as a secure terminal transport where practical.
+Current source implements SSH-2 as a disabled-by-default secure caller
+transport through maintained `russh`. It accepts only SPITFIRE login-
+identifier/password authentication, uses a board-local Ed25519 host key, and
+hands a one-use verified caller grant to the common session for lifecycle,
+JOKER, subscription, node, and dispatch reauthorization. It never exposes an
+OS shell, `exec`, SCP, SFTP, forwarding, agents, X11, or remote filesystem.
+
+The listener bounds unauthenticated connections, attempts, handshake time,
+username, PTY dimensions, packet/input queues, and channels. Generic failures
+avoid unnecessary user enumeration. Logs may identify an authenticated stable
+caller ID but never passwords, keys, raw auth material, private/contact data,
+real names, supplied unknown usernames, or JOKER rule text. Native backup
+contains the private host key and must be protected accordingly.
+
+Do not enable SSH-1, DSA, weak ciphers/MACs, SHA-1 compatibility, or downgrade
+modes for old clients. See
+[Secure SSH Caller Transport](docs/sfng-secure-ssh-transport.md).
 
 ### Raw TCP and RLogin
 
@@ -83,11 +99,15 @@ Internet-facing browser terminal connections should normally use HTTPS/WSS.
 Ordinary callers should be able to use a traditional:
 
 ```text
-Name / Handle
+Login identifier or traditional Handle
 Password
 ```
 
 login.
+
+SSH uses only the normalized login identifier. Normal BBS attribution uses the
+display handle, while optional real name is more sensitive and remains private
+unless explicit board or future-network policy requires it.
 
 Defaults should favor:
 

@@ -7,8 +7,9 @@
   stated macOS/client acceptance environment. The source workflow remains verified.
 - **Development Preview:** The archive is unsigned and not notarized; this is
   not a production deployment promise.
-- **Planned:** Service installation, encrypted public listeners, and a broader
-  verified host matrix are not available today.
+- **Planned:** Service installation and a broader verified host matrix are not
+  available today. Current source includes optional SSH caller access; the
+  original downloadable 0.1.0 binary does not.
 
 This guide takes a first-time Sysop from a verified Development Preview archive
 to a working local board, a first caller, a message and file check, and a
@@ -86,6 +87,7 @@ Setup is interactive. For a safe local trial, use values like these:
 | Telnet | enabled, `127.0.0.1`, port `2323` |
 | RAW TCP | disabled, retain `127.0.0.1`, port `2324` |
 | RLogin | disabled, retain `127.0.0.1`, port `2513` |
+| SSH | disabled, retain `127.0.0.1`, port `2222` |
 | Caller limits/security | Accept the defaults for the first local trial |
 | Profile fields | Keep unnecessary personal-data groups disabled |
 | Initial Sysop password | A unique password of at least ten characters |
@@ -385,7 +387,10 @@ board and an explicit `--replace` flag.
   architectural targets, not a verified release matrix for 0.1.0.
 - Server operation is foreground-only; no supplied service/daemon or log
   rotation exists.
-- Telnet, RAW, and RLogin are unencrypted. SSH is not implemented.
+- Telnet, RAW, and RLogin are unencrypted. Current source can instead enable
+  bounded SSH caller access; see [Terminal Clients](terminal-clients.md) and
+  [Secure SSH Caller Transport](../sfng-secure-ssh-transport.md). The original
+  0.1.0 Development Preview binary predates this source change.
 - Configuration and native backup/restore are cold-board operations.
 - The operator console cannot attach to an already-running `run` process.
 - Files must enter through the authenticated upload path; there is no host-side

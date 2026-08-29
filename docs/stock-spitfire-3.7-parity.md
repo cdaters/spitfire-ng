@@ -546,7 +546,7 @@ stock-core operation.
 | C-006 | `DAILYLMT`, `SFSENDIT`, `SFPCKUSR`, `SFPCKMSG` companions | SF37 §24 | DEFERRED | Reproduce required outcomes natively or add format/runtime compatibility as justified. |
 | C-007 | Fax-call handling | SF37 §22 | DEFERRED | Not a stock-core network transport; any future integration uses modern external services. |
 | C-008 | CircuitNet | Separate preserved corpus | DEFERRED | Historical/ecosystem phase; see [CircuitNet](09-circuitnet.md). |
-| C-009 | FidoNet, SMB, DOVE-Net, SSH, web terminal/admin | Project roadmap | DEFERRED | Later historical/ecosystem or modern-enhancement phases; not claims about stock 3.7. |
+| C-009 | FidoNet, SMB, DOVE-Net, SSH, web terminal/admin | Project roadmap | PARTIAL | Modern SSH caller transport is implemented through the common session engine. FidoNet, SMB, DOVE-Net, and web terminal/admin remain deferred; none is a stock 3.7 claim. |
 | C-010 | Optional GUI administration and registration-manager integration | Project roadmap | DEFERRED | Later clients over shared Rust APIs; not part of stock board parity. |
 
 ## D — Historical Implementation Details to Modernize
@@ -656,7 +656,9 @@ existing-caller flow passed raw TCP, ordinary RLogin, and stdio. Optional
 SyncTERM-compatible RLogin auto-login passed an end-to-end loopback test and
 remains disabled by default. Direct serial is PTY-tested, and the Hayes inbound
 state machine plus common authenticated-session boundary are simulation-tested;
-physical serial/modem hardware is unverified. SSH is deliberately deferred.
+physical serial/modem hardware is unverified. Current source adds disabled-by-
+default SSH-2 with native caller authentication, ordinary node allocation,
+PTY/resize, and no OS-shell path.
 
 ## Accelerated Width-First Implementation Sequence
 
@@ -666,7 +668,7 @@ the board runnable and add a vertical part of the final caller journey.
 | Increment | Focus | Runnable exit condition |
 |---|---|---|
 | 0 — Contract and skeleton | Freeze the first checklist subset; add core board/session/config types, SQLite migrations, logical paths, process lifecycle, and integration-test harness. | A board initializes from a small checked-in fixture and starts/stops without corrupting state. |
-| 1 — Connect and traverse | COMPLETE: common terminal metadata/session boundary; Telnet, raw TCP, RLogin, Unix stdio, direct serial, simulated inbound Hayes; CP437/ANSI resources; `.MNU`/HLP adapters; Main/Message/File traversal. SSH is a fail-closed follow-up. | Loopback Telnet, raw TCP, and RLogin plus Unix stdio traverse the same recognizable session and log off; serial/modem tests remain hardware-independent. |
+| 1 — Connect and traverse | COMPLETE: common terminal metadata/session boundary; Telnet, raw TCP, RLogin, SSH, Unix stdio, direct serial, simulated inbound Hayes; CP437/ANSI resources; `.MNU`/HLP adapters; Main/Message/File traversal. | Loopback Telnet, raw TCP, RLogin, and SSH plus Unix stdio traverse the same recognizable session and log off; serial/modem tests remain hardware-independent. |
 | 2 — Become and remain a caller | COMPLETE: new/existing caller flow, Argon2id PHC credentials, stable IDs, numerical security, time/daily-call checks, caller statistics, accounting, reconnect, explicit Sysop initialization, and optional SyncTERM RLogin auto-login. Persistent terminal preferences and full questionnaires remain separately tracked parity work. | Telnet registration/reconnect and existing login over raw TCP, RLogin, and stdio reach the same caller and permitted menu; serial/modem authentication boundary is synthetic-tested. |
 | 3 — Use messages | COMPLETE: SQLite message backend, conferences, read/post/reply/private/Sysop messages, line editor essentials, and last-read state. | Two callers exchange messages across two conferences and retain independent read state. |
 | 4 — Set up and operate multiple nodes | COMPLETE: first-run setup, shared validated configuration services, interactive implemented-settings administration, safe conference changes, named listeners, race-safe configurable node pool, busy/release behavior, and read-only status foundation. | A setup-created four-node board accepts simultaneous callers across Telnet/raw/RLogin, rejects a fifth while full, and reuses the released node. |

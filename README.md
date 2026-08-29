@@ -35,9 +35,9 @@ published in this repository.
 
 The latest downloadable binary remains 0.1.0. The `main` branch now contains
 post-0.1.0 source improvements, including advanced caller/text message
-discovery, auditable message mutation, and an auditable caller-access lifecycle
-with schema-12 persistence; those improvements are not present in the
-published 0.1.0 archive.
+discovery, auditable message mutation, an auditable caller-access lifecycle,
+schema-13 caller identity separation, and secure SSH caller transport; those
+improvements are not present in the published 0.1.0 archive.
 
 Available today:
 
@@ -46,11 +46,14 @@ Available today:
 - Modern, Classic SPITFIRE-inspired, and Minimal Terminal presentation
   profiles;
 - engine-generated stock menus and exact-security display overrides;
-- Telnet, RAW TCP, and RLogin compatibility listeners;
+- Telnet, RAW TCP, and RLogin compatibility listeners plus—when built from
+  current source—a disabled-by-default SSH-2 caller listener through the same
+  session engine, with no host OS shell route;
 - caller registration, Argon2id authentication, profiles, and security plus—
   when built from current source—disable/restore, recoverable deletion,
   base/effective security, subscription expiry/warnings/renewal, JOKER name
-  denial, named-Sysop protection, and active-session invalidation;
+  denial, named-Sysop protection, active-session invalidation, and separate
+  normalized login identifier/public handle/optional private real name;
 - messages, conferences, private mail, replies, queues, receipts, and—when
   built from current source—bounded Specific Caller/Text Search, primary plus
   CC delivery, authorized Delete/Undelete, audience transitions, and
@@ -58,7 +61,8 @@ Available today:
 - file areas, uploads, downloads, new-file checks, and supported transfer
   protocols;
 - multinode operation, operator status, cold backup, and restore, including
-  schema-12 caller-access state when built from current source;
+  schema-13 identity, caller-access state, SSH configuration, and SSH host-key
+  continuity when built from current source;
 - an en-US localization baseline and versioned language-pack interface; and
 - a verified Moebius 1.0.29 workflow for authoring `.CLR` screens on macOS.
 
@@ -125,6 +129,7 @@ explains listener configuration, first calls, messages, files, and backups.
 - [Presentation profiles](docs/presentation-profiles.md)
 - [Localization](docs/localization.md)
 - [Caller access lifecycle and security](docs/sfng-caller-access.md)
+- [Secure SSH caller transport](docs/sfng-secure-ssh-transport.md)
 - [Roadmap](ROADMAP.md)
 
 ## Custom ANSI screens
@@ -156,7 +161,8 @@ behavior maps to the modern implementation.
 The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
 advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
-SSH, web administration, SFDraw, SFDATE, or SFREG.
+web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
+also predates the SSH and schema-13 source additions.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

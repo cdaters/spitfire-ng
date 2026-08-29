@@ -64,7 +64,9 @@ The native model supports one process owning the node pool. Do not start
 ## 3. Terminal services
 
 The menu lists configured services and edits one service's enabled state and
-network bind endpoint. Normal setup creates Telnet, RAW TCP, and RLogin.
+network bind endpoint. Normal setup creates Telnet, RAW TCP, RLogin, and a
+disabled SSH entry. Enabling SSH during setup defaults to loopback port 2222
+and generates its board-local Ed25519 key only when the listener first starts.
 
 Both setup and this configuration surface accept `y`, `yes`, `n`, and `no`
 case-insensitively, preserve Enter/default behavior, and reprompt after invalid
@@ -78,10 +80,33 @@ defaults may remain stored for a later re-enable.
 | a specific LAN address | Only that interface; useful for a trusted local network. |
 
 Telnet, RAW, and RLogin do not encrypt passwords or terminal content. Binding
-beyond loopback is an explicit risk decision. SSH is not currently available.
+beyond loopback is an explicit risk decision. SSH encrypts the caller
+connection and enters the same BBS session; it never provides a host shell,
+SCP, SFTP, forwarding, or remote commands. Keep it disabled until the bind,
+firewall, password policy, host-key backup, and caller login identifiers have
+been reviewed. See [Secure SSH Caller Transport](../sfng-secure-ssh-transport.md).
 
 Use ports above 1024 unless the host has been deliberately configured for a
 privileged service. Every enabled listener must have a unique endpoint.
+Port 2222 is the SSH caller default; port 22 is allowed when host permissions
+and service conflicts have been handled deliberately.
+
+## Caller login, handle, and real name
+
+`spitfire console` exposes privacy-bounded identity maintenance. `CALLERS`
+shows stable caller ID, login identifier, and public handle but omits real
+name. To distinguish an upgraded or newly registered caller's values:
+
+```text
+IDENTITY Current Handle|pixelwizard|PixelWizard|Avery Example
+```
+
+The login is normalized lowercase and must use only safe SSH characters. The
+handle remains ordinary BBS attribution. The optional real name is private and
+may be cleared with an empty final field. Identity changes preserve stable
+caller/message ownership, reject duplicates and stale state versions, and do
+not rewrite historical message attribution. The configured named Sysop handle
+cannot be renamed through this operation.
 
 ## 4. Security and caller defaults
 
@@ -209,7 +234,7 @@ The complete validated format and authority boundaries are in
 ## Setup prompt behavior
 
 M037.3 closes the bounded setup/operator findings: disabled
-RAW/RLogin/Telnet listeners
+RAW/RLogin/Telnet/SSH listeners
 skip bind/port questions; listener prompts accept `y`, `Y`, `yes`, `n`, `N`,
 and `no` case-insensitively and invalid input reprompts; disabled listeners can
 retain safe internal defaults without forcing irrelevant questions. The

@@ -17,6 +17,13 @@ and plaintext-transport warning. The remainder of this document continues to
 describe longer-term authentication/privacy direction and must not be read as
 claiming that every optional feature below already exists.
 
+M042.5 now implements the minimum durable modern identity separation and SSH
+password transport described by that specification: stable caller ID, unique
+login identifier, public display handle, private optional real name, and one
+authoritative Argon2id domain. See
+[Secure SSH Caller Transport](sfng-secure-ssh-transport.md). MFA, public-key
+management, web login, and network adapters remain future work.
+
 ## 2. Caller Principle
 
 The historical concept of a Caller remains central.
@@ -41,7 +48,9 @@ Caller-visible identity may include:
     Real Name
     Display Name
 
-A board may configure whether callers identify primarily by real name, handle, or either.
+A board may eventually configure protocol-specific identity policy. Current
+local presentation uses the handle, SSH authentication uses the login
+identifier, and real name remains private unless explicit policy requires it.
 
 Historical SPITFIRE behavior should be preserved where practical.
 

@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{CallerConfig, CallerProfilePolicy, ProfileFieldPolicy};
 
 pub const MAX_CALLER_NAME_BYTES: usize = 30;
+pub const MAX_LOGIN_IDENTIFIER_BYTES: usize = 32;
 pub const MAX_SECURITY_LEVEL: u16 = 9_999;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -224,8 +225,14 @@ impl CallerPreferences {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Caller {
     pub id: CallerId,
+    /// Stable, normalized authentication label used by secure transports.
+    pub login_identifier: String,
+    /// Public BBS identity. This retains the historical `display_name` field
+    /// name in storage and APIs to preserve attribution compatibility.
     pub display_name: String,
     pub normalized_name: String,
+    /// Privacy-sensitive identity retained separately from public display.
+    pub real_name: Option<String>,
     pub security_level: SecurityLevel,
     pub base_security_level: SecurityLevel,
     pub state: CallerState,
@@ -790,6 +797,56 @@ pub fn canonicalize_caller_name(input: &[u8]) -> Result<(String, String), Caller
     Ok((display, normalized))
 }
 
+/// Normalizes the durable login label shared by SSH and future secure
+/// transports. Display handles and real names deliberately use different
+/// rules and are never accepted here by implication.
+pub fn canonicalize_login_identifier(input: &[u8]) -> Result<String, CallerError> {
+    if input.is_empty() || input.len() > MAX_LOGIN_IDENTIFIER_BYTES {
+        return Err(CallerError::LoginIdentifierLength(input.len()));
+    }
+    if !input[0].is_ascii_alphanumeric()
+        || !input
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err(CallerError::LoginIdentifierSyntax);
+    }
+    Ok(input
+        .iter()
+        .map(u8::to_ascii_lowercase)
+        .map(char::from)
+        .collect())
+}
+
+/// Produces the collision-independent base used by schema migration. The
+/// migration stores this result and resolves collisions by stable caller ID.
+pub fn derive_login_identifier_base(normalized_name: &str) -> String {
+    let mut derived = String::new();
+    let mut separator = false;
+    for byte in normalized_name.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.') {
+            if separator && !derived.is_empty() {
+                derived.push('-');
+            }
+            separator = false;
+            derived.push(char::from(byte.to_ascii_lowercase()));
+        } else if !derived.is_empty() {
+            separator = true;
+        }
+    }
+    while derived.ends_with(['-', '_', '.']) {
+        derived.pop();
+    }
+    if derived.is_empty() {
+        derived.push_str("caller");
+    }
+    derived.truncate(MAX_LOGIN_IDENTIFIER_BYTES);
+    while derived.ends_with(['-', '_', '.']) {
+        derived.pop();
+    }
+    derived
+}
+
 #[derive(Debug, Error)]
 pub enum CallerError {
     #[error("caller identifier must be positive, got {0}")]
@@ -800,6 +857,12 @@ pub enum CallerError {
     CallerNameEncoding,
     #[error("caller name must contain 1..=30 bytes after whitespace normalization, got {0}")]
     CallerNameLength(usize),
+    #[error("login identifier must contain 1..=32 ASCII bytes, got {0}")]
+    LoginIdentifierLength(usize),
+    #[error("login identifier must begin with an ASCII letter or digit and contain only ASCII letters, digits, '-', '_', or '.'")]
+    LoginIdentifierSyntax,
+    #[error("real name must be absent or contain 1..=120 UTF-8 bytes without control characters")]
+    InvalidRealName,
     #[error("database contains unknown caller state {0:?}")]
     InvalidStoredState(String),
     #[error("database contains unknown graphics preference {0:?}")]
@@ -842,6 +905,19 @@ mod tests {
     }
 
     #[test]
+    fn login_identifiers_have_a_bounded_ssh_safe_canonical_form() {
+        assert_eq!(
+            canonicalize_login_identifier(b"Pixel.WIZARD_7").unwrap(),
+            "pixel.wizard_7"
+        );
+        assert!(canonicalize_login_identifier(b"not valid").is_err());
+        assert!(canonicalize_login_identifier(b"-leading").is_err());
+        assert!(canonicalize_login_identifier(&[b'x'; 33]).is_err());
+        assert_eq!(derive_login_identifier_base("alex  caller"), "alex-caller");
+        assert_eq!(derive_login_identifier_base("***"), "caller");
+    }
+
+    #[test]
     fn security_comparison_matches_stock_threshold_semantics() {
         let caller = SecurityLevel::new(50).unwrap();
         assert!(caller.allows(SecurityLevel::new(10).unwrap()));
@@ -878,8 +954,10 @@ mod tests {
         };
         let caller = Caller {
             id: CallerId::new(7).unwrap(),
+            login_identifier: "context-caller".to_owned(),
             display_name: "Context Caller".to_owned(),
             normalized_name: "context caller".to_owned(),
+            real_name: Some("Context Caller".to_owned()),
             security_level: SecurityLevel::new(10).unwrap(),
             base_security_level: SecurityLevel::new(10).unwrap(),
             state: CallerState::Active,

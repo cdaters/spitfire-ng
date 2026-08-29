@@ -6,8 +6,11 @@
   local Telnet workflows below.
 - **Development Preview:** Client support claims are limited to the named
   versions, settings, and protocol evidence; Telnet remains plaintext.
-- **Planned:** An encrypted SSH listener and physical serial/modem client
-  acceptance are not available at this checkpoint.
+- **SSH:** macOS OpenSSH completed the caller journey. Qodem 1.0.1 external
+  SSH reached Main/Messages/Files with the limits below. SyncTERM 1.9rc4 did
+  not negotiate the modern SSH policy in the tested version/configuration.
+- **Planned:** Physical serial/modem client acceptance is not available at
+  this checkpoint.
 
 ## Baseline connection profile
 
@@ -28,7 +31,41 @@ override graphics/text, width, page length, MORE, and related preferences
 under Main `U`. If presentation is corrupted, select text there and reconnect.
 
 Telnet does not encrypt the connection. Use loopback or a trusted protected
-network. SPITFIRE NG does not yet provide SSH.
+network, or enable the separate SSH caller listener.
+
+## SSH callers
+
+SSH authenticates with the caller's login identifier, not the display handle
+or private real name. It accepts password authentication through the ordinary
+SPITFIRE credential authority and then enters the post-login BBS journey
+without another caller-name/password prompt. It does not expose an operating-
+system shell, SCP, SFTP, forwarding, or commands.
+
+For macOS OpenSSH with the setup default:
+
+```bash
+ssh -p 2222 login-identifier@board.example
+```
+
+Verify the Ed25519 fingerprint with the Sysop before accepting it. A changed
+fingerprint is expected only after deliberate host-key rotation or a restored
+board with a different key. Do not bypass host-key checking as a routine fix.
+`xterm`/`xterm-256color` defaults to ANSI and the UTF-8-oriented presentation
+path; `ansi` and SyncTERM-like TERM values select ANSI/CP437 defaults. Caller
+preferences still apply, and the adapter reports TERM rather than guessing a
+client product.
+
+The accepted macOS OpenSSH call authenticated, negotiated PTY dimensions,
+traversed caller-profile policy and terminal preferences, entered Main,
+browsed Messages, entered Files, and logged off cleanly. Qodem 1.0.1 in
+documented external-SSH mode authenticated and negotiated `ansi`, CP437, and
+80×23, then reached Main, Messages, and Files; the automated curses harness
+ended at input EOF, so this is not a clean-Goodbye claim. SyncTERM 1.9rc4
+opened TCP but did not complete the secure handshake in the tested
+version/configuration. The server was not downgraded for either client.
+
+See [Secure SSH Caller Transport](../sfng-secure-ssh-transport.md) for setup,
+host keys, exact cryptographic boundary, identity migration, and diagnostics.
 
 ## SyncTERM
 

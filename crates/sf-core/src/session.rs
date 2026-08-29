@@ -306,7 +306,7 @@ fn run_stock_session_inner(
 ) -> Result<SessionOutcome, SessionError> {
     session.activate()?;
     stock.status.login_started()?;
-    let negotiated_terminal = terminal.info();
+    let negotiated_terminal = terminal.negotiated_info();
     publish_presentation_context(
         &stock,
         &negotiated_terminal,
@@ -432,7 +432,7 @@ fn run_stock_session_inner(
             );
             publish_presentation_context(
                 &stock,
-                &negotiated_terminal,
+                &terminal.negotiated_info(),
                 &terminal.info(),
                 Some(resources.menu(MenuSection::File)?),
                 Some(authenticated.caller.security_level),
@@ -491,7 +491,7 @@ fn run_stock_session_inner(
         );
         publish_presentation_context(
             &stock,
-            &negotiated_terminal,
+            &terminal.negotiated_info(),
             &terminal.info(),
             Some(menu),
             Some(authenticated.caller.security_level),
@@ -560,7 +560,7 @@ fn run_stock_session_inner(
                 }
                 publish_presentation_context(
                     &stock,
-                    &negotiated_terminal,
+                    &terminal.negotiated_info(),
                     &terminal.info(),
                     Some(resources.menu(MenuSection::Message)?),
                     Some(authenticated.caller.security_level),
@@ -824,6 +824,59 @@ fn authenticate_session(
     stock: &StockSessionContext<'_>,
     context: &DisplayContext<'_>,
 ) -> Result<Option<AuthenticatedCaller>, SessionError> {
+    if let Some(grant) = terminal.take_verified_caller_grant() {
+        let Some(caller) = database.caller_by_id(grant.caller_id)? else {
+            warn!("verified transport grant referred to a missing caller");
+            session.close(SessionCloseReason::AuthenticationFailed)?;
+            terminal.disconnect()?;
+            return Ok(None);
+        };
+        if reject_joker_name(
+            session,
+            terminal,
+            database,
+            caller.display_name.as_bytes(),
+            Some(caller.id),
+            stock,
+            context,
+        )? {
+            return Ok(None);
+        }
+        if caller.state != CallerState::Active {
+            database.record_caller_access_denial(
+                caller.id,
+                unix_seconds()?,
+                AccessDenialReason::AccountUnavailable,
+            )?;
+            warn!(
+                caller_id = caller.id.get(),
+                "disabled or deleted SSH caller rejected at session dispatch"
+            );
+            render_policy_display(
+                terminal,
+                stock.resources,
+                "LOCKOUT",
+                context,
+                "This caller account is unavailable.",
+            )?;
+            session.close(SessionCloseReason::AccountUnavailable)?;
+            terminal.disconnect()?;
+            return Ok(None);
+        }
+        if caller.state_version != grant.authenticated_state_version {
+            info!(
+                caller_id = caller.id.get(),
+                authenticated_state_version = grant.authenticated_state_version,
+                current_state_version = caller.state_version,
+                "SSH caller state changed after transport authentication; current state reauthorized"
+            );
+        }
+        info!(
+            caller_id = caller.id.get(),
+            "caller login succeeded through SSH authentication"
+        );
+        return begin_or_close(session, terminal, database, config, caller, stock, context);
+    }
     if let Some(credentials) = terminal.take_supplied_credentials() {
         let known_caller = known_caller_for_login(database, credentials.username())?;
         if reject_joker_name(

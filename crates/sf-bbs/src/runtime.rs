@@ -11,7 +11,7 @@ use sf_core::{
     CredentialHasher, FileStorage, InteractionHub, JokerPolicy, LogicalPath, LogicalPaths,
     NodeError, NodeManager, NodeRuntimeState, RuntimeConfig, RuntimeDatabase, SecurityLevel,
     SessionCloseReason, SessionId, SessionState, StockSessionContext, Terminal,
-    TransportAdapterConfig, TransportConfig, TransportKind,
+    TransportAdapterConfig, TransportConfig, TransportKind, VerifiedCallerGrant,
 };
 use tracing::{info, warn};
 
@@ -21,7 +21,8 @@ use crate::operator::{run_operator_console, OperatorService};
 use crate::resources::load_stock_resources;
 use crate::status::{publish_runtime_status, remove_runtime_status, RUNTIME_STATUS_FILE};
 use crate::transports::{
-    ModemTerminal, RawTcpTerminal, RloginTerminal, SerialTerminal, TelnetTerminal,
+    load_or_generate_host_key, serve_ssh_listener, ModemTerminal, RawTcpTerminal, RloginTerminal,
+    SerialTerminal, SshListenerOptions, TelnetTerminal,
 };
 use crate::ApplicationError;
 use crate::PresentationResolver;
@@ -144,6 +145,7 @@ impl BoardRuntime {
         let status_board = identity.name().to_owned();
         let status_transports = validated.transports.clone();
         let status_output = status_path.clone();
+        let status_database = paths.database().to_path_buf();
         let started_at = current_unix_seconds()?;
         let nodes = NodeManager::with_change_hook(
             validated.nodes,
@@ -153,6 +155,7 @@ impl BoardRuntime {
                     &status_board,
                     started_at,
                     &status_transports,
+                    &status_database,
                     snapshots,
                 ) {
                     warn!(error = %error, "could not publish transient node status");
@@ -209,6 +212,72 @@ impl BoardRuntime {
         self.paths.database()
     }
 
+    pub(crate) fn system_path(&self) -> &Path {
+        self.paths.get(LogicalPath::System)
+    }
+
+    pub(crate) fn authenticate_ssh_password(
+        &self,
+        login_identifier: &str,
+        password: &str,
+    ) -> Result<Option<VerifiedCallerGrant>, ApplicationError> {
+        if password.len() > self.caller_config.maximum_password_length
+            || sf_core::canonicalize_login_identifier(login_identifier.as_bytes()).is_err()
+        {
+            warn!("SSH password authentication rejected");
+            return Ok(None);
+        }
+        let database = RuntimeDatabase::open(self.paths.database())?;
+        match database.authenticate_login_identifier(
+            login_identifier.as_bytes(),
+            password.as_bytes(),
+            &self.credential_hasher,
+        )? {
+            sf_core::AuthenticationResult::Valid(caller) => {
+                if self
+                    .joker_policy
+                    .denial_for(caller.display_name.as_bytes())?
+                    .is_some()
+                {
+                    database.record_joker_denial(
+                        Some(caller.id),
+                        self.joker_policy.generation(),
+                        current_unix_seconds()?,
+                    )?;
+                    warn!(
+                        caller_id = caller.id.get(),
+                        "SSH authentication denied by caller access policy"
+                    );
+                    return Ok(None);
+                }
+                info!(
+                    caller_id = caller.id.get(),
+                    "SSH password authentication accepted"
+                );
+                Ok(Some(VerifiedCallerGrant {
+                    caller_id: caller.id,
+                    authenticated_state_version: caller.state_version,
+                }))
+            }
+            sf_core::AuthenticationResult::Unavailable(caller) => {
+                database.record_caller_access_denial(
+                    caller.id,
+                    current_unix_seconds()?,
+                    sf_core::AccessDenialReason::AccountUnavailable,
+                )?;
+                warn!(
+                    caller_id = caller.id.get(),
+                    "SSH authentication rejected for unavailable caller"
+                );
+                Ok(None)
+            }
+            sf_core::AuthenticationResult::Invalid => {
+                warn!("SSH password authentication rejected");
+                Ok(None)
+            }
+        }
+    }
+
     pub fn callers(&self) -> Result<Vec<Caller>, ApplicationError> {
         RuntimeDatabase::open(self.paths.database())?
             .all_callers()
@@ -232,6 +301,30 @@ impl BoardRuntime {
             .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
         database
             .update_caller_profile(caller.id, profile, &self.caller_config.profile)
+            .map_err(Into::into)
+    }
+
+    pub fn set_caller_identity(
+        &self,
+        name: &[u8],
+        login_identifier: &[u8],
+        display_handle: &[u8],
+        real_name: Option<String>,
+    ) -> Result<Caller, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        let caller = database
+            .caller_by_name(name)?
+            .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
+        database
+            .update_caller_identity(
+                caller.id,
+                caller.state_version,
+                login_identifier,
+                display_handle,
+                real_name,
+                &self.caller_config,
+                current_unix_seconds()?,
+            )
             .map_err(Into::into)
     }
 
@@ -592,6 +685,7 @@ fn serve_with_operator(
     let completed = Arc::new(AtomicUsize::new(0));
     let mut listeners = Vec::new();
     let mut network = Vec::new();
+    let mut ssh_network = Vec::new();
     let mut devices = Vec::new();
 
     for (index, transport) in runtime.transports().iter().enumerate() {
@@ -671,14 +765,35 @@ fn serve_with_operator(
                 answer: answer.clone(),
                 terminal: terminal.clone(),
             }),
-            TransportAdapterConfig::Ssh { .. } => {
-                return Err(ApplicationError::Transport(
-                    "SSH passed validation before its adapter was implemented".to_owned(),
+            TransportAdapterConfig::Ssh {
+                listen,
+                host_key,
+                terminal,
+                maximum_unauthenticated_connections,
+                maximum_authentication_attempts,
+                handshake_timeout_seconds,
+            } => {
+                let listener = bind_listener(*listen)?;
+                listeners.push(ListenerReport {
+                    name: name.clone(),
+                    transport: TransportKind::Ssh,
+                    address: listener_address(&listener)?,
+                });
+                let key = load_or_generate_host_key(runtime.system_path(), host_key)?;
+                ssh_network.push((
+                    listener,
+                    key,
+                    SshListenerOptions {
+                        defaults: terminal.clone(),
+                        maximum_unauthenticated_connections: *maximum_unauthenticated_connections,
+                        maximum_authentication_attempts: *maximum_authentication_attempts,
+                        handshake_timeout: Duration::from_secs(*handshake_timeout_seconds),
+                    },
                 ));
             }
         }
     }
-    if network.is_empty() && devices.is_empty() {
+    if network.is_empty() && ssh_network.is_empty() && devices.is_empty() {
         return Err(ApplicationError::Transport(
             "no listener or device transports are configured".to_owned(),
         ));
@@ -696,6 +811,22 @@ fn serve_with_operator(
             listener_loop(
                 network_listener,
                 runtime,
+                completed,
+                maximum_sessions,
+                shutdown,
+            )
+        }));
+    }
+    for (listener, host_key, options) in ssh_network {
+        let runtime = Arc::clone(&runtime);
+        let shutdown = Arc::clone(&shutdown);
+        let completed = Arc::clone(&completed);
+        handles.push(thread::spawn(move || {
+            serve_ssh_listener(
+                listener,
+                runtime,
+                host_key,
+                options,
                 completed,
                 maximum_sessions,
                 shutdown,
@@ -829,7 +960,7 @@ fn listener_loop(
     }
 }
 
-fn record_completion(
+pub(crate) fn record_completion(
     completed: &AtomicUsize,
     maximum_sessions: Option<usize>,
     shutdown: &AtomicBool,
@@ -881,6 +1012,44 @@ mod tests {
 
     use crate::{initialize_fixture_board, FIXTURE_CONFIG_FILE};
 
+    struct AcceptTestSshServerKey;
+
+    impl russh::client::Handler for AcceptTestSshServerKey {
+        type Error = russh::Error;
+
+        async fn check_server_key(
+            &mut self,
+            _server_public_key: &russh::keys::PublicKeyOrCertificate,
+        ) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+    }
+
+    async fn connect_ssh_test_client(
+        address: SocketAddr,
+    ) -> russh::client::Handle<AcceptTestSshServerKey> {
+        let started = Instant::now();
+        loop {
+            match russh::client::connect(
+                Arc::new(russh::client::Config {
+                    inactivity_timeout: Some(Duration::from_secs(10)),
+                    ..Default::default()
+                }),
+                address,
+                AcceptTestSshServerKey,
+            )
+            .await
+            {
+                Ok(client) => return client,
+                Err(error) if started.elapsed() < Duration::from_secs(5) => {
+                    let _ = error;
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Err(error) => panic!("could not connect SSH test client: {error}"),
+            }
+        }
+    }
+
     #[test]
     fn complete_stock_runtime_traverses_menus_and_shuts_down() {
         let temp = tempfile::tempdir().unwrap();
@@ -919,6 +1088,209 @@ mod tests {
         assert!(contains(output, b"FILE MENU"));
         assert!(contains(output, b"Moves from Main to the Message Menu."));
         assert!(terminal.disconnected());
+    }
+
+    #[test]
+    fn ssh_authentication_uses_login_identifier_and_rejects_unavailable_callers() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("ssh-auth-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Available SSH Caller",
+            b"test-only available ssh password",
+            CallerState::Active,
+        );
+        seed_caller(
+            &root,
+            b"Disabled SSH Caller",
+            b"test-only disabled ssh password",
+            CallerState::Disabled,
+        );
+        seed_caller(
+            &root,
+            b"Deleted SSH Caller",
+            b"test-only deleted ssh password",
+            CallerState::Deleted,
+        );
+        seed_caller(
+            &root,
+            b"Joker SSH Caller",
+            b"test-only joker ssh password",
+            CallerState::Active,
+        );
+        fs::write(
+            root.join("system").join("JOKER.DAT"),
+            b"Joker SSH Caller\r\n",
+        )
+        .unwrap();
+        let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
+        assert!(runtime
+            .authenticate_ssh_password("available-ssh-caller", "test-only available ssh password")
+            .unwrap()
+            .is_some());
+        for (login, password) in [
+            ("available-ssh-caller", "wrong password"),
+            ("missing-ssh-caller", "test-only missing password"),
+            ("disabled-ssh-caller", "test-only disabled ssh password"),
+            ("deleted-ssh-caller", "test-only deleted ssh password"),
+            ("joker-ssh-caller", "test-only joker ssh password"),
+        ] {
+            assert!(runtime
+                .authenticate_ssh_password(login, password)
+                .unwrap()
+                .is_none());
+        }
+        assert!(runtime
+            .authenticate_ssh_password(&"x".repeat(33), "irrelevant")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn ssh_listener_enters_the_common_bbs_session_and_exposes_no_os_shell() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("ssh-listener-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        let password = "test-only ssh listener password";
+        seed_caller(
+            &root,
+            b"Legacy SSH Public Name",
+            password.as_bytes(),
+            CallerState::Active,
+        );
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let identity = runtime
+            .set_caller_identity(
+                b"Legacy SSH Public Name",
+                b"pixelwizard",
+                b"PixelWizard",
+                Some("Avery Example".to_owned()),
+            )
+            .unwrap();
+        assert_eq!(identity.login_identifier, "pixelwizard");
+        assert_eq!(identity.display_name, "PixelWizard");
+        assert_eq!(identity.real_name.as_deref(), Some("Avery Example"));
+        drop(runtime);
+
+        let address = available_address();
+        let mut config = RuntimeConfig::load(&config_path).unwrap();
+        config.transports = vec![listener_config(
+            "ssh-acceptance",
+            TransportAdapterConfig::Ssh {
+                listen: address,
+                host_key: PathBuf::from("ssh/host-ed25519"),
+                terminal: NetworkTerminalDefaults {
+                    cp437: false,
+                    ..NetworkTerminalDefaults::default()
+                },
+                maximum_unauthenticated_connections: 4,
+                maximum_authentication_attempts: 3,
+                handshake_timeout_seconds: 5,
+            },
+        )];
+        config.save_atomic(&config_path).unwrap();
+        let thread_config = config_path.clone();
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let server =
+            thread::spawn(move || serve_with_shutdown(&thread_config, Some(1), shutdown).unwrap());
+
+        let async_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let transcript = async_runtime.block_on(async {
+            let mut rejected = connect_ssh_test_client(address).await;
+            assert!(!rejected
+                .authenticate_password("pixelwizard", "wrong password")
+                .await
+                .unwrap()
+                .success());
+            let _ = rejected
+                .disconnect(russh::Disconnect::ByApplication, "", "")
+                .await;
+
+            let mut missing = connect_ssh_test_client(address).await;
+            assert!(!missing
+                .authenticate_password("no-such-login", "irrelevant")
+                .await
+                .unwrap()
+                .success());
+            let _ = missing
+                .disconnect(russh::Disconnect::ByApplication, "", "")
+                .await;
+
+            let mut command_client = connect_ssh_test_client(address).await;
+            assert!(command_client
+                .authenticate_password("pixelwizard", password)
+                .await
+                .unwrap()
+                .success());
+            let mut command_channel = command_client.channel_open_session().await.unwrap();
+            command_channel.exec(true, b"id".as_slice()).await.unwrap();
+            assert!(matches!(
+                tokio::time::timeout(Duration::from_secs(2), command_channel.wait())
+                    .await
+                    .unwrap(),
+                Some(russh::ChannelMsg::Failure)
+            ));
+            command_client
+                .disconnect(russh::Disconnect::ByApplication, "", "")
+                .await
+                .unwrap();
+
+            let mut client = connect_ssh_test_client(address).await;
+            assert!(client
+                .authenticate_password("PIXELWIZARD", password)
+                .await
+                .unwrap()
+                .success());
+            let mut channel = client.channel_open_session().await.unwrap();
+            channel
+                .request_pty(true, "xterm-256color", 100, 40, 0, 0, &[])
+                .await
+                .unwrap();
+            channel.request_shell(true).await.unwrap();
+            channel.window_change(120, 50, 0, 0).await.unwrap();
+            channel.data(b"M\r".as_slice()).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let status = crate::board_status(&config_path).unwrap();
+            assert!(
+                status.contains("caller=pixelwizard (PixelWizard) lifecycle=active transport=ssh")
+            );
+            assert!(
+                status.contains("terminal=xterm-256color ansi=true encoding=utf-8 size=120x50"),
+                "unexpected SSH status after resize:\n{status}"
+            );
+            channel.data(b"B\rF\rQ\rG\r".as_slice()).await.unwrap();
+            let mut transcript = Vec::new();
+            loop {
+                let message = tokio::time::timeout(Duration::from_secs(10), channel.wait())
+                    .await
+                    .expect("timed out waiting for SSH BBS transcript");
+                match message {
+                    Some(russh::ChannelMsg::Data { data }) => transcript.extend_from_slice(&data),
+                    Some(russh::ChannelMsg::Close) | None => break,
+                    _ => {}
+                }
+            }
+            transcript
+        });
+        let report = server.join().unwrap();
+        assert_eq!(report.completed_sessions, 1);
+        assert_eq!(report.listeners[0].transport, TransportKind::Ssh);
+        assert!(contains(&transcript, b"Welcome back, PixelWizard"));
+        assert!(contains(&transcript, b"MAIN MENU"));
+        assert!(contains(&transcript, b"MESSAGE MENU"));
+        assert!(contains(&transcript, b"FILE MENU"));
+        assert!(contains(&transcript, b"Thank you for calling"));
+        assert!(!contains(&transcript, b"Caller name"));
+        assert!(!contains(&transcript, password.as_bytes()));
+        assert!(!contains(&transcript, b"Avery Example"));
+        assert!(root.join("system/ssh/host-ed25519").is_file());
     }
 
     #[test]

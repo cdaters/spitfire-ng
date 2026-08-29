@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -5,18 +6,19 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Transaction};
 use thiserror::Error;
 
 use crate::{
-    board_local_day, canonicalize_caller_name, parse_birth_date, AccessDenialReason,
-    AuthenticatedCaller, Caller, CallerAccessDenial, CallerConfig, CallerError, CallerId,
-    CallerPreferences, CallerProfile, CallerProfilePolicy, CallerState, CredentialError,
-    CredentialHasher, GraphicsPreference, PostalAddress, SecurityLevel, TimePolicy,
-    TransferPreference, CREDENTIAL_SCHEME,
+    board_local_day, canonicalize_caller_name, canonicalize_login_identifier,
+    derive_login_identifier_base, parse_birth_date, AccessDenialReason, AuthenticatedCaller,
+    Caller, CallerAccessDenial, CallerConfig, CallerError, CallerId, CallerPreferences,
+    CallerProfile, CallerProfilePolicy, CallerState, CredentialError, CredentialHasher,
+    GraphicsPreference, PostalAddress, SecurityLevel, TimePolicy, TransferPreference,
+    CREDENTIAL_SCHEME, MAX_LOGIN_IDENTIFIER_BYTES,
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 12;
+pub const SCHEMA_VERSION: u32 = 13;
 
 const CALLER_SELECT: &str = r#"
-SELECT c.caller_id, c.display_name, c.normalized_name,
+SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
        MIN(c.security_level, COALESCE((
            SELECT MIN(a.target_security_level)
              FROM caller_security_adjustments AS a
@@ -39,7 +41,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 12] = [
+const MIGRATIONS: [Migration; 13] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -612,6 +614,35 @@ const MIGRATIONS: [Migration; 12] = [
         END;
         "#,
     },
+    Migration {
+        version: 13,
+        name: "durable_caller_identity",
+        sql: r#"
+        ALTER TABLE callers ADD COLUMN login_identifier TEXT
+            CHECK (login_identifier IS NULL OR length(login_identifier) BETWEEN 1 AND 32);
+        ALTER TABLE callers ADD COLUMN real_name TEXT
+            CHECK (real_name IS NULL OR length(real_name) BETWEEN 1 AND 120);
+
+        CREATE TABLE caller_identity_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            prior_state_version INTEGER NOT NULL CHECK (prior_state_version >= 0),
+            new_state_version INTEGER NOT NULL CHECK (new_state_version = prior_state_version + 1),
+            actor_kind TEXT NOT NULL CHECK (actor_kind = 'local-operator')
+        );
+        CREATE INDEX caller_identity_events_caller
+            ON caller_identity_events (caller_id, event_id);
+        CREATE TRIGGER caller_identity_events_no_update
+        BEFORE UPDATE ON caller_identity_events BEGIN
+            SELECT RAISE(ABORT, 'caller identity events are append-only');
+        END;
+        CREATE TRIGGER caller_identity_events_no_delete
+        BEFORE DELETE ON caller_identity_events BEGIN
+            SELECT RAISE(ABORT, 'caller identity events are append-only');
+        END;
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -777,8 +808,11 @@ impl RuntimeDatabase {
         if required >= 11 {
             validate_schema_11_snapshot(&self.connection)?;
         }
-        if required == 12 {
+        if required >= 12 {
             validate_schema_12_snapshot(&self.connection)?;
+        }
+        if required >= 13 {
+            validate_schema_13_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -961,6 +995,8 @@ impl RuntimeDatabase {
         if self.caller_by_normalized_name(&normalized_name)?.is_some() {
             return Err(DatabaseError::DuplicateCaller(display_name));
         }
+        let login_identifier = self.available_login_identifier(&normalized_name)?;
+        let real_name = Some(display_name.clone());
         let transaction = self
             .connection
             .transaction()
@@ -969,14 +1005,17 @@ impl RuntimeDatabase {
             .execute(
                 r#"
                 INSERT INTO callers (
-                    display_name, normalized_name, security_level, account_state,
+                    login_identifier, display_name, normalized_name, real_name,
+                    security_level, account_state,
                     is_new_caller, first_call_at, address_line_1, address_line_2,
                     city, region, postal_code, country, phone, email, birthday
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
                 "#,
                 params![
+                    login_identifier,
                     display_name,
                     normalized_name,
+                    real_name,
                     security_level.get(),
                     state.as_database_value(),
                     is_new_caller,
@@ -1013,6 +1052,41 @@ impl RuntimeDatabase {
         self.caller_by_normalized_name(&normalized)
     }
 
+    pub fn caller_by_login_identifier(
+        &self,
+        login_identifier: &[u8],
+    ) -> Result<Option<Caller>, DatabaseError> {
+        let normalized = canonicalize_login_identifier(login_identifier)?;
+        self.query_caller(
+            &format!("{CALLER_SELECT} WHERE c.login_identifier = ?1"),
+            params![normalized],
+        )
+    }
+
+    fn available_login_identifier(&self, normalized_name: &str) -> Result<String, DatabaseError> {
+        let base = derive_login_identifier_base(normalized_name);
+        if self.caller_by_login_identifier(base.as_bytes())?.is_none() {
+            return Ok(base);
+        }
+        let next_id: i64 = self
+            .connection
+            .query_row(
+                "SELECT COALESCE(MAX(caller_id), 0) + 1 FROM callers",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+        let suffix = format!("-{next_id}");
+        let keep = MAX_LOGIN_IDENTIFIER_BYTES.saturating_sub(suffix.len());
+        let mut resolved = base;
+        resolved.truncate(keep);
+        while resolved.ends_with(['-', '_', '.']) {
+            resolved.pop();
+        }
+        resolved.push_str(&suffix);
+        Ok(resolved)
+    }
+
     pub fn caller_by_id(&self, caller_id: CallerId) -> Result<Option<Caller>, DatabaseError> {
         self.query_caller(
             &format!("{CALLER_SELECT} WHERE c.caller_id = ?1"),
@@ -1038,6 +1112,8 @@ impl RuntimeDatabase {
             i64,
             String,
             String,
+            String,
+            Option<String>,
             u16,
             String,
             i64,
@@ -1112,6 +1188,8 @@ impl RuntimeDatabase {
                     row.get(33)?,
                     row.get(34)?,
                     row.get(35)?,
+                    row.get(36)?,
+                    row.get(37)?,
                 ))
             })
             .optional()
@@ -1120,8 +1198,10 @@ impl RuntimeDatabase {
             .map(
                 |(
                     caller_id,
+                    login_identifier,
                     display_name,
                     normalized_name,
+                    real_name,
                     security,
                     state,
                     first_call_at,
@@ -1158,8 +1238,10 @@ impl RuntimeDatabase {
                 )| {
                     Ok(Caller {
                         id: CallerId::new(caller_id).map_err(DatabaseError::InvalidStoredCaller)?,
+                        login_identifier,
                         display_name,
                         normalized_name,
+                        real_name,
                         security_level: SecurityLevel::new(security)
                             .map_err(DatabaseError::InvalidStoredCaller)?,
                         base_security_level: SecurityLevel::new(base_security)
@@ -1236,6 +1318,49 @@ impl RuntimeDatabase {
         let Some(caller) = self.caller_by_normalized_name(&normalized_name)? else {
             return Ok(AuthenticationResult::Invalid);
         };
+        if caller.state != CallerState::Active {
+            return Ok(AuthenticationResult::Unavailable(caller));
+        }
+        let stored: Option<(String, String)> = self
+            .connection
+            .query_row(
+                "SELECT scheme, password_hash FROM caller_credentials WHERE caller_id = ?1",
+                params![caller.id.get()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(DatabaseError::Sqlite)?;
+        let Some((scheme, password_hash)) = stored else {
+            return Err(DatabaseError::MissingCredential(caller.id.get()));
+        };
+        if scheme != CREDENTIAL_SCHEME {
+            return Err(DatabaseError::UnsupportedCredentialScheme(scheme));
+        }
+        if hasher.verify(password, &password_hash)? {
+            Ok(AuthenticationResult::Valid(caller))
+        } else {
+            Ok(AuthenticationResult::Invalid)
+        }
+    }
+
+    pub fn authenticate_login_identifier(
+        &self,
+        login_identifier: &[u8],
+        password: &[u8],
+        hasher: &CredentialHasher,
+    ) -> Result<AuthenticationResult, DatabaseError> {
+        let Some(caller) = self.caller_by_login_identifier(login_identifier)? else {
+            return Ok(AuthenticationResult::Invalid);
+        };
+        self.authenticate_caller_password(caller, password, hasher)
+    }
+
+    fn authenticate_caller_password(
+        &self,
+        caller: Caller,
+        password: &[u8],
+        hasher: &CredentialHasher,
+    ) -> Result<AuthenticationResult, DatabaseError> {
         if caller.state != CallerState::Active {
             return Ok(AuthenticationResult::Unavailable(caller));
         }
@@ -1561,6 +1686,87 @@ impl RuntimeDatabase {
             .ok_or(DatabaseError::MissingCaller(caller_id.get()))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_caller_identity(
+        &mut self,
+        caller_id: CallerId,
+        expected_state_version: u64,
+        login_identifier: &[u8],
+        display_handle: &[u8],
+        real_name: Option<String>,
+        caller_config: &CallerConfig,
+        now: i64,
+    ) -> Result<Caller, DatabaseError> {
+        let login_identifier = canonicalize_login_identifier(login_identifier)?;
+        let (display_name, normalized_name) = canonicalize_caller_name(display_handle)?;
+        let real_name = real_name
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if real_name
+            .as_ref()
+            .is_some_and(|value| value.len() > 120 || value.chars().any(char::is_control))
+        {
+            return Err(DatabaseError::InvalidStoredCaller(
+                CallerError::InvalidRealName,
+            ));
+        }
+        let (_, normalized_sysop) =
+            canonicalize_caller_name(caller_config.sysop_caller_name.as_bytes())?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(DatabaseError::Sqlite)?;
+        let current: Option<(String, i64)> = transaction
+            .query_row(
+                "SELECT normalized_name, state_version FROM callers WHERE caller_id=?1",
+                params![caller_id.get()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(DatabaseError::Sqlite)?;
+        let Some((current_name, current_version)) = current else {
+            return Err(DatabaseError::MissingCaller(caller_id.get()));
+        };
+        let current_version = nonnegative_u64(current_version)?;
+        if current_version != expected_state_version {
+            return Err(DatabaseError::CallerStateConflict {
+                expected: expected_state_version,
+                actual: current_version,
+            });
+        }
+        if current_name == normalized_sysop && normalized_name != normalized_sysop {
+            return Err(DatabaseError::ProtectedNamedSysop);
+        }
+        let conflicts: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM callers WHERE caller_id<>?1 AND (login_identifier=?2 OR normalized_name=?3)",
+                params![caller_id.get(), login_identifier, normalized_name],
+                |row| row.get(0),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+        if conflicts != 0 {
+            return Err(DatabaseError::DuplicateCallerIdentity);
+        }
+        let new_version = current_version
+            .checked_add(1)
+            .ok_or(DatabaseError::CounterOverflow(current_version))?;
+        transaction
+            .execute(
+                "UPDATE callers SET login_identifier=?2, display_name=?3, normalized_name=?4, real_name=?5, state_version=?6, updated_at=CURRENT_TIMESTAMP WHERE caller_id=?1 AND state_version=?7",
+                params![caller_id.get(), login_identifier, display_name, normalized_name, real_name, sqlite_i64(new_version)?, sqlite_i64(expected_state_version)?],
+            )
+            .map_err(DatabaseError::Sqlite)?;
+        transaction
+            .execute(
+                "INSERT INTO caller_identity_events (occurred_at, caller_id, prior_state_version, new_state_version, actor_kind) VALUES (?1, ?2, ?3, ?4, 'local-operator')",
+                params![now, caller_id.get(), sqlite_i64(current_version)?, sqlite_i64(new_version)?],
+            )
+            .map_err(DatabaseError::Sqlite)?;
+        transaction.commit().map_err(DatabaseError::Sqlite)?;
+        self.caller_by_id(caller_id)?
+            .ok_or(DatabaseError::MissingCaller(caller_id.get()))
+    }
+
     pub fn all_callers(&self) -> Result<Vec<Caller>, DatabaseError> {
         let mut statement = self
             .connection
@@ -1821,12 +2027,132 @@ fn run_migration(
             .execute("DROP TABLE migration_12_validation", [])
             .map_err(DatabaseError::Sqlite)?;
     }
+    if migration.version == 13 {
+        migrate_caller_identity(transaction)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
             params![migration.version, migration.name],
         )
         .map_err(DatabaseError::Sqlite)?;
+    Ok(())
+}
+
+fn migrate_caller_identity(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let callers = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT caller_id, display_name, normalized_name FROM callers ORDER BY caller_id",
+            )
+            .map_err(DatabaseError::Sqlite)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(DatabaseError::Sqlite)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(DatabaseError::Sqlite)?
+    };
+    let mut used = HashSet::new();
+    for (caller_id, display_name, normalized_name) in callers {
+        let base = derive_login_identifier_base(&normalized_name);
+        let login_identifier = if used.insert(base.clone()) {
+            base
+        } else {
+            let suffix = format!("-{caller_id}");
+            let keep = MAX_LOGIN_IDENTIFIER_BYTES.saturating_sub(suffix.len());
+            let mut resolved = base;
+            resolved.truncate(keep);
+            while resolved.ends_with(['-', '_', '.']) {
+                resolved.pop();
+            }
+            resolved.push_str(&suffix);
+            if !used.insert(resolved.clone()) {
+                return Err(DatabaseError::MigrationValidation(
+                    "schema-13 login identifier collision could not be resolved".to_owned(),
+                ));
+            }
+            resolved
+        };
+        canonicalize_login_identifier(login_identifier.as_bytes())
+            .map_err(DatabaseError::InvalidStoredCaller)?;
+        transaction
+            .execute(
+                "UPDATE callers SET login_identifier=?2, real_name=?3 WHERE caller_id=?1",
+                params![caller_id, login_identifier, display_name],
+            )
+            .map_err(DatabaseError::Sqlite)?;
+    }
+    transaction
+        .execute_batch(
+            r#"
+            CREATE UNIQUE INDEX callers_login_identifier_unique
+                ON callers (login_identifier);
+            CREATE TRIGGER callers_login_identifier_insert
+            BEFORE INSERT ON callers
+            WHEN NEW.login_identifier IS NULL
+              OR length(NEW.login_identifier) NOT BETWEEN 1 AND 32
+              OR NEW.login_identifier <> lower(NEW.login_identifier)
+              OR substr(NEW.login_identifier, 1, 1) NOT GLOB '[a-z0-9]'
+              OR NEW.login_identifier GLOB '*[^a-z0-9._-]*'
+            BEGIN SELECT RAISE(ABORT, 'invalid login identifier'); END;
+            CREATE TRIGGER callers_login_identifier_update
+            BEFORE UPDATE OF login_identifier ON callers
+            WHEN NEW.login_identifier IS NULL
+              OR length(NEW.login_identifier) NOT BETWEEN 1 AND 32
+              OR NEW.login_identifier <> lower(NEW.login_identifier)
+              OR substr(NEW.login_identifier, 1, 1) NOT GLOB '[a-z0-9]'
+              OR NEW.login_identifier GLOB '*[^a-z0-9._-]*'
+            BEGIN SELECT RAISE(ABORT, 'invalid login identifier'); END;
+            "#,
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    validate_schema_13_snapshot(transaction)
+}
+
+fn validate_schema_13_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let identities = {
+        let mut statement = connection
+            .prepare("SELECT login_identifier, real_name FROM callers ORDER BY caller_id")
+            .map_err(DatabaseError::Sqlite)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            })
+            .map_err(DatabaseError::Sqlite)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(DatabaseError::Sqlite)?
+    };
+    let mut unique = HashSet::new();
+    for (login_identifier, real_name) in identities {
+        let login_identifier = login_identifier.ok_or_else(|| {
+            DatabaseError::MigrationValidation(
+                "schema-13 caller is missing a login identifier".to_owned(),
+            )
+        })?;
+        canonicalize_login_identifier(login_identifier.as_bytes())
+            .map_err(DatabaseError::InvalidStoredCaller)?;
+        if !unique.insert(login_identifier) {
+            return Err(DatabaseError::MigrationValidation(
+                "schema-13 caller login identifiers are not unique".to_owned(),
+            ));
+        }
+        if real_name.as_ref().is_some_and(|value| {
+            value.is_empty() || value.len() > 120 || value.chars().any(char::is_control)
+        }) {
+            return Err(DatabaseError::MigrationValidation(
+                "schema-13 caller real name is invalid".to_owned(),
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -2041,6 +2367,8 @@ pub enum DatabaseError {
     Credential(#[from] CredentialError),
     #[error("caller name is already registered: {0:?}")]
     DuplicateCaller(String),
+    #[error("caller login identifier or display handle is already registered")]
+    DuplicateCallerIdentity,
     #[error("caller {0} does not exist")]
     MissingCaller(i64),
     #[error("caller {0} has no password credential")]
@@ -2078,7 +2406,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: 13,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -2105,7 +2433,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         let table_count: i64 = database
@@ -2172,8 +2500,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 10,
-                ending_version: 12,
-                applied: 2,
+                ending_version: SCHEMA_VERSION,
+                applied: 3,
             }
         );
         let preserved = database
@@ -2335,8 +2663,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 11,
-                ending_version: 12,
-                applied: 1,
+                ending_version: SCHEMA_VERSION,
+                applied: 2,
             }
         );
         let caller = database
@@ -2412,6 +2740,74 @@ mod tests {
         assert_eq!(connection.query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='caller_access_events'", [], |row| row.get::<_, i64>(0)
         ).unwrap(), 0);
+    }
+
+    #[test]
+    fn schema_twelve_to_thirteen_preserves_identity_and_resolves_login_collisions() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK (version > 0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+        ).unwrap();
+        for migration in MIGRATIONS.iter().take(12) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection
+            .execute_batch(
+                r#"
+            INSERT INTO callers (
+                caller_id, display_name, normalized_name, security_level,
+                account_state, is_new_caller, first_call_at, state_version,
+                purge_protected
+            ) VALUES
+                (1, 'Pixel Wizard', 'pixel wizard', 20, 'active', 0, 1, 4, 1),
+                (2, 'Pixel-Wizard', 'pixel-wizard', 30, 'disabled', 0, 1, 7, 0);
+            "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            MigrationReport {
+                starting_version: 12,
+                ending_version: 13,
+                applied: 1,
+            }
+        );
+        let first = database
+            .caller_by_id(CallerId::new(1).unwrap())
+            .unwrap()
+            .unwrap();
+        let second = database
+            .caller_by_id(CallerId::new(2).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.login_identifier, "pixel-wizard");
+        assert_eq!(second.login_identifier, "pixel-wizard-2");
+        assert_eq!(first.display_name, "Pixel Wizard");
+        assert_eq!(first.real_name.as_deref(), Some("Pixel Wizard"));
+        assert_eq!(first.state_version, 4);
+        assert_eq!(second.state, CallerState::Disabled);
+        assert!(!second.purge_protected);
+        assert_eq!(
+            database
+                .caller_by_login_identifier(b"PIXEL-WIZARD-2")
+                .unwrap()
+                .unwrap()
+                .id,
+            second.id
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM caller_identity_events", [], |row| row
+                    .get::<_, i64>(0),)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -2569,7 +2965,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 12,
             }
         );
         assert_eq!(
@@ -2605,7 +3001,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         let caller = database
@@ -2652,7 +3048,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         assert_eq!(
@@ -2692,7 +3088,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         let caller = database
@@ -2752,7 +3148,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         let caller = database
@@ -2792,7 +3188,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -2875,7 +3271,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 6,
             }
         );
         assert_eq!(
@@ -2975,7 +3371,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         let caller = database
@@ -3100,6 +3496,106 @@ mod tests {
             .unwrap();
         assert_ne!(stored_hash.as_bytes(), password);
         assert!(!stored_hash.contains("database password"));
+    }
+
+    #[test]
+    fn caller_identity_is_independent_versioned_unique_and_privacy_bounded() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut database = RuntimeDatabase::open(&database_path(&temp)).unwrap();
+        database.migrate().unwrap();
+        let hasher = test_hasher();
+        let encoded = hasher.hash(b"test-only identity password").unwrap();
+        let caller = database
+            .create_caller(
+                b"Legacy Public Name",
+                &encoded,
+                SecurityLevel::new(10).unwrap(),
+                CallerState::Active,
+                false,
+                100,
+            )
+            .unwrap();
+        let other = database
+            .create_caller(
+                b"Another Caller",
+                &encoded,
+                SecurityLevel::new(10).unwrap(),
+                CallerState::Active,
+                false,
+                100,
+            )
+            .unwrap();
+        let config = CallerConfig {
+            sysop_caller_name: "Sysop".to_owned(),
+            ..CallerConfig::default()
+        };
+        let updated = database
+            .update_caller_identity(
+                caller.id,
+                caller.state_version,
+                b"pixelwizard",
+                b"PixelWizard",
+                Some("Avery Identity Fixture".to_owned()),
+                &config,
+                200,
+            )
+            .unwrap();
+        assert_eq!(updated.login_identifier, "pixelwizard");
+        assert_eq!(updated.display_name, "PixelWizard");
+        assert_eq!(updated.real_name.as_deref(), Some("Avery Identity Fixture"));
+        assert_eq!(updated.state_version, caller.state_version + 1);
+        assert!(matches!(
+            database.authenticate_login_identifier(
+                b"PIXELWIZARD",
+                b"test-only identity password",
+                &hasher,
+            ).unwrap(),
+            AuthenticationResult::Valid(found) if found.id == caller.id
+        ));
+        assert!(matches!(
+            database.update_caller_identity(
+                other.id,
+                other.state_version,
+                b"pixelwizard",
+                b"Different Handle",
+                None,
+                &config,
+                201,
+            ),
+            Err(DatabaseError::DuplicateCallerIdentity)
+        ));
+        assert!(matches!(
+            database.update_caller_identity(
+                caller.id,
+                caller.state_version,
+                b"renamed-login",
+                b"Renamed Handle",
+                None,
+                &config,
+                202,
+            ),
+            Err(DatabaseError::CallerStateConflict { .. })
+        ));
+        let event = database.connection.query_row(
+            "SELECT caller_id, prior_state_version, new_state_version, actor_kind FROM caller_identity_events",
+            [],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, String>(3)?)),
+        ).unwrap();
+        assert_eq!(event, (caller.id.get(), 0, 1, "local-operator".to_owned()));
+        let event_columns: Vec<String> = database
+            .connection
+            .prepare("SELECT name FROM pragma_table_info('caller_identity_events') ORDER BY cid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(!event_columns.iter().any(|name| {
+            matches!(
+                name.as_str(),
+                "login_identifier" | "display_name" | "real_name"
+            )
+        }));
     }
 
     #[test]

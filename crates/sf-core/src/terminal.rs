@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use thiserror::Error;
 
-use crate::CallerPreferences;
+use crate::{CallerId, CallerPreferences};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TransportKind {
@@ -41,6 +41,15 @@ pub struct TransportIdentity {
 pub struct SuppliedCredentials {
     username: Vec<u8>,
     password: Vec<u8>,
+}
+
+/// One-use proof that a transport authenticated a caller through the native
+/// credential authority. It contains no secret and never bypasses the stock
+/// session's current lifecycle and policy reauthorization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VerifiedCallerGrant {
+    pub caller_id: CallerId,
+    pub authenticated_state_version: u64,
 }
 
 impl SuppliedCredentials {
@@ -135,6 +144,15 @@ impl TerminalInfo {
 /// SPITFIRE session engine.
 pub trait Terminal: Send {
     fn info(&self) -> TerminalInfo;
+
+    /// Returns transport-negotiated state before caller presentation
+    /// preferences are applied. Wrappers forward this to their underlying
+    /// adapter so asynchronous negotiation, such as an SSH window change,
+    /// remains truthful in operator diagnostics.
+    fn negotiated_info(&self) -> TerminalInfo {
+        self.info()
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), TerminalError>;
     fn read_line(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, TerminalError>;
 
@@ -161,6 +179,10 @@ pub trait Terminal: Send {
     }
 
     fn take_supplied_credentials(&mut self) -> Option<SuppliedCredentials> {
+        None
+    }
+
+    fn take_verified_caller_grant(&mut self) -> Option<VerifiedCallerGrant> {
         None
     }
 
@@ -274,6 +296,21 @@ impl<'a> PagingTerminal<'a> {
         self.begin_output();
     }
 
+    fn effective_info(&self) -> TerminalInfo {
+        let mut info = self.inner.info();
+        let negotiated_width = info.capabilities.size.map(|size| size.width);
+        let negotiated_height = info.capabilities.size.map(|size| size.height);
+        info.capabilities.ansi = self
+            .preferences
+            .graphics
+            .allows_ansi(info.capabilities.ansi);
+        info.capabilities.size = Some(TerminalSize {
+            width: self.preferences.effective_width(negotiated_width),
+            height: self.preferences.effective_page_length(negotiated_height),
+        });
+        info
+    }
+
     fn stock_more_prompt(&mut self) -> Result<(), TerminalError> {
         let bytes = crate::localized_bytes(
             &self.info,
@@ -312,7 +349,11 @@ impl<'a> PagingTerminal<'a> {
 
 impl Terminal for PagingTerminal<'_> {
     fn info(&self) -> TerminalInfo {
-        self.info.clone()
+        self.effective_info()
+    }
+
+    fn negotiated_info(&self) -> TerminalInfo {
+        self.inner.negotiated_info()
     }
 
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), TerminalError> {
@@ -327,7 +368,11 @@ impl Terminal for PagingTerminal<'_> {
             self.inner.write_all(&bytes[start..=index])?;
             start = index + 1;
             self.lines = self.lines.saturating_add(1);
-            let height = self.info.capabilities.size.map_or(24, |size| size.height);
+            let height = self
+                .effective_info()
+                .capabilities
+                .size
+                .map_or(24, |size| size.height);
             if self.paging_override.unwrap_or(self.preferences.more_prompt) && self.lines >= height
             {
                 self.stock_more_prompt()?;
@@ -360,6 +405,10 @@ impl Terminal for PagingTerminal<'_> {
 
     fn take_supplied_credentials(&mut self) -> Option<SuppliedCredentials> {
         self.inner.take_supplied_credentials()
+    }
+
+    fn take_verified_caller_grant(&mut self) -> Option<VerifiedCallerGrant> {
+        self.inner.take_verified_caller_grant()
     }
 
     fn begin_binary_mode(&mut self) -> Result<(), TerminalError> {
@@ -419,6 +468,7 @@ pub struct InMemoryTerminal {
     info: TerminalInfo,
     disconnected: bool,
     supplied_credentials: Option<SuppliedCredentials>,
+    verified_caller_grant: Option<VerifiedCallerGrant>,
     timeout_next_input: bool,
 }
 
@@ -431,6 +481,7 @@ impl Default for InMemoryTerminal {
             info: TerminalInfo::in_memory(),
             disconnected: false,
             supplied_credentials: None,
+            verified_caller_grant: None,
             timeout_next_input: false,
         }
     }
@@ -487,6 +538,10 @@ impl InMemoryTerminal {
         self.supplied_credentials = Some(credentials);
     }
 
+    pub fn set_verified_caller_grant(&mut self, grant: VerifiedCallerGrant) {
+        self.verified_caller_grant = Some(grant);
+    }
+
     pub fn timeout_next_input(&mut self) {
         self.timeout_next_input = true;
     }
@@ -539,6 +594,10 @@ impl Terminal for InMemoryTerminal {
 
     fn take_supplied_credentials(&mut self) -> Option<SuppliedCredentials> {
         self.supplied_credentials.take()
+    }
+
+    fn take_verified_caller_grant(&mut self) -> Option<VerifiedCallerGrant> {
+        self.verified_caller_grant.take()
     }
 
     fn begin_binary_mode(&mut self) -> Result<(), TerminalError> {

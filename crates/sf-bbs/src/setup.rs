@@ -327,6 +327,12 @@ pub fn interactive_setup(root: &Path) -> Result<SetupReport, ApplicationError> {
         &mut plan.config.transports[2],
         "RLogin",
     )?;
+    configure_default_listener(
+        &mut input,
+        &mut output,
+        &mut plan.config.transports[3],
+        "SSH caller access",
+    )?;
     writeln!(
         output,
         "{}",
@@ -641,6 +647,23 @@ fn default_network_transports() -> Vec<TransportConfig> {
                 terminal,
             },
         },
+        TransportConfig {
+            name: Some("ssh".to_owned()),
+            enabled: false,
+            adapter: TransportAdapterConfig::Ssh {
+                listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 2222),
+                host_key: PathBuf::from("ssh/host-ed25519"),
+                terminal: NetworkTerminalDefaults {
+                    ansi: true,
+                    cp437: false,
+                    width: 80,
+                    height: 25,
+                },
+                maximum_unauthenticated_connections: 32,
+                maximum_authentication_attempts: 3,
+                handshake_timeout_seconds: 30,
+            },
+        },
     ]
 }
 
@@ -657,7 +680,7 @@ fn configure_default_listener(
             "operator-setup-enable-listener",
             &sf_core::LocalizationArgs::new().with("listener", label),
         ),
-        true,
+        transport.enabled,
     )?;
     if !transport.enabled {
         return Ok(());
@@ -691,7 +714,8 @@ fn configure_default_listener(
     match &mut transport.adapter {
         TransportAdapterConfig::Telnet { listen, .. }
         | TransportAdapterConfig::Raw { listen, .. }
-        | TransportAdapterConfig::Rlogin { listen, .. } => *listen = address,
+        | TransportAdapterConfig::Rlogin { listen, .. }
+        | TransportAdapterConfig::Ssh { listen, .. } => *listen = address,
         _ => {
             return Err(ApplicationError::InvalidSetupValue(
                 "not a network listener",

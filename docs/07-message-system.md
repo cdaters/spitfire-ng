@@ -29,6 +29,13 @@ The message system should separate:
 
 These are related responsibilities but should not be permanently coupled.
 
+Current native messages attribute local posts with the caller's public display
+handle and retain immutable attribution snapshots. Schema-13 login-identifier
+or real-name changes do not rewrite historical messages. A future network
+adapter may project the stable caller into a protocol-required identity, but
+must not make SSH login text or private real names public by accident. See
+[Secure SSH Caller Transport](sfng-secure-ssh-transport.md).
+
 ## 2. Design Principle
 
 To the caller:

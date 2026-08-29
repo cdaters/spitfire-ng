@@ -46,6 +46,18 @@ Official source: [Synchronet Copyright](https://synchro.net/copyright.html).
 The earlier RLogin-specific review remains separately documented in
 [SyncTERM / Synchronet RLogin Auto-Login](syncterm-rlogin-autologin.md).
 
+## SSH and caller-identity reference boundary
+
+Synchronet was reviewed as a secondary engineering reference for modern BBS
+identity and SSH architecture. Useful general lessons were identity
+separation, stable numeric ownership, a bounded authenticated SSH handoff, and
+terminal-state propagation into the ordinary session runtime.
+
+SPITFIRE NG did not adopt Synchronet's caller schema, multi-name login rules,
+SFTP behavior, packed storage, network-specific identity policy, or logging
+semantics. Synchronet is not an authority for historical SPITFIRE behavior,
+and no GPL code, data layout, constants, or test data were copied.
+
 ## Increment 4 Material Inspected
 
 - `src/sbbs3/scfg/scfg.c` — hierarchical configuration entry points organized

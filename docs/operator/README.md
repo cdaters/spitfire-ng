@@ -4,8 +4,9 @@ These guides are for Sysops running the SPITFIRE NG Development Preview. The
 accepted Apple Silicon package does not require a source checkout.
 
 The latest downloadable binary remains 0.1.0. Sections explicitly labeled
-current source may describe post-0.1.0 behavior on `main`, including schema-12
-caller access; those features are not in the published 0.1.0 archive.
+current source may describe post-0.1.0 behavior on `main`, including schema-13
+caller identity and SSH caller access; those features are not in the published
+0.1.0 archive.
 
 ## Start a board
 
@@ -22,6 +23,7 @@ caller access; those features are not in the published 0.1.0 archive.
 - [Files](files.md)
 - [File Transfers](transfers.md)
 - [Terminal Clients](terminal-clients.md)
+- [Secure SSH Caller Transport](../sfng-secure-ssh-transport.md)
 - [Backup and Restore](backup-restore.md)
 - [Upgrades and Rollback](upgrades.md)
 - [Troubleshooting](troubleshooting.md)

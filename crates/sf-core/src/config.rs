@@ -404,13 +404,19 @@ pub enum TransportAdapterConfig {
         #[serde(default)]
         terminal: NetworkTerminalDefaults,
     },
-    /// Reserved configuration shape for the deferred SSH adapter. The runtime
-    /// fails closed if this is configured until host-key and transport-auth
-    /// policy are implemented deliberately.
     Ssh {
         listen: SocketAddr,
+        /// Relative to the configured SYSTEM directory.
+        #[serde(default = "default_ssh_host_key")]
         host_key: PathBuf,
-        authorized_keys: PathBuf,
+        #[serde(default = "ssh_terminal_defaults")]
+        terminal: NetworkTerminalDefaults,
+        #[serde(default = "default_ssh_unauthenticated_connections")]
+        maximum_unauthenticated_connections: u16,
+        #[serde(default = "default_ssh_auth_attempts")]
+        maximum_authentication_attempts: u8,
+        #[serde(default = "default_ssh_handshake_timeout_seconds")]
+        handshake_timeout_seconds: u64,
     },
     Serial {
         device: String,
@@ -715,6 +721,31 @@ const fn default_true() -> bool {
     true
 }
 
+fn default_ssh_host_key() -> PathBuf {
+    PathBuf::from("ssh/host-ed25519")
+}
+
+fn ssh_terminal_defaults() -> NetworkTerminalDefaults {
+    NetworkTerminalDefaults {
+        ansi: true,
+        cp437: false,
+        width: default_width(),
+        height: default_height(),
+    }
+}
+
+const fn default_ssh_unauthenticated_connections() -> u16 {
+    32
+}
+
+const fn default_ssh_auth_attempts() -> u8 {
+    3
+}
+
+const fn default_ssh_handshake_timeout_seconds() -> u64 {
+    30
+}
+
 const fn default_width() -> u16 {
     80
 }
@@ -818,10 +849,23 @@ fn validate_transports(transports: &[TransportConfig]) -> Result<(), ConfigError
             | TransportAdapterConfig::Modem { terminal, .. } => {
                 validate_terminal_defaults(terminal)?
             }
-            TransportAdapterConfig::Ssh { .. } if transport.enabled => {
-                return Err(ConfigError::SshNotImplemented)
+            TransportAdapterConfig::Ssh {
+                host_key,
+                terminal,
+                maximum_unauthenticated_connections,
+                maximum_authentication_attempts,
+                handshake_timeout_seconds,
+                ..
+            } => {
+                validate_terminal_defaults(terminal)?;
+                validate_ssh_host_key(host_key)?;
+                if !(1..=1_024).contains(maximum_unauthenticated_connections)
+                    || !(1..=10).contains(maximum_authentication_attempts)
+                    || !(5..=300).contains(handshake_timeout_seconds)
+                {
+                    return Err(ConfigError::InvalidSshResourceLimits);
+                }
             }
-            TransportAdapterConfig::Ssh { .. } => {}
         }
         match &transport.adapter {
             TransportAdapterConfig::Serial { baud, .. }
@@ -985,6 +1029,18 @@ fn validate_database_file(path: &Path) -> Result<(), ConfigError> {
     Ok(())
 }
 
+fn validate_ssh_host_key(path: &Path) -> Result<(), ConfigError> {
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(ConfigError::InvalidSshHostKey(path.to_path_buf()));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("could not read configuration {path}: {source}")]
@@ -1085,8 +1141,10 @@ pub enum ConfigError {
     InvalidSecurityLimit(u16),
     #[error("security level {0} has more than one time policy")]
     DuplicateSecurityLimit(u16),
-    #[error("SSH configuration is recognized but the SSH runtime is deferred; remove it for Increment 1")]
-    SshNotImplemented,
+    #[error("SSH host key must be a safe relative path beneath SYSTEM: {0}")]
+    InvalidSshHostKey(PathBuf),
+    #[error("SSH limits require 1..=1024 unauthenticated connections, 1..=10 attempts, and a 5..=300 second handshake timeout")]
+    InvalidSshResourceLimits,
 }
 
 #[cfg(test)]
@@ -1260,20 +1318,30 @@ database_file = "spitfire-ng.sqlite3"
     }
 
     #[test]
-    fn recognizes_but_fails_closed_on_ssh_until_policy_is_implemented() {
+    fn validates_bounded_ssh_configuration() {
         let mut config = RuntimeConfig::synthetic_fixture();
         config.transports = vec![TransportConfig {
             name: Some("ssh".to_owned()),
             enabled: true,
             adapter: TransportAdapterConfig::Ssh {
                 listen: SocketAddr::from(([127, 0, 0, 1], 2222)),
-                host_key: PathBuf::from("ssh/host-key"),
-                authorized_keys: PathBuf::from("ssh/authorized-keys"),
+                host_key: PathBuf::from("ssh/host-ed25519"),
+                terminal: ssh_terminal_defaults(),
+                maximum_unauthenticated_connections: 32,
+                maximum_authentication_attempts: 3,
+                handshake_timeout_seconds: 30,
             },
         }];
+        config.validate().unwrap();
+        if let TransportAdapterConfig::Ssh {
+            ref mut host_key, ..
+        } = config.transports[0].adapter
+        {
+            *host_key = PathBuf::from("../outside");
+        }
         assert!(matches!(
             config.validate(),
-            Err(ConfigError::SshNotImplemented)
+            Err(ConfigError::InvalidSshHostKey(_))
         ));
     }
 

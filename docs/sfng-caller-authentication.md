@@ -11,7 +11,9 @@ the implementation lives.
 Increment 2 established the model. The 2026-08-21 caller-policy/profile
 closure adds schema 7 private profiles, board-local daily accounting,
 private-board admission, no-activity enforcement, caller/Sysop profile
-editing, and production product identity. It does not import `SFUSERS.DAT` or
+editing, and production product identity. M042 adds schema-12 auditable caller
+access; M042.5 adds schema-13 durable login/handle/real-name separation and
+SSH authentication. It does not import `SFUSERS.DAT` or
 implement the Category-B `SFNEWU.QUE` questionnaire engine.
 
 Primary historical evidence is Buffalo Creek's read-only SPITFIRE 3.7 manual,
@@ -56,8 +58,9 @@ The manual establishes the following operational behavior for stock 3.7:
   display and are disconnected.
 
 The manual does not establish that SPITFIRE 3.7 used a separate caller alias
-for login. The first native model therefore uses one caller display/login name
-rather than inventing a handle/real-name distinction.
+for login. The original native model therefore used one caller display/login
+name. Schema 13 adds a deliberately modern identity separation for secure SSH
+and future adapters; it is not claimed as stock behavior.
 
 ## Native caller model
 
@@ -67,7 +70,9 @@ The native record currently stores:
 | Field | Treatment | Reason |
 |---|---|---|
 | Stable caller ID | Preserved directly in a modern form | Future messages, files, and revisions need identity independent of a mutable name. |
-| Caller display/login name | Preserved directly | Central stock identity; limited to 30 normalized bytes in the first implementation. |
+| Login identifier | Modern schema-13 authentication identity | Unique normalized SSH-safe value; not public attribution or real name. |
+| Display handle (`display_name`) | Preserved stock identity and modern public handle | Traditional login and existing public attribution remain compatible. |
+| Optional real name | Preserved separately and private by default | Available only to explicit board/operator or future-network policy. |
 | Normalized lookup name | Derived | Enforces case-insensitive uniqueness without changing display spelling. |
 | Password | Modernized into a separate Argon2id PHC credential | Stock plaintext/viewable handling is unsafe. |
 | Numerical security level | Preserved directly | Stock menu/conference/file/Sysop access depends on it. |
@@ -87,7 +92,7 @@ not part of Increment 2.
 
 ## Name normalization
 
-The first native identity policy:
+Traditional handle/name lookup retains the first native identity policy:
 
 1. accepts printable ASCII plus spaces;
 2. trims leading/trailing ASCII whitespace;
@@ -99,6 +104,12 @@ The first native identity policy:
 Thus `Alex   Caller`, `ALEX CALLER`, and `alex caller` address one account.
 Printable CP437 caller-name support is deferred until its database and
 case-folding semantics can be specified without silently converting bytes.
+
+SSH login identifiers are a separate ASCII policy: lowercase, unique, 1..=32
+bytes, first character alphanumeric, and remaining characters alphanumeric or
+`-`, `_`, `.`. SSH lookup normalizes ASCII case and maps only this field. See
+[Secure SSH Caller Transport](sfng-secure-ssh-transport.md) for migration,
+rename, privacy, and future-network rules.
 
 ## Credentials
 
@@ -118,8 +129,9 @@ server-side echo.
 Argon2id protects stored credentials. It does **not** encrypt a connection.
 Telnet, raw TCP, RLogin, and direct serial are plaintext compatibility
 transports. They should be restricted to appropriate private/trusted paths
-when credential exposure is a concern. Future SSH remains a separate secure
-transport; it does not redefine caller identity.
+when credential exposure is a concern. The optional SSH listener encrypts the
+connection and uses this same credential authority without a second password
+prompt or separate password store.
 
 ## SQLite schema and private profiles
 
@@ -131,6 +143,11 @@ changing the authentication boundary. Schema 11 changes message storage.
 Schema 12 adds auditable caller access lifecycle, subscription adjustment, and
 purge-protection state. Its canonical behavior is documented in
 [Caller Access Lifecycle and Security](sfng-caller-access.md).
+
+Schema 13 adds stored login identifier and optional real name while retaining
+`display_name` as the public handle. It also adds a privacy-safe append-only
+identity event containing stable caller ID, state versions, time, and local-
+operator actor kind—never login, handle, real name, password, or contact data.
 
 Migration 2 adds only `callers` and `caller_credentials`. The migration is
 transactional and upgrades an Increment 0/1 schema without replacing board

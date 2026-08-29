@@ -248,13 +248,13 @@ Runtime code accesses these through `LogicalPaths`, not raw configuration
 paths.
 
 Setup and fixture defaults bind only to localhost and use nonprivileged ports.
-Network listeners may provide terminal defaults; Telnet can subsequently
-negotiate terminal type and dimensions. Direct-serial and inbound-Hayes
+Network listeners may provide terminal defaults; Telnet and SSH can
+subsequently negotiate terminal type and dimensions. Direct-serial and inbound-Hayes
 entries use a device plus validated baud rate. Duplicate listeners/devices,
 zero ports, impossible dimensions/baud rates, incompatible or unknown options,
-and unsupported transport types fail closed. SSH configuration is recognized
-but rejected until its maintained-library, host-key, and transport-auth policy
-is implemented.
+and unsupported transport types fail closed. SSH is disabled by default and
+requires a safe board-local host-key path plus bounded connection, attempt, and
+handshake settings. See [Secure SSH Caller Transport](sfng-secure-ssh-transport.md).
 
 The `spitfire setup` wizard creates a complete startable board and `spitfire
 config` edits implemented settings through the same validator. This file

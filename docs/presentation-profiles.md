@@ -280,7 +280,7 @@ historical RIP→CLR→BBS intent without changing this ownership model.
 
 There is no transport-specific profile override in version 1. Transports
 supply bounded capabilities only. This prevents Telnet, RAW, RLogin, serial,
-or future SSH from silently presenting different commands or fallback policy.
+or SSH from silently presenting different commands or fallback policy.
 
 ## Board-local display authoring
 

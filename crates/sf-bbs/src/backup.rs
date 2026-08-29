@@ -1183,6 +1183,16 @@ mod tests {
                 r#"
                 PRAGMA foreign_keys = OFF;
 
+                DROP TRIGGER callers_login_identifier_update;
+                DROP TRIGGER callers_login_identifier_insert;
+                DROP TRIGGER caller_identity_events_no_delete;
+                DROP TRIGGER caller_identity_events_no_update;
+                DROP TABLE caller_identity_events;
+                DROP INDEX callers_login_identifier_unique;
+                ALTER TABLE callers DROP COLUMN real_name;
+                ALTER TABLE callers DROP COLUMN login_identifier;
+                DELETE FROM schema_migrations WHERE version = 13;
+
                 DROP TRIGGER caller_access_events_no_delete;
                 DROP TRIGGER caller_access_events_no_update;
                 DROP TABLE caller_security_adjustments;
@@ -1289,6 +1299,15 @@ mod tests {
             .execute_batch(
                 r#"
             PRAGMA foreign_keys = OFF;
+            DROP TRIGGER callers_login_identifier_update;
+            DROP TRIGGER callers_login_identifier_insert;
+            DROP TRIGGER caller_identity_events_no_delete;
+            DROP TRIGGER caller_identity_events_no_update;
+            DROP TABLE caller_identity_events;
+            DROP INDEX callers_login_identifier_unique;
+            ALTER TABLE callers DROP COLUMN real_name;
+            ALTER TABLE callers DROP COLUMN login_identifier;
+            DELETE FROM schema_migrations WHERE version = 13;
             DROP TRIGGER caller_access_events_no_delete;
             DROP TRIGGER caller_access_events_no_update;
             DROP TABLE caller_security_adjustments;
@@ -1336,10 +1355,27 @@ mod tests {
         fs::write(source.join("system/JOKER.DAT"), joker_bytes).unwrap();
         let validated = selected.validate().unwrap();
         let paths = LogicalPaths::resolve(&source, &validated).unwrap();
+        crate::transports::load_or_generate_host_key(
+            paths.get(LogicalPath::System),
+            Path::new("ssh/host-ed25519"),
+        )
+        .unwrap();
+        let original_host_key = fs::read(source.join("system/ssh/host-ed25519")).unwrap();
         let mut access_database = RuntimeDatabase::open(paths.database()).unwrap();
         let access_caller = access_database
             .caller_by_name(b"Backup Caller")
             .unwrap()
+            .unwrap();
+        let access_caller = access_database
+            .update_caller_identity(
+                access_caller.id,
+                access_caller.state_version,
+                b"backup-auth",
+                b"Backup Caller",
+                Some("Backup Real Name".to_owned()),
+                &validated.caller,
+                1_777_000_099,
+            )
             .unwrap();
         let access_caller = access_database
             .change_caller_base_security(
@@ -1413,6 +1449,10 @@ mod tests {
             joker_bytes
         );
         assert_eq!(
+            fs::read(restored.join("system/ssh/host-ed25519")).unwrap(),
+            original_host_key
+        );
+        assert_eq!(
             fs::read(restored.join("system/presentation-profiles/modern-ng/profile.toml")).unwrap(),
             fs::read(source.join("system/presentation-profiles/modern-ng/profile.toml")).unwrap()
         );
@@ -1451,12 +1491,18 @@ mod tests {
         assert!(restored_status.contains("Base: modern-ng 1.2.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.3.0"));
+        assert!(restored_status.contains("Package: en-US 1.4.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
         let restored_caller = database.caller_by_name(b"Backup Caller").unwrap().unwrap();
         assert_eq!(restored_caller.base_security_level.get(), 29);
+        assert_eq!(restored_caller.login_identifier, "backup-auth");
+        assert_eq!(restored_caller.display_name, "Backup Caller");
+        assert_eq!(
+            restored_caller.real_name.as_deref(),
+            Some("Backup Real Name")
+        );
         assert_eq!(
             restored_caller.subscription_expires_on.unwrap().to_string(),
             "2027-08-29"
@@ -1532,12 +1578,12 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 2);
+        assert_eq!(migration.applied, 3);
         migrated.validate_current_snapshot().unwrap();
     }
 
     #[test]
-    fn schema_11_backup_restores_exactly_then_migrates_to_schema_12() {
+    fn schema_11_backup_restores_exactly_then_migrates_to_current_schema() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "schema-11-source");
         let backup = temp.path().join("schema-11-snapshot");
@@ -1557,8 +1603,8 @@ mod tests {
             database.migrate().unwrap(),
             sf_core::MigrationReport {
                 starting_version: 11,
-                ending_version: 12,
-                applied: 1,
+                ending_version: SCHEMA_VERSION,
+                applied: 2,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -1572,7 +1618,7 @@ mod tests {
     fn restore_refuses_older_and_newer_schema_manifests_before_target_creation() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "version-source");
-        for (schema_version, directory) in [(9, "older"), (13, "newer")] {
+        for (schema_version, directory) in [(9, "older"), (14, "newer")] {
             let backup = temp.path().join(format!("{directory}-snapshot"));
             backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
             let manifest_path = backup.join(BACKUP_MANIFEST_FILE);

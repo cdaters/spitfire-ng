@@ -127,6 +127,26 @@ impl OperatorService {
         );
         Ok(caller)
     }
+
+    pub fn set_caller_identity(
+        &self,
+        name: &str,
+        login_identifier: &str,
+        display_handle: &str,
+        real_name: Option<String>,
+    ) -> Result<Caller, ApplicationError> {
+        let caller = self.runtime.set_caller_identity(
+            name.as_bytes(),
+            login_identifier.as_bytes(),
+            display_handle.as_bytes(),
+            real_name,
+        )?;
+        info!(
+            caller_id = caller.id.get(),
+            "operator changed caller identity"
+        );
+        Ok(caller)
+    }
 }
 
 pub fn run_operator_console(
@@ -179,6 +199,13 @@ pub fn run_operator_console(
             "CALLERS" => show_callers(service, output)?,
             "PROFILE" => show_caller_profile(service, rest, output)?,
             "PROFILE-SET" => update_caller_profile(service, rest)?,
+            "IDENTITY" => {
+                write_caller_mutation(
+                    output,
+                    update_caller_identity(service, rest),
+                    "operator-caller-identity-updated",
+                )?;
+            }
             "ENABLE" => {
                 write_caller_mutation(
                     output,
@@ -379,7 +406,8 @@ fn show_callers(service: &OperatorService, output: &mut dyn Write) -> Result<(),
                 "operator-console-caller-row",
                 sf_core::LocalizationArgs::new()
                     .with("id", caller.id.get())
-                    .with("name", caller.display_name)
+                    .with("login", caller.login_identifier)
+                    .with("handle", caller.display_name)
                     .with("security", caller.security_level.get())
                     .with("base_security", caller.base_security_level.get())
                     .with("state", format!("{:?}", caller.state))
@@ -517,6 +545,29 @@ fn update_caller_profile(
     }
     service.set_caller_profile(name.trim(), caller.profile)?;
     Ok(())
+}
+
+fn update_caller_identity(
+    service: &OperatorService,
+    arguments: &str,
+) -> Result<Caller, ApplicationError> {
+    let fields = arguments.split('|').map(str::trim).collect::<Vec<_>>();
+    let [name, login_identifier, display_handle, real_name] = fields.as_slice() else {
+        return Err(ApplicationError::InvalidSetupValue(
+            "use IDENTITY <current name>|<login identifier>|<display handle>|<real name or blank>",
+        ));
+    };
+    if name.is_empty() || login_identifier.is_empty() || display_handle.is_empty() {
+        return Err(ApplicationError::InvalidSetupValue(
+            "caller name, login identifier, and display handle cannot be blank",
+        ));
+    }
+    service.set_caller_identity(
+        name,
+        login_identifier,
+        display_handle,
+        (!real_name.is_empty()).then(|| (*real_name).to_owned()),
+    )
 }
 
 fn read_console_line(input: &mut dyn BufRead) -> Result<Option<String>, ApplicationError> {

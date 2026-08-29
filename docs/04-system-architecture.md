@@ -64,16 +64,17 @@ The first native runtime foundation establishes two cohesive crates:
 `sf-legacy` and `sf-reg` remain separate historical-format/research support.
 The core does not know about sockets, serial device APIs, or command-line
 arguments, and the application does not spread configured host paths into
-domain behavior. In-memory, Telnet, raw TCP, RLogin, Unix stdio, and direct
-serial adapters exercise the same `Terminal` and SPITFIRE session engine. The
+domain behavior. In-memory, Telnet, raw TCP, RLogin, SSH, Unix stdio, and
+direct serial adapters exercise the same `Terminal` and SPITFIRE session engine. The
 optional inbound Hayes controller establishes a carrier-backed serial stream
 and then enters that engine; it does not implement separate BBS behavior.
 
-SQLite migration 1 contains schema history and singleton board identity.
-Migration 2 adds normalized callers and separate Argon2id PHC credentials,
-plus the minimal call/time state exercised by the session engine. Message and
-file schemas have deliberately not been introduced ahead of their increments.
-The exact caller model and modernization boundary are specified in
+SQLite migration 1 contains schema history and singleton board identity;
+later transactional migrations add their owning caller, message, file,
+presentation, audit, access, and identity state. Current schema 13 separates
+login identifier, public handle, and private real name without changing stable
+caller ID or historical attribution. The exact caller model and modernization
+boundary are specified in
 [Native Caller and Authentication Model](sfng-caller-authentication.md).
 
 ## 3. Conceptual Architecture
@@ -81,7 +82,7 @@ The exact caller model and modernization boundary are specified in
     ┌──────────────────────────────────────────────────────┐
     │                   CONNECTION LAYER                   │
     │                                                      │
-    │ Telnet  Raw  RLogin  Serial/Modem  Shell  Future SSH │
+    │ Telnet  Raw  RLogin  SSH  Serial/Modem  Local Shell  │
     └──────┬───────┬──────────┬──────────────┬─────────────┘
            │       │          │              │
            └───────┴──────────┴──────────────┘
@@ -195,7 +196,7 @@ Current adapter status (including Increment 2 authentication):
 | Unix stdio shell | Implemented on Unix-like hosts | Automated adapter checks and manual common-session traversal |
 | Direct serial | Implemented through a maintained serial API | Synthetic PTY tested; physical hardware unverified |
 | Inbound Hayes modem | Implemented as a serial controller for initialization, answer, connect, and carrier loss | Deterministic simulation tested; physical hardware unverified |
-| SSH | Deferred, fail closed | No temporary host-key or authentication model; must use a maintained SSH implementation when resumed |
+| SSH | Implemented with `russh`, password-only caller authentication, PTY/resize, and a board-local Ed25519 key | Automated real-client protocol/no-shell/status tests plus macOS OpenSSH traversal; Qodem external SSH reached Main/Messages/Files; tested SyncTERM 1.9rc4 configuration did not complete the modern handshake |
 
 Increment 4 replaces the initial Node 1 singleton with one configured,
 race-safe pool. Every adapter acquires the lowest numbered available enabled
@@ -204,10 +205,14 @@ occupied, an additional connection receives a bounded busy notice and
 disconnects. This is coordination policy, not protocol-specific behavior.
 
 The active session now carries an explicit unauthenticated, existing-login,
-new-registration, or authenticated `CallerId` state. Transport authentication
-and SPITFIRE caller authentication remain distinct. Clean logout, failed login,
-EOF, and transport loss all release the acquired node and finalize available call
-accounting through the same runtime path.
+new-registration, or authenticated `CallerId` state. Untrusted transport
+identity remains metadata only. SSH is the bounded exception: it verifies a
+login identifier/password through the authoritative SPITFIRE credential
+domain and passes a one-use caller grant to the common session, which reloads
+lifecycle/security before post-login. It does not ask for the same credentials
+twice. Clean logout, failed login, EOF, invalidation, and transport loss all
+release the acquired node and finalize available call accounting through the
+same runtime path. See [Secure SSH Caller Transport](sfng-secure-ssh-transport.md).
 
 ## 6. Node Model
 

@@ -27,7 +27,7 @@ spitfire run <CONFIG-FILE>
 
 `setup` is an interactive first-run workflow. It refuses an existing board
 directory before collecting wizard data and asks for board/Sysop identity,
-node count, enabled Telnet/raw TCP/RLogin services and their localhost-safe
+node count, enabled Telnet/raw TCP/RLogin/SSH services and their localhost-safe
 bind addresses/ports, caller-experience preset, active/base presentation
 profiles, generated/display-override menu mode, independent post-login
 journey, new-caller security, configurable Sysop threshold, initial Sysop
@@ -139,8 +139,8 @@ listen = "127.0.0.1:3323"
 The validator rejects missing/all-disabled nodes, duplicate node overrides,
 duplicate names, enabled listener/address conflicts, enabled serial-device
 conflicts, port zero, invalid terminal dimensions, unsafe serial/modem values,
-unknown types/options, and enabled SSH. SSH remains a recognized but
-fail-closed future adapter.
+unknown types/options, unsafe SSH host-key paths, and out-of-range SSH
+connection/attempt/timeout bounds. SSH defaults disabled.
 
 M037.2 adds the optional `[language]` table without changing configuration
 format 2; omitted legacy configurations resolve to `en-US`, while new setup
@@ -169,9 +169,12 @@ exact-security BBS/CLR menu art and otherwise generates from the parsed `.MNU`.
 by a profile.
 
 Default network listeners bind `127.0.0.1`, using nonprivileged ports 2323
-(Telnet), 2324 (raw TCP), and 2513 (RLogin). These are setup defaults, not
-protocol requirements. A Sysop must explicitly select any non-loopback bind
-and accept the plaintext security properties of Telnet/raw/RLogin.
+(Telnet), 2324 (raw TCP), 2513 (RLogin), and 2222 (SSH). These are setup
+defaults, not protocol requirements. A Sysop must explicitly select any non-
+loopback bind and accept the plaintext security properties of Telnet/raw/
+RLogin. SSH setup defaults No, skips dependent endpoint prompts, and creates
+the Ed25519 host key only on first enabled listener startup. See
+[Secure SSH Caller Transport](sfng-secure-ssh-transport.md).
 
 ## Message Conference Administration
 
@@ -236,15 +239,18 @@ For node allocation and live status behavior, see
   `spitfire console` for live status/page/chat/disconnect and essential caller
   list/state/security operations; see
   [Caller/Sysop Interaction](sfng-caller-sysop-interaction.md).
-- Caller administration supports list, enable/disable, recoverable
-  delete/restore, base-security, subscription, purge protection, and private
-  profile fields rather than arbitrary record editing or physical purge.
+- Caller administration supports list, lifecycle/security/subscription, purge
+  protection, private-profile fields, and login/handle/real-name identity
+  changes rather than arbitrary record editing, attribution rewriting, or
+  physical purge.
 - Native backup/restore is CLI-based; there is no remote/web UI, legacy
   `.$$$`/`.$??` importer, configuration-history browser, or live snapshot.
 - File-area configuration covers the working Increment 5 fields; destructive
   delete/relocation, ratios, transfer-protocol selection, and archive/upload
   review policy remain absent.
-- No event, door, network, menu/display, or SSH configuration UI.
+- No event, door, network, or menu/display authoring UI. SSH enable/bind/port
+  is in setup/static listener configuration; advanced key/limit policy remains
+  validated TOML plus operator documentation.
 - No stable service-control protocol for a separately running shell session or
   remote web administration.
 - Full stock SPITFIRE configuration fields remain checklist work; the menu

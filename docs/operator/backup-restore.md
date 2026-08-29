@@ -40,10 +40,11 @@ The snapshot contains:
   identities, recipient/audience relations, tombstones, receipts,
   Copy/Forward lineage, mutation audit, caller lifecycle versions, base
   security, subscription state, reasoned security adjustments, purge
-  protection, recoverable caller tombstones, and caller-access audit;
+  protection, recoverable caller tombstones, caller-access audit, caller login
+  identifiers, public handles, private real names, and identity audit;
 - complete SYSTEM (including presentation and language package descriptors,
-  catalogs/assets, licenses, provenance, and optional `JOKER.DAT`) plus DISPLAY
-  override resources;
+  catalogs/assets, licenses, provenance, optional `JOKER.DAT`, and any generated
+  SSH host key) plus DISPLAY override resources;
   and
 - every available or disabled cataloged file's bytes.
 
@@ -62,11 +63,11 @@ spitfire status /path/to/restored-board/spitfire.toml
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
 
-Current source restores exact schema-10, schema-11, and schema-12 backups. A
+Current source restores exact schema-10 through schema-13 backups. A
 snapshot remains at its original schema during restore and migrates
 transactionally only on the first normal writable startup. Keep the old
 executable and pre-upgrade backup for rollback; there is no in-place downgrade
-from schema 12.
+from schema 13.
 
 ## Replace an existing board
 
@@ -86,6 +87,9 @@ directory causes refusal instead of guessing which board is authoritative.
 
 A native backup is sensitive. SQLite contains password hashes, caller contact
 profiles, private messages, receipts, statistics, and operational history.
+SYSTEM may contain the SSH private host key. Possession of that key can
+impersonate the restored board's SSH host identity, so protect it like the
+database.
 Protect the whole directory with appropriate host permissions and copy it as
 one unit. Do not edit the manifest or contents; any inventory/byte change is
 detected.

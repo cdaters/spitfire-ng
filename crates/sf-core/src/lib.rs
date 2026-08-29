@@ -28,11 +28,12 @@ pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub use board::{BoardIdentity, BoardIdentityError};
 pub use caller::{
-    board_local_day, canonicalize_caller_name, daily_session_elapsed_seconds,
-    format_board_local_timestamp, parse_birth_date, AccessDenialReason, AuthenticatedCaller,
-    Caller, CallerAccessDenial, CallerError, CallerId, CallerPreferences, CallerProfile,
-    CallerSessionContext, CallerState, GraphicsPreference, PostalAddress, SecurityLevel,
-    SessionAllowance, TimePolicy, TransferPreference, MAX_CALLER_NAME_BYTES, MAX_SECURITY_LEVEL,
+    board_local_day, canonicalize_caller_name, canonicalize_login_identifier,
+    daily_session_elapsed_seconds, derive_login_identifier_base, format_board_local_timestamp,
+    parse_birth_date, AccessDenialReason, AuthenticatedCaller, Caller, CallerAccessDenial,
+    CallerError, CallerId, CallerPreferences, CallerProfile, CallerSessionContext, CallerState,
+    GraphicsPreference, PostalAddress, SecurityLevel, SessionAllowance, TimePolicy,
+    TransferPreference, MAX_CALLER_NAME_BYTES, MAX_LOGIN_IDENTIFIER_BYTES, MAX_SECURITY_LEVEL,
 };
 pub use caller_access::{
     CallerAccessActor, JokerError, JokerPolicy, JokerRuleKind, SubscriptionEvaluation,
@@ -88,6 +89,7 @@ pub use session::{
 pub use terminal::{
     InMemoryTerminal, PagingTerminal, SuppliedCredentials, Terminal, TerminalCapabilities,
     TerminalError, TerminalInfo, TerminalSize, TransportIdentity, TransportKind,
+    VerifiedCallerGrant,
 };
 pub use transfer::{
     receive_binary_files, send_binary_files, ProtocolFile, ReceivedProtocolFile, TransferProtocol,

@@ -40,6 +40,10 @@ pub struct PublishedNodeStatus {
     pub state: String,
     pub session_id: Option<u64>,
     pub caller_id: Option<i64>,
+    #[serde(default)]
+    pub caller_login_identifier: Option<String>,
+    #[serde(default)]
+    pub caller_lifecycle: Option<String>,
     pub caller_name: Option<String>,
     pub transport: Option<String>,
     pub connected_at: Option<i64>,
@@ -74,6 +78,7 @@ pub(crate) fn publish_runtime_status(
     board_name: &str,
     started_at: i64,
     transports: &[TransportConfig],
+    database_path: &Path,
     nodes: &[NodeSnapshot],
 ) -> Result<(), ApplicationError> {
     let document = RuntimeStatusDocument {
@@ -82,7 +87,10 @@ pub(crate) fn publish_runtime_status(
         started_at,
         updated_at: unix_seconds()?,
         listeners: listener_statuses(transports),
-        nodes: nodes.iter().map(published_node).collect(),
+        nodes: nodes
+            .iter()
+            .map(|node| published_node(node, database_path))
+            .collect(),
     };
     let encoded = toml::to_string_pretty(&document)
         .map_err(|error| ApplicationError::StatusSerialize(error.to_string()))?;
@@ -358,6 +366,24 @@ pub fn board_status(config_path: &Path) -> Result<String, ApplicationError> {
         ));
         output.push('\n');
     }
+    for transport in &config.transports {
+        let TransportAdapterConfig::Ssh { host_key, .. } = &transport.adapter else {
+            continue;
+        };
+        let key_path = paths.get(sf_core::LogicalPath::System).join(host_key);
+        let fingerprint = crate::transports::host_key_fingerprint(
+            paths.get(sf_core::LogicalPath::System),
+            host_key,
+        )?
+        .unwrap_or_else(|| "not generated".to_owned());
+        output.push_str(&text(
+            "operator-status-ssh-host-key",
+            sf_core::LocalizationArgs::new()
+                .with("path", key_path.display().to_string())
+                .with("fingerprint", fingerprint),
+        ));
+        output.push('\n');
+    }
     output.push_str(&format!(
         "\n{}\n",
         text("operator-status-nodes", sf_core::LocalizationArgs::new())
@@ -376,12 +402,21 @@ pub fn board_status(config_path: &Path) -> Result<String, ApplicationError> {
                 || "-".to_owned(),
                 |connected| format!("{}s", observed_at.saturating_sub(connected)),
             );
+            let caller = match (
+                node.caller_login_identifier.as_deref(),
+                node.caller_name.as_deref(),
+            ) {
+                (Some(login), Some(handle)) => format!("{login} ({handle})"),
+                (_, Some(handle)) => handle.to_owned(),
+                _ => "-".to_owned(),
+            };
             output.push_str(&text(
                 "operator-status-node-live",
                 sf_core::LocalizationArgs::new()
                     .with("node", format!("{:>3}", node.number))
                     .with("state", node.state)
-                    .with("caller", node.caller_name.as_deref().unwrap_or("-"))
+                    .with("caller", caller)
+                    .with("lifecycle", node.caller_lifecycle.as_deref().unwrap_or("-"))
                     .with("transport", node.transport.as_deref().unwrap_or("-"))
                     .with("duration", duration)
                     .with("file", node.activity_file.as_deref().unwrap_or("-")),
@@ -490,7 +525,13 @@ fn listener_statuses(transports: &[TransportConfig]) -> Vec<ListenerStatus> {
         .collect()
 }
 
-fn published_node(node: &NodeSnapshot) -> PublishedNodeStatus {
+fn published_node(node: &NodeSnapshot, database_path: &Path) -> PublishedNodeStatus {
+    let caller_identity = node.caller_id.and_then(|caller_id| {
+        RuntimeDatabase::open(database_path)
+            .ok()?
+            .caller_by_id(caller_id)
+            .ok()?
+    });
     PublishedNodeStatus {
         number: node.id.get(),
         description: node.description.clone(),
@@ -509,6 +550,12 @@ fn published_node(node: &NodeSnapshot) -> PublishedNodeStatus {
         .to_owned(),
         session_id: node.session_id.map(sf_core::SessionId::get),
         caller_id: node.caller_id.map(sf_core::CallerId::get),
+        caller_login_identifier: caller_identity
+            .as_ref()
+            .map(|caller| caller.login_identifier.clone()),
+        caller_lifecycle: caller_identity
+            .as_ref()
+            .map(|caller| caller.state.as_database_value().to_owned()),
         caller_name: node.caller_name.clone(),
         transport: node.transport.map(transport_name).map(str::to_owned),
         connected_at: node.connected_at,
@@ -594,6 +641,8 @@ mod tests {
         assert!(offline.contains("Post-login journey: none"));
         assert!(offline.contains("New-caller security: 10"));
         assert!(offline.contains("Sysop security threshold: 50"));
+        assert!(offline.contains("SSH host key:"));
+        assert!(offline.contains("fingerprint=not generated"));
         assert!(offline.contains("Node   1 offline"));
         assert!(!offline.contains("test-only status password"));
 
@@ -632,6 +681,7 @@ mod tests {
             "Status Board",
             1_700_000_000,
             &validated.transports,
+            &report.database_path,
             &manager.snapshots().unwrap(),
         )
         .unwrap();

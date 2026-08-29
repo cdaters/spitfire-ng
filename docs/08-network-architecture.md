@@ -27,6 +27,17 @@ It should not dictate:
 
 Network modules should exchange messages with the SPITFIRE message system through a common internal representation.
 
+### Caller identity projection
+
+Schema 13 gives one caller a stable ID, login identifier, public handle, and
+private optional real name. Network adapters must project the appropriate
+identity without cloning caller records: local SPITFIRE presentation uses the
+handle; SSH authentication uses the login identifier; a future FidoNet adapter
+may require real name; SMB/DOVE-Net policy will likely use handle unless its
+protocol/profile says otherwise. Login identifiers are never message
+attribution merely because SSH uses them. M042.5 implements only the identity
+boundary and SSH transport—not FidoNet, SMB, DOVE-Net, QWK, or CircuitNet.
+
 Current source makes the local schema-11 message domain authoritative for
 payloads, delivery identities, recipients/audiences, visibility, receipts,
 lifecycle, lineage, and mutation audit. Future adapters must import/export

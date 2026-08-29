@@ -75,8 +75,10 @@ statistics.
 - **Hayes modem:** AT/RING/ATA/CONNECT remains above serial. After CONNECT the
   same binary stream is used; the deterministic modem peer verifies that
   transition. No transfer logic is in the modem controller.
-- **Shell/stdio:** the contract exists, but local TTY file transfer is not an
-  acceptance path. **SSH remains deferred.**
+- **Shell/stdio and SSH:** both feed the same byte-oriented terminal boundary.
+  Local TTY and SSH binary-transfer client acceptance remain separate from the
+  verified Telnet/RLogin/RAW protocol matrix; SSH transport itself is
+  implemented and must not reinterpret payload bytes.
 
 ## Protocol Implementations
 

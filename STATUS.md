@@ -8,9 +8,10 @@ backup/restore, license, privacy, public-redownload, checksum, and first-run
 checks.
 
 The public `main` branch is now ahead of that binary release. Current source
-adds post-0.1.0 advanced message discovery, auditable message mutation, and an
-auditable caller-access lifecycle; the downloadable 0.1.0 archive is unchanged
-and does not contain those additions.
+adds post-0.1.0 advanced message discovery, auditable message mutation, an
+auditable caller-access lifecycle, schema-13 caller identity, and secure SSH
+caller transport; the downloadable 0.1.0 archive is unchanged and does not
+contain those additions.
 
 ## Current source additions
 
@@ -48,6 +49,17 @@ The Category-B ledger now records 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
   conflict handling
 - Transactional schema-11→12 migration plus exact schema-10/schema-11/
   schema-12 cold backup and restore
+- Schema-13 separation of stable caller ID, normalized login identifier,
+  public handle, and optional private real name without rewriting historical
+  attribution or merging migration collisions
+- Disabled-by-default SSH-2 caller transport through the common node/session
+  engine, using ordinary SQLite/Argon2id caller authority and no second BBS
+  password prompt
+- Board-local Ed25519 host identity, modern `russh` defaults, bounded
+  authentication resources, PTY/resize/encoding propagation, lifecycle
+  invalidation, privacy-safe diagnostics, and cold-backup continuity
+- No OS shell, Unix account login, SCP, SFTP, command execution, forwarding,
+  remote filesystem, X11, agent, or subsystem access
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -60,6 +72,7 @@ selection, visibility, or result presentation.
 - Modern, Classic SPITFIRE-inspired, and Minimal Terminal profiles
 - Generated stock menus and exact-security `.BBS`/`.CLR` overrides
 - Telnet, RAW TCP, and RLogin compatibility listeners
+- Secure SSH caller transport when built from current post-0.1.0 source
 - Caller registration, authentication, privacy, profiles, and security levels
 - Message conferences, mail, replies, threads, queues, and receipts
 - Advanced caller/text discovery and auditable message mutation when built
@@ -117,7 +130,6 @@ until they are built and tested.
 - Remaining advanced Category-B commands and resources
 - QWK/LAKOTA and other offline-mail ecosystems
 - SMB/DOVE-Net, FidoNet, and CircuitNet interoperability
-- SSH transport
 - Web administration
 - SFDraw, the planned display-authoring companion tool
 - SFDATE and SFREG preservation tools
@@ -136,6 +148,7 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Collect sanitized public feedback, preserve the accepted 0.1.0 release
-boundary, and select the next separately reviewed roadmap milestone. Signing,
-additional binary platforms, and new features remain future scoped work.
+Preserve the accepted 0.1.0 release boundary, then separately review the M043
+privacy-bounded B-002/B-003 interface/resource gate. Do not begin its
+implementation before that gate is accepted. Signing, additional binary
+platforms, and other features remain separately scoped work.

@@ -37,6 +37,18 @@ outcomes rather than internal checkpoint chronology.
   dispatch-time reauthorization, privacy-safe audit, stale-conflict handling,
   schema-12 persistence, and schema-10/schema-11/schema-12 recovery.
 
+### Modern transport interleave
+
+- Completed M042.5 Secure SSH Caller Transport without changing Category-B
+  dependency order: schema-13 login identifier/public handle/private real-name
+  separation, disabled-by-default SSH-2 through the common session engine,
+  ordinary caller authentication with no duplicate password prompt, Ed25519
+  host identity, PTY/resize/encoding propagation, shared nodes and lifecycle
+  invalidation, privacy-safe diagnostics, and cold-backup preservation.
+- SSH remains caller access only. It provides no host OS shell, Unix account,
+  command execution, SCP/SFTP, forwarding, subsystem, or remote-filesystem
+  route.
+
 ### Presentation and language
 
 - Added Modern, Classic SPITFIRE-inspired, and Minimal Terminal profiles.
@@ -60,9 +72,19 @@ tag `v0.1.0-development-preview`. The public-redownload checksum and bounded
 unsigned/unnotarized macOS first-run workflow have passed.
 
 Public source `main` now includes post-0.1.0 message-discovery, auditable
-message-mutation, and auditable caller-access improvements. No new binary, tag,
-or release has been published; the downloadable binary remains the accepted
-0.1.0 Development Preview and does not contain those later source changes.
+message-mutation, auditable caller-access, schema-13 caller identity, and SSH
+caller-transport improvements. No new binary, tag, or release has been
+published; the downloadable binary remains the accepted 0.1.0 Development
+Preview and does not contain those later source changes.
+
+## Next dependency-ordered Category-B tranche
+
+M043 — Privacy-Bounded Public Information Interface / Resource Gate remains
+next, covering B-002 caller/Other-BBS public information and B-003 bulletins,
+newsletter, and derived system information. The current Category-B ledger
+remains 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 11 NOT STARTED. M042.5 was a
+modern transport interleave and did not reorder or redefine those dependencies.
+M043 implementation has not begun.
 
 Near-term release work includes:
 
@@ -92,7 +114,8 @@ before implementation.
 
 Longer-term modern SPITFIRE NG work may include:
 
-- SSH transport;
+- further secure-transport authentication features such as caller public-key
+  management;
 - web administration;
 - production language packs and community translation workflow;
 - caller-selectable installed presentation profiles;

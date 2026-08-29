@@ -130,3 +130,7 @@ historical research corpus to create or run a native board.
   a controlling terminal and intentionally disables echo.
 - Do not expose Telnet, RAW, or RLogin to an untrusted network without
   understanding that they do not encrypt caller passwords or session data.
+  Prefer the disabled-by-default SSH caller listener for encrypted remote
+  terminal access; verify its board-local host fingerprint, firewall, and
+  login-identifier policy before a non-loopback bind. SSH provides the BBS
+  only, never host administration.
