@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="docs/assets/branding/spitfire-ng-banner.png"
+       alt="SPITFIRE NG — Next Generation BBS Software"
+       width="1200">
+</p>
+
 # SPITFIRE NG
 
 SPITFIRE NG is a modern, cross-platform reimplementation of the SPITFIRE
