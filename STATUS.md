@@ -8,8 +8,8 @@ backup/restore, license, privacy, public-redownload, checksum, and first-run
 checks.
 
 The public `main` branch is now ahead of that binary release. Current source
-adds post-0.1.0 advanced message discovery; the downloadable 0.1.0 archive is
-unchanged and does not contain those additions.
+adds post-0.1.0 advanced message discovery and auditable message mutation; the
+downloadable 0.1.0 archive is unchanged and does not contain those additions.
 
 ## Current source additions
 
@@ -19,6 +19,15 @@ unchanged and does not contain those additions.
 - Read-only discovery with no last-read or receipt mutation
 - ASCII-case-insensitive body substring matching; Subject is not searched
 - All whitespace-delimited terms required regardless of order or separation
+- One primary recipient plus up to nine separately numbered CC deliveries
+- Per-delivery receipt, public/private visibility, and deleted/tombstone state
+- Authorized caller deletion plus threshold-Sysop Delete, contextual
+  Undelete, and public/private audience transitions
+- Source-retaining same/cross-conference Copy and Forward through Copy with a
+  changed recipient
+- Schema-11 immutable payloads, delivery identities, Copy/Forward lineage,
+  privacy-safe mutation audit, and state-version conflict protection
+- Schema-10→11 migration plus schema-10/schema-11 cold backup and restore
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -33,7 +42,8 @@ selection, visibility, or result presentation.
 - Telnet, RAW TCP, and RLogin compatibility listeners
 - Caller registration, authentication, privacy, profiles, and security levels
 - Message conferences, mail, replies, threads, queues, and receipts
-- Advanced caller/text message discovery in current post-0.1.0 source
+- Advanced caller/text discovery and auditable message mutation when built
+  from current post-0.1.0 source
 - File areas, catalogs, search, uploads, downloads, and new-file checks
 - ASCII, XMODEM, YMODEM, and ZMODEM-family transfer support as documented
 - Multinode runtime and session isolation

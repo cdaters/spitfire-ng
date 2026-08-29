@@ -1388,6 +1388,7 @@ mod tests {
                 b"R".to_vec(),
                 b"N".to_vec(),
                 b"".to_vec(),
+                b"".to_vec(),
                 b"Clean caller reply".to_vec(),
                 b"/S".to_vec(),
                 b"Y".to_vec(),
@@ -3133,6 +3134,7 @@ mod tests {
             b"Q".to_vec(),
             b"E".to_vec(),
             b"Recipient Caller".to_vec(),
+            b"".to_vec(),
             b"Y".to_vec(),
             b"Private fixture greeting".to_vec(),
             b"Private message content".to_vec(),
@@ -3146,7 +3148,14 @@ mod tests {
             b"Y".to_vec(),
             b"G".to_vec(),
         ]);
-        let report = runtime.run_connection(&mut posting).unwrap();
+        let report = runtime
+            .run_connection(&mut posting)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "message-flow session failed: {error:?}\n{}",
+                    String::from_utf8_lossy(posting.output())
+                )
+            });
         assert!(matches!(report, ConnectionReport::Completed(_)));
         assert!(contains(posting.output(), b"Conference 1: General"));
         assert!(contains(posting.output(), b"Conference 2: SPITFIRE"));
@@ -3485,6 +3494,7 @@ mod tests {
                     read_security: SecurityLevel::new(5).unwrap(),
                     post_security: SecurityLevel::new(5).unwrap(),
                     public_only: false,
+                    caller_deletion_enabled: true,
                     maximum_lines: 50,
                     privileged_security_levels: Vec::new(),
                 })
@@ -3544,7 +3554,7 @@ mod tests {
             0, 25, 255, 240,
         ];
         script.extend_from_slice(
-            b"N\rClosure Caller\rtest-only closure caller password\rM\rC\r2\rR\rT\rR\rN\r\r",
+            b"N\rClosure Caller\rtest-only closure caller password\rM\rC\r2\rR\rT\rR\rN\r\r\r",
         );
         script.extend_from_slice(&[0x11, b'\r']);
         script.extend_from_slice(

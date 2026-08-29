@@ -1,6 +1,6 @@
 use std::num::NonZeroI64;
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use thiserror::Error;
 
 use crate::{Caller, CallerError, CallerId, CallerState, RuntimeDatabase, SecurityLevel};
@@ -13,6 +13,7 @@ pub const MAX_MESSAGE_SEARCH_TERMS: usize = 6;
 pub const MAX_MESSAGE_SEARCH_TERM_BYTES: usize = 64;
 pub const MAX_MESSAGE_SEARCH_RESULTS: usize = 100;
 pub const MAX_MESSAGE_SEARCH_CANDIDATES: usize = 10_000;
+pub const MAX_MESSAGE_CC_RECIPIENTS: usize = 9;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConferenceId(NonZeroI64);
@@ -86,6 +87,7 @@ pub struct Conference {
     pub read_security: SecurityLevel,
     pub post_security: SecurityLevel,
     pub public_only: bool,
+    pub caller_deletion_enabled: bool,
     pub maximum_lines: u16,
     pub privileged_security_levels: Vec<SecurityLevel>,
     pub active: bool,
@@ -100,6 +102,7 @@ pub struct ConferenceDefinition {
     pub read_security: SecurityLevel,
     pub post_security: SecurityLevel,
     pub public_only: bool,
+    pub caller_deletion_enabled: bool,
     pub maximum_lines: u16,
     pub privileged_security_levels: Vec<SecurityLevel>,
 }
@@ -159,6 +162,55 @@ pub enum MessageKind {
     SysopComment,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MessageDeliveryRole {
+    Single,
+    Primary,
+    CarbonCopy,
+}
+
+impl MessageDeliveryRole {
+    fn as_database_value(self) -> &'static str {
+        match self {
+            Self::Single => "single",
+            Self::Primary => "primary",
+            Self::CarbonCopy => "cc",
+        }
+    }
+
+    fn from_database_value(value: &str) -> Result<Self, MessageError> {
+        match value {
+            "single" => Ok(Self::Single),
+            "primary" => Ok(Self::Primary),
+            "cc" => Ok(Self::CarbonCopy),
+            _ => Err(MessageError::InvalidStoredDeliveryRole(value.to_owned())),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MessageLifecycle {
+    Active,
+    Deleted,
+}
+
+impl MessageLifecycle {
+    fn as_database_value(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Deleted => "deleted",
+        }
+    }
+
+    fn from_database_value(value: &str) -> Result<Self, MessageError> {
+        match value {
+            "active" => Ok(Self::Active),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(MessageError::InvalidStoredLifecycle(value.to_owned())),
+        }
+    }
+}
+
 impl MessageKind {
     fn as_database_value(self) -> &'static str {
         match self {
@@ -191,6 +243,12 @@ pub struct Message {
     pub parent_message_id: Option<MessageId>,
     pub visibility: MessageVisibility,
     pub kind: MessageKind,
+    pub lifecycle: MessageLifecycle,
+    pub state_version: u64,
+    pub delivery_role: MessageDeliveryRole,
+    pub delivery_ordinal: u8,
+    pub primary_recipient_name: Option<String>,
+    pub received: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -205,6 +263,10 @@ pub struct MessageSummary {
     pub created_at: i64,
     pub visibility: MessageVisibility,
     pub kind: MessageKind,
+    pub lifecycle: MessageLifecycle,
+    pub state_version: u64,
+    pub delivery_role: MessageDeliveryRole,
+    pub received: bool,
 }
 
 impl From<&Message> for MessageSummary {
@@ -220,6 +282,10 @@ impl From<&Message> for MessageSummary {
             created_at: message.created_at,
             visibility: message.visibility,
             kind: message.kind,
+            lifecycle: message.lifecycle,
+            state_version: message.state_version,
+            delivery_role: message.delivery_role,
+            received: message.received,
         }
     }
 }
@@ -268,6 +334,33 @@ pub struct MessageStats {
 pub struct MessageRecipient {
     pub caller_id: CallerId,
     pub display_name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CopyRecipient {
+    Preserve,
+    AllCallers,
+    Caller(MessageRecipient),
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MessageMutationCapabilities {
+    pub delete: bool,
+    pub undelete: bool,
+    pub toggle_visibility: bool,
+    pub copy: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MessageMutationStorageStats {
+    pub payloads: u64,
+    pub fanouts: u64,
+    pub deliveries: u64,
+    pub recipient_relations: u64,
+    pub tombstones: u64,
+    pub receipts: u64,
+    pub lineage_relations: u64,
+    pub audit_events: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -338,6 +431,51 @@ pub trait MessageBackend {
         query: &MessageDiscoveryQuery,
     ) -> Result<MessageDiscoveryResult, MessageError>;
     fn post(&mut self, actor: MessageActor, message: NewMessage) -> Result<Message, MessageError>;
+    fn post_with_cc(
+        &mut self,
+        actor: MessageActor,
+        message: NewMessage,
+        cc_recipients: &[MessageRecipient],
+    ) -> Result<Vec<Message>, MessageError>;
+    fn mutation_capabilities(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+    ) -> Result<MessageMutationCapabilities, MessageError>;
+    fn delete_message(
+        &mut self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+    ) -> Result<Message, MessageError>;
+    fn undelete_message(
+        &mut self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+    ) -> Result<Message, MessageError>;
+    fn toggle_message_visibility(
+        &mut self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        address_all_callers: bool,
+    ) -> Result<Message, MessageError>;
+    #[allow(clippy::too_many_arguments)]
+    fn copy_message(
+        &mut self,
+        actor: MessageActor,
+        source_conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        destination_conference_number: u16,
+        recipient: CopyRecipient,
+        placed_at: i64,
+    ) -> Result<Message, MessageError>;
     fn mark_read(
         &mut self,
         actor: MessageActor,
@@ -356,6 +494,41 @@ pub trait MessageBackend {
 }
 
 impl RuntimeDatabase {
+    pub fn message_mutation_storage_stats(
+        &self,
+    ) -> Result<MessageMutationStorageStats, MessageError> {
+        self.connection
+            .query_row(
+                r#"
+                SELECT
+                    (SELECT COUNT(*) FROM message_payloads),
+                    (SELECT COUNT(*) FROM message_fanouts),
+                    (SELECT COUNT(*) FROM messages),
+                    (SELECT COUNT(*) FROM message_delivery_recipients),
+                    (SELECT COUNT(*) FROM messages WHERE lifecycle_state = 'deleted'),
+                    (SELECT COUNT(*) FROM caller_message_receipts),
+                    (SELECT COUNT(*) FROM message_lineage),
+                    (SELECT COUNT(*) FROM message_mutation_events)
+                "#,
+                [],
+                |row| {
+                    Ok(MessageMutationStorageStats {
+                        payloads: sqlite_u64(row.get(0)?).map_err(to_sql_conversion_error)?,
+                        fanouts: sqlite_u64(row.get(1)?).map_err(to_sql_conversion_error)?,
+                        deliveries: sqlite_u64(row.get(2)?).map_err(to_sql_conversion_error)?,
+                        recipient_relations: sqlite_u64(row.get(3)?)
+                            .map_err(to_sql_conversion_error)?,
+                        tombstones: sqlite_u64(row.get(4)?).map_err(to_sql_conversion_error)?,
+                        receipts: sqlite_u64(row.get(5)?).map_err(to_sql_conversion_error)?,
+                        lineage_relations: sqlite_u64(row.get(6)?)
+                            .map_err(to_sql_conversion_error)?,
+                        audit_events: sqlite_u64(row.get(7)?).map_err(to_sql_conversion_error)?,
+                    })
+                },
+            )
+            .map_err(MessageError::Sqlite)
+    }
+
     pub fn ensure_conference(
         &mut self,
         definition: &ConferenceDefinition,
@@ -370,8 +543,9 @@ impl RuntimeDatabase {
                 r#"
                 INSERT INTO message_conferences (
                     conference_number, name, description, access_mode,
-                    read_security, post_security, public_only, maximum_lines
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    read_security, post_security, public_only, caller_deletion_enabled,
+                    maximum_lines
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 ON CONFLICT(conference_number) DO NOTHING
                 "#,
                 params![
@@ -382,6 +556,7 @@ impl RuntimeDatabase {
                     definition.read_security.get(),
                     definition.post_security.get(),
                     definition.public_only,
+                    definition.caller_deletion_enabled,
                     definition.maximum_lines
                 ],
             )
@@ -442,7 +617,7 @@ impl RuntimeDatabase {
                 UPDATE message_conferences SET
                     name = ?2, description = ?3, access_mode = ?4,
                     read_security = ?5, post_security = ?6,
-                    public_only = ?7, maximum_lines = ?8,
+                    public_only = ?7, caller_deletion_enabled = ?8, maximum_lines = ?9,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE conference_number = ?1
                 "#,
@@ -454,6 +629,7 @@ impl RuntimeDatabase {
                     definition.read_security.get(),
                     definition.post_security.get(),
                     definition.public_only,
+                    definition.caller_deletion_enabled,
                     definition.maximum_lines,
                 ],
             )
@@ -515,7 +691,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active
                 FROM message_conferences ORDER BY conference_number
                 "#,
             )
@@ -548,22 +724,44 @@ impl RuntimeDatabase {
         }
         let transaction = self
             .connection
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(MessageError::Sqlite)?;
         let number = next_message_number(&transaction, conference.id)?;
         transaction
             .execute(
-                r#"
-                INSERT INTO messages (
-                    conference_id, message_number, author_caller_id, author_name,
-                    recipient_caller_id, recipient_name, subject, body, created_at,
-                    parent_message_id, visibility, kind
-                ) VALUES (?1, ?2, NULL, 'SPITFIRE NG', NULL, 'All Callers', ?3, ?4, ?5, NULL, 'public', 'standard')
-                "#,
-                params![conference.id.get(), sqlite_i64(number)?, subject, body, created_at],
+                "INSERT INTO message_payloads (subject, body, content_kind) VALUES (?1, ?2, 'standard')",
+                params![subject, body],
             )
             .map_err(MessageError::Sqlite)?;
-        let id = MessageId::new(transaction.last_insert_rowid())?;
+        let payload_id = transaction.last_insert_rowid();
+        transaction
+            .execute(
+                "INSERT INTO message_fanouts (payload_id, created_by_caller_id, created_at) VALUES (?1, NULL, ?2)",
+                params![payload_id, created_at],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let fanout_id = transaction.last_insert_rowid();
+        let id = next_message_id(&transaction)?;
+        transaction
+            .execute(
+                r#"
+                INSERT INTO messages (
+                    message_id, fanout_id, conference_id, message_number,
+                    author_caller_id, author_name, created_at, placed_at,
+                    parent_message_id, audience_kind, visibility, lifecycle_state,
+                    state_version, delivery_role, delivery_ordinal, primary_delivery_id
+                ) VALUES (?1, ?2, ?3, ?4, NULL, 'SPITFIRE NG', ?5, ?5,
+                          NULL, 'all-callers', 'public', 'active', 1, 'single', 0, NULL)
+                "#,
+                params![
+                    id.get(),
+                    fanout_id,
+                    conference.id.get(),
+                    sqlite_i64(number)?,
+                    created_at
+                ],
+            )
+            .map_err(MessageError::Sqlite)?;
         transaction.commit().map_err(MessageError::Sqlite)?;
         self.load_message_by_id(id)?
             .ok_or(MessageError::MessageNotFound {
@@ -582,7 +780,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active
                 FROM message_conferences WHERE conference_number = ?1 AND active = 1
                 "#,
                 params![conference_number],
@@ -606,7 +804,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active
                 FROM message_conferences WHERE conference_number = ?1
                 "#,
                 params![conference_number],
@@ -630,7 +828,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active
                 FROM message_conferences WHERE conference_id = ?1 AND active = 1
                 "#,
                 params![conference_id.get()],
@@ -711,7 +909,7 @@ impl RuntimeDatabase {
     ) -> Result<Option<Message>, MessageError> {
         self.connection
             .query_row(
-                &format!("{MESSAGE_SELECT} WHERE conference_id = ?1 AND author_caller_id IS NULL AND subject = ?2 LIMIT 1"),
+                &format!("{MESSAGE_SELECT} WHERE m.conference_id = ?1 AND m.author_caller_id IS NULL AND p.subject = ?2 LIMIT 1"),
                 params![conference_id.get(), subject],
                 message_from_row,
             )
@@ -742,7 +940,7 @@ impl MessageBackend for RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active
                 FROM message_conferences WHERE active = 1 ORDER BY conference_number
                 "#,
             )
@@ -841,10 +1039,15 @@ impl MessageBackend for RuntimeDatabase {
         conference_id: ConferenceId,
     ) -> Result<Vec<MessageSummary>, MessageError> {
         let (caller, _) = self.authorized_conference(actor, conference_id, false)?;
+        let lifecycle_filter = if caller.security_level.is_sysop(actor.sysop_security) {
+            ""
+        } else {
+            " AND m.lifecycle_state = 'active'"
+        };
         let mut statement = self
             .connection
             .prepare(&format!(
-                "{MESSAGE_SELECT} WHERE conference_id = ?1 AND deleted = 0 ORDER BY message_number"
+                "{MESSAGE_SELECT} WHERE m.conference_id = ?1{lifecycle_filter} ORDER BY m.message_number"
             ))
             .map_err(MessageError::Sqlite)?;
         let rows = statement
@@ -870,7 +1073,7 @@ impl MessageBackend for RuntimeDatabase {
         let message = self
             .connection
             .query_row(
-                &format!("{MESSAGE_SELECT} WHERE conference_id = ?1 AND message_number = ?2 AND deleted = 0"),
+                &format!("{MESSAGE_SELECT} WHERE m.conference_id = ?1 AND m.message_number = ?2"),
                 params![conference_id.get(), sqlite_i64(message_number)?],
                 message_from_row,
             )
@@ -880,6 +1083,14 @@ impl MessageBackend for RuntimeDatabase {
                 conference: conference.number,
                 number: message_number,
             })?;
+        if message.lifecycle == MessageLifecycle::Deleted
+            && !caller.security_level.is_sysop(actor.sysop_security)
+        {
+            return Err(MessageError::MessageNotFound {
+                conference: conference.number,
+                number: message_number,
+            });
+        }
         if !message_visible(&message, &caller, actor.sysop_security) {
             return Err(MessageError::MessageAccessDenied);
         }
@@ -922,7 +1133,7 @@ impl MessageBackend for RuntimeDatabase {
             let mut statement = self
                 .connection
                 .prepare(&format!(
-                    "{MESSAGE_SELECT} WHERE conference_id = ?1 AND deleted = 0 ORDER BY message_number LIMIT ?2"
+                    "{MESSAGE_SELECT} WHERE m.conference_id = ?1 AND m.lifecycle_state = 'active' ORDER BY m.message_number LIMIT ?2"
                 ))
                 .map_err(MessageError::Sqlite)?;
             let rows = statement
@@ -955,97 +1166,98 @@ impl MessageBackend for RuntimeDatabase {
     }
 
     fn post(&mut self, actor: MessageActor, message: NewMessage) -> Result<Message, MessageError> {
-        let (caller, conference) =
-            self.authorized_conference(actor, message.conference_id, true)?;
-        validate_message_contents(&message.subject, &message.body, conference.maximum_lines)?;
-        if conference.public_only && message.visibility == MessageVisibility::Private {
-            return Err(MessageError::PrivateMessagesNotAllowed(conference.number));
-        }
-        if message.visibility == MessageVisibility::Private && message.recipient_caller_id.is_none()
-        {
-            return Err(MessageError::PrivateMessageNeedsRecipient);
-        }
-        if let Some(recipient) = message.recipient_caller_id {
-            let stored = self
-                .caller_by_id(recipient)
-                .map_err(MessageError::Database)?
-                .ok_or(MessageError::RecipientNotFound)?;
-            if stored.state != CallerState::Active || stored.display_name != message.recipient_name
-            {
-                return Err(MessageError::RecipientNotFound);
-            }
-            if conference.number != 1 {
-                let queued: bool = self
-                    .connection
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM caller_message_queue WHERE caller_id = ?1 AND conference_id = ?2)",
-                        params![recipient.get(), conference.id.get()],
-                        |row| row.get(0),
-                    )
-                    .map_err(MessageError::Sqlite)?;
-                if !queued {
-                    return Err(MessageError::RecipientConferenceNotQueued(
-                        conference.number,
-                    ));
-                }
-            }
-        } else if message.recipient_name != "All Callers" {
-            return Err(MessageError::RecipientNotFound);
-        }
-        if let Some(parent) = message.parent_message_id {
-            let stored = self
-                .load_message_by_id(parent)?
-                .ok_or(MessageError::ParentMessageNotFound(parent.get()))?;
-            if stored.conference_id != message.conference_id
-                || !message_visible(&stored, &caller, actor.sysop_security)
-            {
-                return Err(MessageError::ParentMessageNotFound(parent.get()));
-            }
-        }
+        self.post_with_cc(actor, message, &[])?
+            .into_iter()
+            .next()
+            .ok_or(MessageError::MutationInvariant)
+    }
 
-        let transaction = self
-            .connection
-            .transaction()
-            .map_err(MessageError::Sqlite)?;
-        let number = next_message_number(&transaction, conference.id)?;
-        transaction
-            .execute(
-                r#"
-                INSERT INTO messages (
-                    conference_id, message_number, author_caller_id, author_name,
-                    recipient_caller_id, recipient_name, subject, body, created_at,
-                    parent_message_id, visibility, kind
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-                "#,
-                params![
-                    conference.id.get(),
-                    sqlite_i64(number)?,
-                    caller.id.get(),
-                    caller.display_name,
-                    message.recipient_caller_id.map(CallerId::get),
-                    message.recipient_name,
-                    message.subject,
-                    message.body,
-                    message.created_at,
-                    message.parent_message_id.map(MessageId::get),
-                    message.visibility.as_database_value(),
-                    message.kind.as_database_value(),
-                ],
-            )
-            .map_err(MessageError::Sqlite)?;
-        let id = MessageId::new(transaction.last_insert_rowid())?;
-        transaction
-            .execute(
-                "UPDATE callers SET messages_posted = messages_posted + 1, updated_at = CURRENT_TIMESTAMP WHERE caller_id = ?1 AND account_state = 'active'",
-                params![caller.id.get()],
-            )
-            .map_err(MessageError::Sqlite)?;
-        transaction.commit().map_err(MessageError::Sqlite)?;
-        self.load_message_by_id(id)?
-            .ok_or(MessageError::MessageNotFound {
-                conference: conference.number,
-                number,
-            })
+    fn post_with_cc(
+        &mut self,
+        actor: MessageActor,
+        message: NewMessage,
+        cc_recipients: &[MessageRecipient],
+    ) -> Result<Vec<Message>, MessageError> {
+        self.post_message_fanout(actor, message, cc_recipients)
+    }
+
+    fn mutation_capabilities(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+    ) -> Result<MessageMutationCapabilities, MessageError> {
+        self.message_mutation_capabilities(actor, conference, message_number)
+    }
+
+    fn delete_message(
+        &mut self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+    ) -> Result<Message, MessageError> {
+        self.set_message_lifecycle(
+            actor,
+            conference,
+            message_number,
+            expected_version,
+            MessageLifecycle::Deleted,
+        )
+    }
+
+    fn undelete_message(
+        &mut self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+    ) -> Result<Message, MessageError> {
+        self.set_message_lifecycle(
+            actor,
+            conference,
+            message_number,
+            expected_version,
+            MessageLifecycle::Active,
+        )
+    }
+
+    fn toggle_message_visibility(
+        &mut self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        address_all_callers: bool,
+    ) -> Result<Message, MessageError> {
+        self.toggle_visibility(
+            actor,
+            conference,
+            message_number,
+            expected_version,
+            address_all_callers,
+        )
+    }
+
+    fn copy_message(
+        &mut self,
+        actor: MessageActor,
+        source_conference: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        destination_conference_number: u16,
+        recipient: CopyRecipient,
+        placed_at: i64,
+    ) -> Result<Message, MessageError> {
+        self.copy_delivery(
+            actor,
+            source_conference,
+            message_number,
+            expected_version,
+            destination_conference_number,
+            recipient,
+            placed_at,
+        )
     }
 
     fn mark_read(
@@ -1054,11 +1266,30 @@ impl MessageBackend for RuntimeDatabase {
         conference_id: ConferenceId,
         message_number: u64,
     ) -> Result<(), MessageError> {
-        let message = self.message(actor, conference_id, message_number)?;
         let transaction = self
             .connection
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(MessageError::Sqlite)?;
+        let (_, security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        let conference = conference_policy_snapshot(&transaction, conference_id)?;
+        ensure_read_authority(&transaction, &conference, security, actor.sysop_security)?;
+        let message =
+            load_message_by_number_connection(&transaction, conference_id, message_number)?.ok_or(
+                MessageError::MessageNotFound {
+                    conference: conference.number,
+                    number: message_number,
+                },
+            )?;
+        if message.lifecycle == MessageLifecycle::Deleted {
+            return Ok(());
+        }
+        if message.visibility == MessageVisibility::Private
+            && !security.is_sysop(actor.sysop_security)
+            && message.author_caller_id != Some(actor.caller_id)
+            && message.recipient_caller_id != Some(actor.caller_id)
+        {
+            return Err(MessageError::MessageAccessDenied);
+        }
         transaction
             .execute(
                 r#"
@@ -1128,6 +1359,9 @@ impl MessageBackend for RuntimeDatabase {
         let mut stats = MessageStats::default();
         for conference in self.conferences(actor)? {
             for message in self.messages(actor, conference.id)? {
+                if message.lifecycle == MessageLifecycle::Deleted {
+                    continue;
+                }
                 stats.total_available += 1;
                 if message.author_caller_id == Some(actor.caller_id) {
                     stats.sent += 1;
@@ -1145,17 +1379,644 @@ impl MessageBackend for RuntimeDatabase {
     }
 }
 
+impl RuntimeDatabase {
+    pub fn set_conference_caller_deletion(
+        &mut self,
+        conference_number: u16,
+        enabled: bool,
+    ) -> Result<(), MessageError> {
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE message_conferences SET caller_deletion_enabled = ?2, updated_at = CURRENT_TIMESTAMP WHERE conference_number = ?1",
+                params![conference_number, enabled],
+            )
+            .map_err(MessageError::Sqlite)?;
+        if changed == 0 {
+            return Err(MessageError::ConferenceNotFound(conference_number));
+        }
+        Ok(())
+    }
+
+    fn post_message_fanout(
+        &mut self,
+        actor: MessageActor,
+        message: NewMessage,
+        cc_recipients: &[MessageRecipient],
+    ) -> Result<Vec<Message>, MessageError> {
+        let (caller, conference) =
+            self.authorized_conference(actor, message.conference_id, true)?;
+        validate_message_contents(&message.subject, &message.body, conference.maximum_lines)?;
+        if cc_recipients.len() > MAX_MESSAGE_CC_RECIPIENTS {
+            return Err(MessageError::TooManyCarbonCopies);
+        }
+        if conference.public_only && message.visibility == MessageVisibility::Private {
+            return Err(MessageError::PrivateMessagesNotAllowed(conference.number));
+        }
+        if message.visibility == MessageVisibility::Private && message.recipient_caller_id.is_none()
+        {
+            return Err(MessageError::PrivateMessageNeedsRecipient);
+        }
+        if !cc_recipients.is_empty() && message.recipient_caller_id.is_none() {
+            return Err(MessageError::CarbonCopyNeedsPrimary);
+        }
+        let mut recipients = Vec::new();
+        if let Some(id) = message.recipient_caller_id {
+            recipients.push(MessageRecipient {
+                caller_id: id,
+                display_name: message.recipient_name.clone(),
+            });
+        } else if message.recipient_name != "All Callers" {
+            return Err(MessageError::RecipientNotFound);
+        }
+        recipients.extend_from_slice(cc_recipients);
+
+        let mut unique = std::collections::HashSet::new();
+        for recipient in &recipients {
+            if recipient.caller_id == caller.id {
+                return Err(MessageError::SelfRecipient);
+            }
+            if !unique.insert(recipient.caller_id) {
+                return Err(MessageError::DuplicateRecipient);
+            }
+            validate_recipient_connection(
+                &self.connection,
+                recipient,
+                conference.id,
+                conference.number,
+            )?;
+        }
+        if let Some(parent) = message.parent_message_id {
+            let stored = self
+                .load_message_by_id(parent)?
+                .ok_or(MessageError::ParentMessageNotFound(parent.get()))?;
+            if stored.conference_id != message.conference_id
+                || stored.lifecycle != MessageLifecycle::Active
+                || !message_visible(&stored, &caller, actor.sysop_security)
+            {
+                return Err(MessageError::ParentMessageNotFound(parent.get()));
+            }
+        }
+
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MessageError::Sqlite)?;
+        let (actor_name, actor_security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        ensure_post_authority(
+            &transaction,
+            message.conference_id,
+            actor_security,
+            actor.sysop_security,
+        )?;
+        for recipient in &recipients {
+            validate_recipient_connection(
+                &transaction,
+                recipient,
+                conference.id,
+                conference.number,
+            )?;
+        }
+
+        transaction
+            .execute(
+                "INSERT INTO message_payloads (subject, body, content_kind) VALUES (?1, ?2, ?3)",
+                params![
+                    message.subject,
+                    message.body,
+                    message.kind.as_database_value()
+                ],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let payload_id = transaction.last_insert_rowid();
+        transaction
+            .execute(
+                "INSERT INTO message_fanouts (payload_id, created_by_caller_id, created_at) VALUES (?1, ?2, ?3)",
+                params![payload_id, actor.caller_id.get(), message.created_at],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let fanout_id = transaction.last_insert_rowid();
+        let first_number = next_message_number(&transaction, conference.id)?;
+        let first_id = next_message_id(&transaction)?;
+        let delivery_count = recipients.len().max(1);
+        let mut ids = Vec::with_capacity(delivery_count);
+
+        for ordinal in 0..delivery_count {
+            let id = MessageId::new(
+                first_id.get()
+                    + i64::try_from(ordinal).map_err(|_| MessageError::MessageNumberOverflow)?,
+            )?;
+            let number = first_number
+                .checked_add(
+                    u64::try_from(ordinal).map_err(|_| MessageError::MessageNumberOverflow)?,
+                )
+                .ok_or(MessageError::MessageNumberOverflow)?;
+            let (audience, role, primary_id) = if recipients.is_empty() {
+                ("all-callers", MessageDeliveryRole::Single, None)
+            } else if ordinal == 0 {
+                (
+                    "local-recipient",
+                    MessageDeliveryRole::Primary,
+                    Some(first_id),
+                )
+            } else {
+                (
+                    "local-recipient",
+                    MessageDeliveryRole::CarbonCopy,
+                    Some(first_id),
+                )
+            };
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO messages (
+                        message_id, fanout_id, conference_id, message_number,
+                        author_caller_id, author_name, created_at, placed_at,
+                        parent_message_id, audience_kind, visibility, lifecycle_state,
+                        state_version, delivery_role, delivery_ordinal, primary_delivery_id
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10,
+                              'active', 1, ?11, ?12, ?13)
+                    "#,
+                    params![
+                        id.get(),
+                        fanout_id,
+                        conference.id.get(),
+                        sqlite_i64(number)?,
+                        caller.id.get(),
+                        caller.display_name,
+                        message.created_at,
+                        message.parent_message_id.map(MessageId::get),
+                        audience,
+                        message.visibility.as_database_value(),
+                        role.as_database_value(),
+                        i64::try_from(ordinal).map_err(|_| MessageError::MessageNumberOverflow)?,
+                        primary_id.map(MessageId::get),
+                    ],
+                )
+                .map_err(MessageError::Sqlite)?;
+            if let Some(recipient) = recipients.get(ordinal) {
+                transaction
+                    .execute(
+                        "INSERT INTO message_delivery_recipients (message_id, fanout_id, caller_id, display_name_snapshot, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![id.get(), fanout_id, recipient.caller_id.get(), recipient.display_name, message.created_at],
+                    )
+                    .map_err(MessageError::Sqlite)?;
+            }
+            ids.push(id);
+        }
+        if cc_recipients.is_empty() {
+            // A normal post is not a mutation event. The immutable fan-out is
+            // still the authoritative posting identity.
+        } else {
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO message_mutation_events (
+                        occurred_at, operation, actor_caller_id, actor_name_snapshot,
+                        message_id, new_state_version, destination_conference_id,
+                        destination_message_number, recipient_count
+                    ) VALUES (?1, 'cc-created', ?2, ?3, ?4, 1, ?5, ?6, ?7)
+                    "#,
+                    params![
+                        message.created_at,
+                        actor.caller_id.get(),
+                        actor_name,
+                        first_id.get(),
+                        conference.id.get(),
+                        sqlite_i64(first_number)?,
+                        i64::try_from(delivery_count)
+                            .map_err(|_| MessageError::MessageNumberOverflow)?
+                    ],
+                )
+                .map_err(MessageError::Sqlite)?;
+        }
+        transaction
+            .execute(
+                "UPDATE callers SET messages_posted = messages_posted + ?2, updated_at = CURRENT_TIMESTAMP WHERE caller_id = ?1 AND account_state = 'active'",
+                params![caller.id.get(), i64::try_from(delivery_count).map_err(|_| MessageError::MessageNumberOverflow)?],
+            )
+            .map_err(MessageError::Sqlite)?;
+        validate_fanout(&transaction, fanout_id)?;
+        transaction.commit().map_err(MessageError::Sqlite)?;
+
+        ids.into_iter()
+            .map(|id| {
+                self.load_message_by_id(id)?
+                    .ok_or(MessageError::MutationInvariant)
+            })
+            .collect()
+    }
+
+    fn message_mutation_capabilities(
+        &self,
+        actor: MessageActor,
+        conference_id: ConferenceId,
+        message_number: u64,
+    ) -> Result<MessageMutationCapabilities, MessageError> {
+        let (caller, conference) = self.authorized_conference(actor, conference_id, false)?;
+        let message =
+            load_message_by_number_connection(&self.connection, conference_id, message_number)?
+                .ok_or(MessageError::MessageNotFound {
+                    conference: conference.number,
+                    number: message_number,
+                })?;
+        let threshold = caller.security_level.is_sysop(actor.sysop_security);
+        if message.lifecycle == MessageLifecycle::Deleted && !threshold {
+            return Err(MessageError::MessageNotFound {
+                conference: conference.number,
+                number: message_number,
+            });
+        }
+        if !message_visible(&message, &caller, actor.sysop_security) {
+            return Err(MessageError::MessageAccessDenied);
+        }
+        let ordinary_delete = conference.caller_deletion_enabled
+            && (message.author_caller_id == Some(caller.id)
+                || message.recipient_caller_id == Some(caller.id));
+        Ok(MessageMutationCapabilities {
+            delete: message.lifecycle == MessageLifecycle::Active && (threshold || ordinary_delete),
+            undelete: message.lifecycle == MessageLifecycle::Deleted && threshold,
+            toggle_visibility: message.lifecycle == MessageLifecycle::Active && threshold,
+            copy: message.lifecycle == MessageLifecycle::Active && threshold,
+        })
+    }
+
+    fn set_message_lifecycle(
+        &mut self,
+        actor: MessageActor,
+        conference_id: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        target: MessageLifecycle,
+    ) -> Result<Message, MessageError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MessageError::Sqlite)?;
+        let (actor_name, security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        let conference = conference_policy_snapshot(&transaction, conference_id)?;
+        ensure_read_authority(&transaction, &conference, security, actor.sysop_security)?;
+        let message =
+            load_message_by_number_connection(&transaction, conference_id, message_number)?.ok_or(
+                MessageError::MessageNotFound {
+                    conference: conference.number,
+                    number: message_number,
+                },
+            )?;
+        let threshold = security.is_sysop(actor.sysop_security);
+        if message.state_version != expected_version {
+            return Err(MessageError::MutationConflict);
+        }
+        if message.lifecycle == target {
+            return Err(if target == MessageLifecycle::Deleted {
+                MessageError::AlreadyDeleted
+            } else {
+                MessageError::AlreadyActive
+            });
+        }
+        if target == MessageLifecycle::Active && !threshold {
+            return Err(MessageError::MutationDenied);
+        }
+        if target == MessageLifecycle::Deleted
+            && !threshold
+            && !(conference.caller_deletion_enabled
+                && (message.author_caller_id == Some(actor.caller_id)
+                    || message.recipient_caller_id == Some(actor.caller_id)))
+        {
+            return Err(MessageError::MutationDenied);
+        }
+        let new_version = expected_version
+            .checked_add(1)
+            .ok_or(MessageError::StateVersionOverflow)?;
+        let changed = transaction
+            .execute(
+                "UPDATE messages SET lifecycle_state = ?2, state_version = ?3 WHERE message_id = ?1 AND state_version = ?4 AND lifecycle_state = ?5",
+                params![message.id.get(), target.as_database_value(), sqlite_i64(new_version)?, sqlite_i64(expected_version)?, message.lifecycle.as_database_value()],
+            )
+            .map_err(MessageError::Sqlite)?;
+        if changed != 1 {
+            return Err(MessageError::MutationConflict);
+        }
+        transaction
+            .execute(
+                r#"
+                INSERT INTO message_mutation_events (
+                    occurred_at, operation, actor_caller_id, actor_name_snapshot,
+                    message_id, prior_state_version, new_state_version,
+                    source_conference_id, source_message_number,
+                    prior_lifecycle, new_lifecycle
+                ) VALUES (unixepoch(), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "#,
+                params![
+                    if target == MessageLifecycle::Deleted {
+                        "deleted"
+                    } else {
+                        "undeleted"
+                    },
+                    actor.caller_id.get(),
+                    actor_name,
+                    message.id.get(),
+                    sqlite_i64(expected_version)?,
+                    sqlite_i64(new_version)?,
+                    conference_id.get(),
+                    sqlite_i64(message_number)?,
+                    message.lifecycle.as_database_value(),
+                    target.as_database_value(),
+                ],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let id = message.id;
+        transaction.commit().map_err(MessageError::Sqlite)?;
+        self.load_message_by_id(id)?
+            .ok_or(MessageError::MutationInvariant)
+    }
+
+    fn toggle_visibility(
+        &mut self,
+        actor: MessageActor,
+        conference_id: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        address_all_callers: bool,
+    ) -> Result<Message, MessageError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MessageError::Sqlite)?;
+        let (actor_name, security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        let conference = conference_policy_snapshot(&transaction, conference_id)?;
+        ensure_read_authority(&transaction, &conference, security, actor.sysop_security)?;
+        if !security.is_sysop(actor.sysop_security) {
+            return Err(MessageError::MutationDenied);
+        }
+        let message =
+            load_message_by_number_connection(&transaction, conference_id, message_number)?.ok_or(
+                MessageError::MessageNotFound {
+                    conference: conference.number,
+                    number: message_number,
+                },
+            )?;
+        if message.lifecycle != MessageLifecycle::Active {
+            return Err(MessageError::MutationDenied);
+        }
+        if message.state_version != expected_version {
+            return Err(MessageError::MutationConflict);
+        }
+        let (new_visibility, new_audience) = match message.visibility {
+            MessageVisibility::Public => {
+                if message.recipient_caller_id.is_none() {
+                    return Err(MessageError::PrivateMessageNeedsRecipient);
+                }
+                (MessageVisibility::Private, "local-recipient")
+            }
+            MessageVisibility::Private if address_all_callers => {
+                transaction
+                    .execute(
+                        "DELETE FROM message_delivery_recipients WHERE message_id = ?1",
+                        params![message.id.get()],
+                    )
+                    .map_err(MessageError::Sqlite)?;
+                (MessageVisibility::Public, "all-callers")
+            }
+            MessageVisibility::Private => (MessageVisibility::Public, "local-recipient"),
+        };
+        let prior_audience = if message.recipient_caller_id.is_some() {
+            "local-recipient"
+        } else {
+            "all-callers"
+        };
+        let new_version = expected_version
+            .checked_add(1)
+            .ok_or(MessageError::StateVersionOverflow)?;
+        let changed = transaction
+            .execute(
+                "UPDATE messages SET visibility = ?2, audience_kind = ?3, state_version = ?4 WHERE message_id = ?1 AND state_version = ?5 AND lifecycle_state = 'active'",
+                params![message.id.get(), new_visibility.as_database_value(), new_audience, sqlite_i64(new_version)?, sqlite_i64(expected_version)?],
+            )
+            .map_err(MessageError::Sqlite)?;
+        if changed != 1 {
+            return Err(MessageError::MutationConflict);
+        }
+        transaction
+            .execute(
+                r#"
+                INSERT INTO message_mutation_events (
+                    occurred_at, operation, actor_caller_id, actor_name_snapshot,
+                    message_id, prior_state_version, new_state_version,
+                    source_conference_id, source_message_number,
+                    prior_visibility, new_visibility, prior_audience, new_audience
+                ) VALUES (unixepoch(), 'visibility-changed', ?1, ?2, ?3, ?4, ?5,
+                          ?6, ?7, ?8, ?9, ?10, ?11)
+                "#,
+                params![
+                    actor.caller_id.get(),
+                    actor_name,
+                    message.id.get(),
+                    sqlite_i64(expected_version)?,
+                    sqlite_i64(new_version)?,
+                    conference_id.get(),
+                    sqlite_i64(message_number)?,
+                    message.visibility.as_database_value(),
+                    new_visibility.as_database_value(),
+                    prior_audience,
+                    new_audience
+                ],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let id = message.id;
+        transaction.commit().map_err(MessageError::Sqlite)?;
+        self.load_message_by_id(id)?
+            .ok_or(MessageError::MutationInvariant)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn copy_delivery(
+        &mut self,
+        actor: MessageActor,
+        source_conference_id: ConferenceId,
+        message_number: u64,
+        expected_version: u64,
+        destination_conference_number: u16,
+        recipient: CopyRecipient,
+        placed_at: i64,
+    ) -> Result<Message, MessageError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MessageError::Sqlite)?;
+        let (actor_name, security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        if !security.is_sysop(actor.sysop_security) {
+            return Err(MessageError::MutationDenied);
+        }
+        let source_conference = conference_policy_snapshot(&transaction, source_conference_id)?;
+        ensure_read_authority(
+            &transaction,
+            &source_conference,
+            security,
+            actor.sysop_security,
+        )?;
+        let destination =
+            conference_snapshot_by_number(&transaction, destination_conference_number)?;
+        ensure_post_authority(&transaction, destination.id, security, actor.sysop_security)?;
+        let source =
+            load_message_by_number_connection(&transaction, source_conference_id, message_number)?
+                .ok_or(MessageError::MessageNotFound {
+                    conference: source_conference.number,
+                    number: message_number,
+                })?;
+        if source.lifecycle != MessageLifecycle::Active {
+            return Err(MessageError::MutationDenied);
+        }
+        if source.state_version != expected_version {
+            return Err(MessageError::MutationConflict);
+        }
+        let (selected, forwarded) = match recipient {
+            CopyRecipient::Preserve => (
+                source
+                    .recipient_caller_id
+                    .map(|caller_id| MessageRecipient {
+                        caller_id,
+                        display_name: source.recipient_name.clone(),
+                    }),
+                false,
+            ),
+            CopyRecipient::AllCallers => (None, true),
+            CopyRecipient::Caller(value) => (Some(value), true),
+        };
+        if let Some(value) = selected.as_ref() {
+            if actor.caller_id == value.caller_id {
+                return Err(MessageError::SelfRecipient);
+            }
+            validate_recipient_connection(&transaction, value, destination.id, destination.number)?;
+        } else if source.visibility == MessageVisibility::Private {
+            return Err(MessageError::PrivateMessageNeedsRecipient);
+        }
+        if destination.public_only && source.visibility == MessageVisibility::Private {
+            return Err(MessageError::PrivateMessagesNotAllowed(destination.number));
+        }
+        let payload_id: i64 = transaction
+            .query_row(
+                "SELECT f.payload_id FROM messages AS m JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id WHERE m.message_id = ?1",
+                params![source.id.get()],
+                |row| row.get(0),
+            )
+            .map_err(MessageError::Sqlite)?;
+        transaction
+            .execute(
+                "INSERT INTO message_fanouts (payload_id, created_by_caller_id, created_at) VALUES (?1, ?2, ?3)",
+                params![payload_id, actor.caller_id.get(), placed_at],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let fanout_id = transaction.last_insert_rowid();
+        let id = next_message_id(&transaction)?;
+        let number = next_message_number(&transaction, destination.id)?;
+        let (audience, role, primary_id) = if selected.is_some() {
+            ("local-recipient", MessageDeliveryRole::Primary, Some(id))
+        } else {
+            ("all-callers", MessageDeliveryRole::Single, None)
+        };
+        transaction
+            .execute(
+                r#"
+                INSERT INTO messages (
+                    message_id, fanout_id, conference_id, message_number,
+                    author_caller_id, author_name, created_at, placed_at,
+                    parent_message_id, audience_kind, visibility, lifecycle_state,
+                    state_version, delivery_role, delivery_ordinal, primary_delivery_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                          'active', 1, ?12, 0, ?13)
+                "#,
+                params![
+                    id.get(),
+                    fanout_id,
+                    destination.id.get(),
+                    sqlite_i64(number)?,
+                    source.author_caller_id.map(CallerId::get),
+                    source.author_name,
+                    source.created_at,
+                    placed_at,
+                    source.parent_message_id.map(MessageId::get),
+                    audience,
+                    source.visibility.as_database_value(),
+                    role.as_database_value(),
+                    primary_id.map(MessageId::get)
+                ],
+            )
+            .map_err(MessageError::Sqlite)?;
+        if let Some(value) = selected.as_ref() {
+            transaction
+                .execute(
+                    "INSERT INTO message_delivery_recipients (message_id, fanout_id, caller_id, display_name_snapshot, added_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![id.get(), fanout_id, value.caller_id.get(), value.display_name, placed_at],
+                )
+                .map_err(MessageError::Sqlite)?;
+        }
+        transaction
+            .execute(
+                r#"
+                INSERT INTO message_mutation_events (
+                    occurred_at, operation, actor_caller_id, actor_name_snapshot,
+                    message_id, derived_message_id, prior_state_version,
+                    new_state_version, source_conference_id, source_message_number,
+                    destination_conference_id, destination_message_number, recipient_count
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9, ?10, ?11, ?12)
+                "#,
+                params![
+                    placed_at,
+                    if forwarded { "forwarded" } else { "copied" },
+                    actor.caller_id.get(),
+                    actor_name,
+                    source.id.get(),
+                    id.get(),
+                    sqlite_i64(expected_version)?,
+                    source_conference_id.get(),
+                    sqlite_i64(message_number)?,
+                    destination.id.get(),
+                    sqlite_i64(number)?,
+                    if selected.is_some() { 1 } else { 0 }
+                ],
+            )
+            .map_err(MessageError::Sqlite)?;
+        let event_id = transaction.last_insert_rowid();
+        transaction
+            .execute(
+                "INSERT INTO message_lineage (derived_message_id, source_message_id, relation, mutation_event_id) VALUES (?1, ?2, ?3, ?4)",
+                params![id.get(), source.id.get(), if forwarded { "forward" } else { "copy" }, event_id],
+            )
+            .map_err(MessageError::Sqlite)?;
+        validate_fanout(&transaction, fanout_id)?;
+        transaction.commit().map_err(MessageError::Sqlite)?;
+        self.load_message_by_id(id)?
+            .ok_or(MessageError::MutationInvariant)
+    }
+}
+
 const MESSAGE_SELECT: &str = r#"
-    SELECT message_id, conference_id, message_number, author_caller_id,
-           author_name, recipient_caller_id, recipient_name, subject, body,
-           created_at, parent_message_id, visibility, kind
-    FROM messages
+    SELECT m.message_id, m.conference_id, m.message_number, m.author_caller_id,
+           m.author_name, r.caller_id, COALESCE(r.display_name_snapshot, 'All Callers'),
+           p.subject, p.body, m.created_at, m.parent_message_id, m.visibility,
+           p.content_kind, m.lifecycle_state, m.state_version, m.delivery_role,
+           m.delivery_ordinal, pr.display_name_snapshot,
+           EXISTS(SELECT 1 FROM caller_message_receipts AS rr WHERE rr.message_id = m.message_id)
+      FROM messages AS m
+      JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id
+      JOIN message_payloads AS p ON p.payload_id = f.payload_id
+      LEFT JOIN message_delivery_recipients AS r ON r.message_id = m.message_id
+      LEFT JOIN message_delivery_recipients AS pr ON pr.message_id = m.primary_delivery_id
 "#;
 const MESSAGE_SELECT_BY_ID: &str = r#"
-    SELECT message_id, conference_id, message_number, author_caller_id,
-           author_name, recipient_caller_id, recipient_name, subject, body,
-           created_at, parent_message_id, visibility, kind
-    FROM messages WHERE message_id = ?1 AND deleted = 0
+    SELECT m.message_id, m.conference_id, m.message_number, m.author_caller_id,
+           m.author_name, r.caller_id, COALESCE(r.display_name_snapshot, 'All Callers'),
+           p.subject, p.body, m.created_at, m.parent_message_id, m.visibility,
+           p.content_kind, m.lifecycle_state, m.state_version, m.delivery_role,
+           m.delivery_ordinal, pr.display_name_snapshot,
+           EXISTS(SELECT 1 FROM caller_message_receipts AS rr WHERE rr.message_id = m.message_id)
+      FROM messages AS m
+      JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id
+      JOIN message_payloads AS p ON p.payload_id = f.payload_id
+      LEFT JOIN message_delivery_recipients AS r ON r.message_id = m.message_id
+      LEFT JOIN message_delivery_recipients AS pr ON pr.message_id = m.primary_delivery_id
+     WHERE m.message_id = ?1
 "#;
 
 fn conference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conference> {
@@ -1173,9 +2034,10 @@ fn conference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conference> 
         read_security: SecurityLevel::new(read_security).map_err(to_sql_conversion_error)?,
         post_security: SecurityLevel::new(post_security).map_err(to_sql_conversion_error)?,
         public_only: row.get(7)?,
-        maximum_lines: row.get(8)?,
+        caller_deletion_enabled: row.get(8)?,
+        maximum_lines: row.get(9)?,
         privileged_security_levels: Vec::new(),
-        active: row.get(9)?,
+        active: row.get(10)?,
     })
 }
 
@@ -1185,6 +2047,8 @@ fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
     let parent_id = row.get::<_, Option<i64>>(10)?;
     let visibility = row.get::<_, String>(11)?;
     let kind = row.get::<_, String>(12)?;
+    let lifecycle = row.get::<_, String>(13)?;
+    let delivery_role = row.get::<_, String>(15)?;
     let subject = row.get::<_, Vec<u8>>(7)?;
     let body = row.get::<_, Vec<u8>>(8)?;
     validate_message_contents(&subject, &body, MAX_MESSAGE_LINES as u16)
@@ -1213,6 +2077,14 @@ fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
         visibility: MessageVisibility::from_database_value(&visibility)
             .map_err(to_sql_conversion_error)?,
         kind: MessageKind::from_database_value(&kind).map_err(to_sql_conversion_error)?,
+        lifecycle: MessageLifecycle::from_database_value(&lifecycle)
+            .map_err(to_sql_conversion_error)?,
+        state_version: sqlite_u64(row.get(14)?).map_err(to_sql_conversion_error)?,
+        delivery_role: MessageDeliveryRole::from_database_value(&delivery_role)
+            .map_err(to_sql_conversion_error)?,
+        delivery_ordinal: row.get(16)?,
+        primary_recipient_name: row.get(17)?,
+        received: row.get(18)?,
     })
 }
 
@@ -1339,6 +2211,215 @@ fn validate_message_contents(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+struct ConferencePolicySnapshot {
+    id: ConferenceId,
+    number: u16,
+    access_mode: ConferenceAccessMode,
+    read_security: SecurityLevel,
+    post_security: SecurityLevel,
+    public_only: bool,
+    caller_deletion_enabled: bool,
+}
+
+fn active_actor_snapshot(
+    connection: &rusqlite::Connection,
+    caller_id: CallerId,
+) -> Result<(String, SecurityLevel), MessageError> {
+    let value = connection
+        .query_row(
+            "SELECT display_name, security_level FROM callers WHERE caller_id = ?1 AND account_state = 'active'",
+            params![caller_id.get()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, u16>(1)?)),
+        )
+        .optional()
+        .map_err(MessageError::Sqlite)?
+        .ok_or(MessageError::CallerUnavailable)?;
+    Ok((
+        value.0,
+        SecurityLevel::new(value.1).map_err(MessageError::InvalidCaller)?,
+    ))
+}
+
+fn conference_policy_snapshot(
+    connection: &rusqlite::Connection,
+    conference_id: ConferenceId,
+) -> Result<ConferencePolicySnapshot, MessageError> {
+    connection
+        .query_row(
+            r#"
+            SELECT conference_id, conference_number, access_mode, read_security,
+                   post_security, public_only, caller_deletion_enabled
+              FROM message_conferences
+             WHERE conference_id = ?1 AND active = 1
+            "#,
+            params![conference_id.get()],
+            |row| {
+                let mode = row.get::<_, String>(2)?;
+                Ok(ConferencePolicySnapshot {
+                    id: ConferenceId::new(row.get(0)?).map_err(to_sql_conversion_error)?,
+                    number: row.get(1)?,
+                    access_mode: ConferenceAccessMode::from_database_value(&mode)
+                        .map_err(to_sql_conversion_error)?,
+                    read_security: SecurityLevel::new(row.get(3)?)
+                        .map_err(to_sql_conversion_error)?,
+                    post_security: SecurityLevel::new(row.get(4)?)
+                        .map_err(to_sql_conversion_error)?,
+                    public_only: row.get(5)?,
+                    caller_deletion_enabled: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(MessageError::Sqlite)?
+        .ok_or(MessageError::ConferenceIdNotFound(conference_id.get()))
+}
+
+fn conference_snapshot_by_number(
+    connection: &rusqlite::Connection,
+    conference_number: u16,
+) -> Result<ConferencePolicySnapshot, MessageError> {
+    let id = connection
+        .query_row(
+            "SELECT conference_id FROM message_conferences WHERE conference_number = ?1 AND active = 1",
+            params![conference_number],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(MessageError::Sqlite)?
+        .ok_or(MessageError::ConferenceNotFound(conference_number))?;
+    conference_policy_snapshot(connection, ConferenceId::new(id)?)
+}
+
+fn privileged_security(
+    connection: &rusqlite::Connection,
+    conference_id: ConferenceId,
+    security: SecurityLevel,
+) -> Result<bool, MessageError> {
+    connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM conference_privileged_security WHERE conference_id = ?1 AND security_level = ?2)",
+            params![conference_id.get(), security.get()],
+            |row| row.get(0),
+        )
+        .map_err(MessageError::Sqlite)
+}
+
+fn ensure_read_authority(
+    connection: &rusqlite::Connection,
+    conference: &ConferencePolicySnapshot,
+    security: SecurityLevel,
+    sysop_security: SecurityLevel,
+) -> Result<(), MessageError> {
+    if security.is_sysop(sysop_security)
+        || privileged_security(connection, conference.id, security)?
+        || conference
+            .access_mode
+            .allows(security, conference.read_security)
+    {
+        Ok(())
+    } else {
+        Err(MessageError::ConferenceAccessDenied(conference.number))
+    }
+}
+
+fn ensure_post_authority(
+    connection: &rusqlite::Connection,
+    conference_id: ConferenceId,
+    security: SecurityLevel,
+    sysop_security: SecurityLevel,
+) -> Result<(), MessageError> {
+    let conference = conference_policy_snapshot(connection, conference_id)?;
+    if security.is_sysop(sysop_security)
+        || privileged_security(connection, conference_id, security)?
+        || security.allows(conference.post_security)
+    {
+        Ok(())
+    } else {
+        Err(MessageError::ConferenceAccessDenied(conference.number))
+    }
+}
+
+fn validate_recipient_connection(
+    connection: &rusqlite::Connection,
+    recipient: &MessageRecipient,
+    conference_id: ConferenceId,
+    conference_number: u16,
+) -> Result<(), MessageError> {
+    let valid: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM callers WHERE caller_id = ?1 AND display_name = ?2 AND account_state = 'active')",
+            params![recipient.caller_id.get(), recipient.display_name],
+            |row| row.get(0),
+        )
+        .map_err(MessageError::Sqlite)?;
+    if !valid {
+        return Err(MessageError::RecipientNotFound);
+    }
+    if conference_number != 1 {
+        let queued: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM caller_message_queue WHERE caller_id = ?1 AND conference_id = ?2)",
+                params![recipient.caller_id.get(), conference_id.get()],
+                |row| row.get(0),
+            )
+            .map_err(MessageError::Sqlite)?;
+        if !queued {
+            return Err(MessageError::RecipientConferenceNotQueued(
+                conference_number,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn load_message_by_number_connection(
+    connection: &rusqlite::Connection,
+    conference_id: ConferenceId,
+    message_number: u64,
+) -> Result<Option<Message>, MessageError> {
+    connection
+        .query_row(
+            &format!("{MESSAGE_SELECT} WHERE m.conference_id = ?1 AND m.message_number = ?2"),
+            params![conference_id.get(), sqlite_i64(message_number)?],
+            message_from_row,
+        )
+        .optional()
+        .map_err(MessageError::Sqlite)
+}
+
+fn validate_fanout(connection: &rusqlite::Connection, fanout_id: i64) -> Result<(), MessageError> {
+    let (deliveries, recipients, distinct_recipients, minimum, maximum): (
+        i64,
+        i64,
+        i64,
+        i64,
+        i64,
+    ) = connection
+        .query_row(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM messages WHERE fanout_id = ?1),
+                (SELECT COUNT(*) FROM message_delivery_recipients WHERE fanout_id = ?1),
+                (SELECT COUNT(DISTINCT caller_id) FROM message_delivery_recipients WHERE fanout_id = ?1),
+                (SELECT COALESCE(MIN(delivery_ordinal), 0) FROM messages WHERE fanout_id = ?1),
+                (SELECT COALESCE(MAX(delivery_ordinal), 0) FROM messages WHERE fanout_id = ?1)
+            "#,
+            params![fanout_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        )
+        .map_err(MessageError::Sqlite)?;
+    if !(1..=10).contains(&deliveries)
+        || recipients != distinct_recipients
+        || minimum != 0
+        || maximum != deliveries - 1
+        || !(recipients == deliveries || (deliveries == 1 && recipients == 0))
+    {
+        return Err(MessageError::MutationInvariant);
+    }
+    Ok(())
+}
+
 fn next_message_number(
     transaction: &rusqlite::Transaction<'_>,
     conference_id: ConferenceId,
@@ -1353,6 +2434,21 @@ fn next_message_number(
     sqlite_u64(current)?
         .checked_add(1)
         .ok_or(MessageError::MessageNumberOverflow)
+}
+
+fn next_message_id(transaction: &rusqlite::Transaction<'_>) -> Result<MessageId, MessageError> {
+    let current: i64 = transaction
+        .query_row(
+            "SELECT COALESCE(MAX(message_id), 0) FROM messages",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(MessageError::Sqlite)?;
+    MessageId::new(
+        current
+            .checked_add(1)
+            .ok_or(MessageError::MessageNumberOverflow)?,
+    )
 }
 
 fn sqlite_i64(value: u64) -> Result<i64, MessageError> {
@@ -1409,6 +2505,18 @@ pub enum MessageError {
     MessageNotFound { conference: u16, number: u64 },
     #[error("message access is denied")]
     MessageAccessDenied,
+    #[error("message mutation is not authorized")]
+    MutationDenied,
+    #[error("message changed after it was displayed; reopen it and try again")]
+    MutationConflict,
+    #[error("message is already deleted")]
+    AlreadyDeleted,
+    #[error("message is already active")]
+    AlreadyActive,
+    #[error("message state version overflow")]
+    StateVersionOverflow,
+    #[error("message mutation violated a persistent invariant")]
+    MutationInvariant,
     #[error("message discovery requires 1..={MAX_CONFERENCES} conferences, got {0}")]
     InvalidDiscoveryConferenceCount(usize),
     #[error("message discovery query is empty, oversized, or malformed")]
@@ -1419,6 +2527,14 @@ pub enum MessageError {
     PrivateMessagesNotAllowed(u16),
     #[error("a private message requires a recipient")]
     PrivateMessageNeedsRecipient,
+    #[error("a carbon-copy fan-out requires a primary recipient")]
+    CarbonCopyNeedsPrimary,
+    #[error("a message may contain at most {MAX_MESSAGE_CC_RECIPIENTS} carbon copies")]
+    TooManyCarbonCopies,
+    #[error("a caller cannot send a message to themselves")]
+    SelfRecipient,
+    #[error("a primary or carbon-copy recipient was entered more than once")]
+    DuplicateRecipient,
     #[error("message recipient does not exist or is unavailable")]
     RecipientNotFound,
     #[error("message recipient does not have conference {0} in their queue")]
@@ -1435,6 +2551,10 @@ pub enum MessageError {
     InvalidStoredVisibility(String),
     #[error("database contains unknown message kind {0:?}")]
     InvalidStoredKind(String),
+    #[error("database contains unknown message delivery role {0:?}")]
+    InvalidStoredDeliveryRole(String),
+    #[error("database contains unknown message lifecycle {0:?}")]
+    InvalidStoredLifecycle(String),
     #[error(transparent)]
     InvalidCaller(#[from] CallerError),
     #[error(transparent)]
@@ -1446,7 +2566,7 @@ pub enum MessageError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CallerState, CredentialHasher, PasswordHashConfig};
+    use crate::{BoardIdentity, CallerState, CredentialHasher, PasswordHashConfig};
     use tempfile::TempDir;
 
     fn database() -> (
@@ -1460,6 +2580,9 @@ mod tests {
         let path = temp.path().join("runtime.sqlite3");
         let mut database = RuntimeDatabase::open(&path).unwrap();
         database.migrate().unwrap();
+        database
+            .ensure_board_identity(&BoardIdentity::new("Message Test Board", "Test Sysop").unwrap())
+            .unwrap();
         let hasher = CredentialHasher::new(&PasswordHashConfig {
             memory_kib: 8,
             iterations: 1,
@@ -1506,6 +2629,7 @@ mod tests {
                 read_security: SecurityLevel::new(5).unwrap(),
                 post_security: SecurityLevel::new(5).unwrap(),
                 public_only: false,
+                caller_deletion_enabled: true,
                 maximum_lines: 50,
                 privileged_security_levels: Vec::new(),
             })
@@ -1538,6 +2662,32 @@ mod tests {
         let mut message = public_message(conference_id);
         message.body = body.to_vec();
         message
+    }
+
+    fn create_test_caller(
+        database: &mut RuntimeDatabase,
+        name: &str,
+        security: u16,
+        sysop_security: u16,
+    ) -> MessageActor {
+        let hasher = CredentialHasher::new(&PasswordHashConfig {
+            memory_kib: 8,
+            iterations: 1,
+            parallelism: 1,
+        })
+        .unwrap();
+        let hash = hasher.hash(b"synthetic mutation password").unwrap();
+        let caller = database
+            .create_caller(
+                name.as_bytes(),
+                &hash,
+                SecurityLevel::new(security).unwrap(),
+                CallerState::Active,
+                false,
+                1,
+            )
+            .unwrap();
+        MessageActor::new(caller.id, SecurityLevel::new(sysop_security).unwrap())
     }
 
     #[test]
@@ -1611,6 +2761,7 @@ mod tests {
                 read_security: SecurityLevel::new(5).unwrap(),
                 post_security: SecurityLevel::new(5).unwrap(),
                 public_only: false,
+                caller_deletion_enabled: true,
                 maximum_lines: 50,
                 privileged_security_levels: Vec::new(),
             })
@@ -1714,6 +2865,7 @@ mod tests {
                 read_security: SecurityLevel::new(50).unwrap(),
                 post_security: SecurityLevel::new(50).unwrap(),
                 public_only: true,
+                caller_deletion_enabled: true,
                 maximum_lines: 25,
                 privileged_security_levels: Vec::new(),
             })
@@ -1788,6 +2940,7 @@ mod tests {
                 read_security: SecurityLevel::new(5).unwrap(),
                 post_security: SecurityLevel::new(5).unwrap(),
                 public_only: false,
+                caller_deletion_enabled: true,
                 maximum_lines: 50,
                 privileged_security_levels: Vec::new(),
             })
@@ -1906,7 +3059,7 @@ mod tests {
         database
             .connection
             .execute(
-                "UPDATE messages SET deleted = 1 WHERE message_id = ?1",
+                "UPDATE messages SET lifecycle_state = 'deleted' WHERE message_id = ?1",
                 params![from_bob.id.get()],
             )
             .unwrap();
@@ -2081,24 +3234,473 @@ mod tests {
     }
 
     #[test]
-    fn malformed_stored_terminal_controls_are_rejected_before_rendering() {
-        let (_temp, database, alice, _bob, _stranger) = database();
+    fn b009_cc_fanout_enforces_nine_unique_recipients_and_independent_delivery_state() {
+        let (_temp, mut database, alice, bob, stranger) = database();
         let conference = database.conference(alice, 1).unwrap();
+        let mut message = public_message(conference.id);
+        message.recipient_caller_id = Some(bob.caller_id());
+        message.recipient_name = "Bob Caller".to_owned();
+        message.subject = b"CP437 \xDB fanout".to_vec();
+        message.body = b"Payload \xB3 remains byte exact\r\n".to_vec();
+        message.visibility = MessageVisibility::Private;
+
+        let mut cc_actors = vec![stranger];
+        for ordinal in 2..=9 {
+            cc_actors.push(create_test_caller(
+                &mut database,
+                &format!("CC Caller {ordinal}"),
+                10,
+                100,
+            ));
+        }
+        let cc = cc_actors
+            .iter()
+            .map(|actor| {
+                let caller = database.caller_by_id(actor.caller_id()).unwrap().unwrap();
+                MessageRecipient {
+                    caller_id: caller.id,
+                    display_name: caller.display_name,
+                }
+            })
+            .collect::<Vec<_>>();
+        let deliveries = database.post_with_cc(alice, message.clone(), &cc).unwrap();
+        assert_eq!(deliveries.len(), 10);
+        assert_eq!(
+            deliveries
+                .iter()
+                .map(|item| item.number)
+                .collect::<Vec<_>>(),
+            (1..=10).collect::<Vec<_>>()
+        );
+        assert_eq!(deliveries[0].delivery_role, MessageDeliveryRole::Primary);
+        assert!(deliveries[1..]
+            .iter()
+            .all(|item| item.delivery_role == MessageDeliveryRole::CarbonCopy));
+        assert_eq!(deliveries[9].delivery_ordinal, 9);
+        assert_eq!(
+            deliveries[1].primary_recipient_name.as_deref(),
+            Some("Bob Caller")
+        );
+        assert!(deliveries
+            .iter()
+            .all(|item| item.subject == b"CP437 \xDB fanout"
+                && item.body == b"Payload \xB3 remains byte exact\r\n"));
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM message_payloads", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        database
+            .mark_read(bob, conference.id, deliveries[0].number)
+            .unwrap();
+        database
+            .mark_read(stranger, conference.id, deliveries[1].number)
+            .unwrap();
+        assert!(database
+            .received(bob, conference.id, deliveries[0].number)
+            .unwrap());
+        assert!(database
+            .received(stranger, conference.id, deliveries[1].number)
+            .unwrap());
+        assert!(matches!(
+            database.received(bob, conference.id, deliveries[1].number),
+            Err(MessageError::MessageAccessDenied)
+        ));
+
+        let threshold = create_test_caller(&mut database, "CC Threshold", 100, 100);
+        let all_callers_primary = database
+            .toggle_message_visibility(
+                threshold,
+                conference.id,
+                deliveries[0].number,
+                deliveries[0].state_version,
+                true,
+            )
+            .unwrap();
+        assert_eq!(all_callers_primary.recipient_caller_id, None);
+        assert_eq!(all_callers_primary.recipient_name, "All Callers");
+        database.validate_current_snapshot().unwrap();
+
+        let deleted = database
+            .delete_message(
+                stranger,
+                conference.id,
+                deliveries[1].number,
+                deliveries[1].state_version,
+            )
+            .unwrap();
+        assert_eq!(deleted.lifecycle, MessageLifecycle::Deleted);
+        assert_eq!(
+            database
+                .message(alice, conference.id, deliveries[0].number)
+                .unwrap()
+                .lifecycle,
+            MessageLifecycle::Active
+        );
+
+        let mut too_many = cc.clone();
+        too_many.push(MessageRecipient {
+            caller_id: bob.caller_id(),
+            display_name: "Bob Caller".to_owned(),
+        });
+        assert!(matches!(
+            database.post_with_cc(alice, message.clone(), &too_many),
+            Err(MessageError::TooManyCarbonCopies)
+        ));
+        assert!(matches!(
+            database.post_with_cc(
+                alice,
+                message.clone(),
+                &[MessageRecipient {
+                    caller_id: bob.caller_id(),
+                    display_name: "Bob Caller".to_owned(),
+                }]
+            ),
+            Err(MessageError::DuplicateRecipient)
+        ));
+        assert!(matches!(
+            database.post_with_cc(
+                alice,
+                message.clone(),
+                &[MessageRecipient {
+                    caller_id: CallerId::new(9_999).unwrap(),
+                    display_name: "Missing Caller".to_owned(),
+                }]
+            ),
+            Err(MessageError::RecipientNotFound)
+        ));
+        message.recipient_caller_id = Some(alice.caller_id());
+        message.recipient_name = "Alice Caller".to_owned();
+        assert!(matches!(
+            database.post_with_cc(alice, message, &[]),
+            Err(MessageError::SelfRecipient)
+        ));
+    }
+
+    #[test]
+    fn b009_delete_toggle_copy_forward_authorization_lineage_and_audit_are_durable() {
+        let (_temp, mut database, alice, bob, stranger) = database();
+        let threshold = create_test_caller(&mut database, "Threshold Caller", 100, 100);
+        let first = database.conference(alice, 1).unwrap();
+        database
+            .ensure_conference(&ConferenceDefinition {
+                number: 2,
+                name: "Destination".to_owned(),
+                description: "Copy destination".to_owned(),
+                access_mode: ConferenceAccessMode::AtLeast,
+                read_security: SecurityLevel::new(5).unwrap(),
+                post_security: SecurityLevel::new(5).unwrap(),
+                public_only: false,
+                caller_deletion_enabled: true,
+                maximum_lines: 50,
+                privileged_security_levels: Vec::new(),
+            })
+            .unwrap();
+        for actor in [alice, bob, stranger, threshold] {
+            database.replace_queue(actor, &[1, 2]).unwrap();
+        }
+        let second = database.conference(threshold, 2).unwrap();
+
+        let mut private = public_message(first.id);
+        private.recipient_caller_id = Some(bob.caller_id());
+        private.recipient_name = "Bob Caller".to_owned();
+        private.visibility = MessageVisibility::Private;
+        private.subject = b"Mutation \xDB".to_vec();
+        private.body = b"Mutation \xB3 body\r\n".to_vec();
+        let private = database.post(alice, private).unwrap();
+        database.mark_read(bob, first.id, private.number).unwrap();
+        assert!(matches!(
+            database.delete_message(stranger, first.id, private.number, private.state_version),
+            Err(MessageError::MutationDenied)
+        ));
+        let deleted = database
+            .delete_message(alice, first.id, private.number, private.state_version)
+            .unwrap();
+        assert_eq!(deleted.lifecycle, MessageLifecycle::Deleted);
+        assert!(matches!(
+            database.message(bob, first.id, private.number),
+            Err(MessageError::MessageNotFound { .. })
+        ));
+        assert_eq!(
+            database
+                .message(threshold, first.id, private.number)
+                .unwrap()
+                .lifecycle,
+            MessageLifecycle::Deleted
+        );
+        let restored = database
+            .undelete_message(threshold, first.id, private.number, deleted.state_version)
+            .unwrap();
+        assert_eq!(restored.id, private.id);
+        assert!(restored.received);
+
+        let all = database
+            .toggle_message_visibility(
+                threshold,
+                first.id,
+                private.number,
+                restored.state_version,
+                true,
+            )
+            .unwrap();
+        assert_eq!(all.visibility, MessageVisibility::Public);
+        assert_eq!(all.recipient_caller_id, None);
+        assert_eq!(all.recipient_name, "All Callers");
+        assert!(all.received);
+        assert!(matches!(
+            database.toggle_message_visibility(
+                threshold,
+                first.id,
+                private.number,
+                restored.state_version,
+                false
+            ),
+            Err(MessageError::MutationConflict)
+        ));
+
+        let mut named = public_message(first.id);
+        named.recipient_caller_id = Some(bob.caller_id());
+        named.recipient_name = "Bob Caller".to_owned();
+        named.parent_message_id = Some(private.id);
+        let named = database.post(alice, named).unwrap();
+        assert!(matches!(
+            database.toggle_message_visibility(
+                alice,
+                first.id,
+                named.number,
+                named.state_version,
+                false
+            ),
+            Err(MessageError::MutationDenied)
+        ));
+        assert!(matches!(
+            database.copy_message(
+                alice,
+                first.id,
+                named.number,
+                named.state_version,
+                1,
+                CopyRecipient::Preserve,
+                999,
+            ),
+            Err(MessageError::MutationDenied)
+        ));
+        let non_public = database
+            .toggle_message_visibility(
+                threshold,
+                first.id,
+                named.number,
+                named.state_version,
+                false,
+            )
+            .unwrap();
+        assert_eq!(non_public.visibility, MessageVisibility::Private);
+        assert_eq!(non_public.recipient_caller_id, Some(bob.caller_id()));
+        let public_named = database
+            .toggle_message_visibility(
+                threshold,
+                first.id,
+                named.number,
+                non_public.state_version,
+                false,
+            )
+            .unwrap();
+        assert_eq!(public_named.visibility, MessageVisibility::Public);
+        assert_eq!(public_named.recipient_caller_id, Some(bob.caller_id()));
+
+        let mut recipient_owned = public_message(first.id);
+        recipient_owned.recipient_caller_id = Some(bob.caller_id());
+        recipient_owned.recipient_name = "Bob Caller".to_owned();
+        recipient_owned.visibility = MessageVisibility::Private;
+        let recipient_owned = database.post(alice, recipient_owned).unwrap();
+        assert!(database
+            .delete_message(
+                bob,
+                first.id,
+                recipient_owned.number,
+                recipient_owned.state_version,
+            )
+            .is_ok());
+
+        let same = database
+            .copy_message(
+                threshold,
+                first.id,
+                named.number,
+                public_named.state_version,
+                1,
+                CopyRecipient::Preserve,
+                1000,
+            )
+            .unwrap();
+        assert_ne!(same.id, named.id);
+        assert_eq!(same.author_caller_id, Some(alice.caller_id()));
+        assert_eq!(same.recipient_caller_id, Some(bob.caller_id()));
+        assert_eq!(same.parent_message_id, Some(private.id));
+        assert!(!same.received);
+        assert_eq!(same.subject, b"Synthetic subject");
+        let cross = database
+            .copy_message(
+                threshold,
+                first.id,
+                named.number,
+                public_named.state_version,
+                2,
+                CopyRecipient::Preserve,
+                1001,
+            )
+            .unwrap();
+        assert_eq!(cross.conference_id, second.id);
+        assert_eq!(cross.number, 1);
+        let forwarded = database
+            .copy_message(
+                threshold,
+                first.id,
+                named.number,
+                public_named.state_version,
+                1,
+                CopyRecipient::Caller(MessageRecipient {
+                    caller_id: stranger.caller_id(),
+                    display_name: "Other Caller".to_owned(),
+                }),
+                1002,
+            )
+            .unwrap();
+        assert_eq!(forwarded.author_caller_id, Some(alice.caller_id()));
+        assert_eq!(forwarded.recipient_caller_id, Some(stranger.caller_id()));
+        assert!(matches!(
+            database.copy_message(
+                threshold,
+                first.id,
+                named.number,
+                public_named.state_version,
+                1,
+                CopyRecipient::Caller(MessageRecipient {
+                    caller_id: threshold.caller_id(),
+                    display_name: "Threshold Caller".to_owned(),
+                }),
+                1003,
+            ),
+            Err(MessageError::SelfRecipient)
+        ));
+        assert_eq!(
+            database
+                .message(threshold, first.id, named.number)
+                .unwrap()
+                .lifecycle,
+            MessageLifecycle::Active
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT relation FROM message_lineage WHERE derived_message_id = ?1",
+                    params![forwarded.id.get()],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "forward"
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM message_mutation_events WHERE operation IN ('deleted', 'undeleted', 'visibility-changed', 'copied', 'forwarded')",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            9
+        );
+        let audit_columns = database
+            .connection
+            .prepare("PRAGMA table_info(message_mutation_events)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(!audit_columns.iter().any(|name| matches!(
+            name.as_str(),
+            "subject" | "body" | "recipient_name" | "recipient_list"
+        )));
+        assert!(database
+            .connection
+            .execute(
+                "UPDATE message_mutation_events SET outcome = 'applied' WHERE event_id = 1",
+                [],
+            )
+            .is_err());
+        assert!(database
+            .connection
+            .execute(
+                "UPDATE message_payloads SET body = body WHERE payload_id = 1",
+                []
+            )
+            .is_err());
+
+        database.set_conference_caller_deletion(1, false).unwrap();
+        let policy = database.post(alice, public_message(first.id)).unwrap();
+        assert!(matches!(
+            database.delete_message(alice, first.id, policy.number, policy.state_version),
+            Err(MessageError::MutationDenied)
+        ));
+        assert!(database
+            .delete_message(threshold, first.id, policy.number, policy.state_version)
+            .is_ok());
+    }
+
+    #[test]
+    fn b009_two_connections_commit_only_one_stale_delete() {
+        let (temp, mut first_database, alice, _bob, _stranger) = database();
+        let conference = first_database.conference(alice, 1).unwrap();
+        let stored = first_database
+            .post(alice, public_message(conference.id))
+            .unwrap();
+        let path = temp.path().join("runtime.sqlite3");
+        let mut second_database = RuntimeDatabase::open(&path).unwrap();
+        first_database
+            .delete_message(alice, conference.id, stored.number, stored.state_version)
+            .unwrap();
+        assert!(matches!(
+            second_database.delete_message(
+                alice,
+                conference.id,
+                stored.number,
+                stored.state_version
+            ),
+            Err(MessageError::MutationConflict)
+        ));
+        assert_eq!(
+            first_database
+                .connection
+                .query_row(
+                    "SELECT COUNT(*) FROM message_mutation_events WHERE operation = 'deleted'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn malformed_stored_terminal_controls_are_rejected_before_rendering() {
+        let (_temp, mut database, alice, _bob, _stranger) = database();
+        let conference = database.conference(alice, 1).unwrap();
+        let stored = database.post(alice, public_message(conference.id)).unwrap();
+        database
+            .connection
+            .execute_batch("DROP TRIGGER message_payloads_immutable_update")
+            .unwrap();
         database
             .connection
             .execute(
-                r#"
-                INSERT INTO messages (
-                    conference_id, message_number, author_caller_id, author_name,
-                    recipient_name, subject, body, created_at, visibility, kind
-                ) VALUES (?1, 1, ?2, 'Alice Caller', 'All Callers', ?3, ?4, 1, 'public', 'standard')
-                "#,
-                params![
-                    conference.id.get(),
-                    alice.caller_id().get(),
-                    b"Safe subject".as_slice(),
-                    b"unsafe \x1b[2J body\r\n".as_slice()
-                ],
+                "UPDATE message_payloads SET body = ?2 WHERE payload_id = (SELECT f.payload_id FROM messages AS m JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id WHERE m.message_id = ?1)",
+                params![stored.id.get(), b"unsafe \x1b[2J body\r\n".as_slice()],
             )
             .unwrap();
         assert!(matches!(

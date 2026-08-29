@@ -21,8 +21,6 @@ Enter Main `M`:
 | `E` | Enter a public or private local message. |
 | `Y` | Show received/sent/available counts and open received/sent lists. |
 | `A` | Add, remove, list, or reset the caller's conference queue. |
-| `S` | Search visible messages to/from a selected active caller. |
-| `T` | Search visible message bodies for one to six terms. |
 | `F` | Move directly to Files. |
 | `Q` | Return to Main. |
 | `G` | Log off. |
@@ -35,10 +33,18 @@ Commands are filtered by caller security and the supplied `SFMSG.MNU`.
 
 1. Select `E`.
 2. Enter a known local caller name, or press Enter for All Callers.
-3. Enter a subject.
-4. Type one line at a time.
-5. Enter a blank line to open the editor command menu.
-6. Select `S`, then confirm with `Y`.
+3. For a named recipient, optionally enter up to nine distinct carbon-copy
+   callers; press Enter at the next `Carbon copy #N:` prompt to finish.
+4. Choose public or non-public/private when the conference permits it.
+5. Enter a subject.
+6. Type one line at a time.
+7. Enter a blank line to open the editor command menu.
+8. Select `S`, then confirm with `Y`.
+
+Primary and CC recipients receive separate conference-local message numbers
+with independent receipt and deletion state. Self, duplicate, nonexistent,
+inactive, and destination-not-queued recipients are rejected without losing
+earlier accepted CC entries. The entire fan-out saves atomically.
 
 The line editor supports Save, Edit, Abort, Continue, Begin Again, Replace
 Line, List, Insert Line, and Delete Line(s). `/S` and `/A` are direct save and
@@ -59,33 +65,23 @@ in caller.
   optional conferences.
 
 The reader supports next, previous, direct message number, reply, stock same-
-subject thread traversal, and quit. A reply may retain or change the subject.
+subject thread traversal, and quit. An eligible ordinary caller also sees `D`
+for a delivery they sent or directly/CC received when conference policy allows
+caller deletion. Threshold Sysop status sees `D`, `P`, and `C` on active
+deliveries; a deleted delivery instead exposes contextual `U`. A reply may
+retain or change the subject.
 CTRL-Q in reply composition reviews the original and imports a bounded line
 range with sender-initial prefixes; imported quote lines are immutable.
 
 Normal reading advances that caller's last-read pointer and records a direct
 receipt idempotently. Reconnects and rescans do not double-count it.
 
-## Search messages
-
-Current post-0.1.0 source provides Message `S` Specific Caller and `T` Text
-Search. Both select This, All, or Only Queued conferences and display one
-authorized result at a time.
-
-Specific Caller resolves an active local caller and searches messages From,
-To, or Both. Ordinary callers receive public results; existing Sysop and
-message-visibility rules remain authoritative.
-
-Text Search accepts one to six whitespace-delimited terms of at most 64 bytes
-each. Matching is ASCII-case-insensitive, body-only, and requires every term
-regardless of order or separation. Subjects are not searched. This
-intentionally improves the historical contiguous-phrase limitation while
-preserving the stock command and result flow.
-
-Search is read-only. It does not advance last-read state or create a receipt,
-and each result is reauthorized immediately before display. These commands are
-in current source but not in the downloadable 0.1.0 Development Preview
-binary.
+`P` changes public/private state in place. Private→public asks whether to
+address the delivery to All Callers; No retains the named recipient. Copy asks
+for a destination conference and whether to change the recipient. It creates a
+new unread destination number while retaining the source and original author.
+Changing the recipient is SPITFIRE's Forward workflow. There are no separate
+Move or Forward commands and Copy never deletes the source automatically.
 
 ## Your Messages
 
@@ -108,8 +104,9 @@ workflow. The configured Sysop caller account must exist.
 
 ## Current boundary
 
-Local conferences, queues, privacy, receipts, replies, threads, Your Messages,
-and bounded caller/text discovery are implemented and verified in current
-source. QWK/LAKOTA, network mail, broader search syntax, copy/move/forward,
-deletion/packing, and complete maintenance are later scopes. See
-[Native SPITFIRE NG Message System](../sfng-message-system.md).
+Local conferences, queues, privacy, receipts, replies, threads, discovery,
+Your Messages, CC delivery, tombstone/undelete, audience toggle, and
+source-retaining Copy/Forward are implemented and verified. Physical
+packing/retention, QWK/LAKOTA, network mail, and broader maintenance/audit
+viewing are later scopes. See [Native SPITFIRE NG Message
+System](../sfng-message-system.md).

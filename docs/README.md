@@ -63,7 +63,9 @@ the historical or architectural material to set up a board.
 - [Native Caller and Authentication](sfng-caller-authentication.md)
 - [Native Caller/Sysop Interaction](sfng-caller-sysop-interaction.md)
 - [Native Message System](sfng-message-system.md) — Conferences, queues,
-  caller/text discovery, visibility, read state, and receipts.
+  caller/text discovery, immutable payloads, primary/CC delivery identities,
+  visibility, receipts, tombstones, Copy/Forward lineage, mutation audit, and
+  the future network-adapter boundary.
 - [Native File System](sfng-file-system.md)
 - [Native File Transfers](sfng-file-transfers.md)
 - [Native Multinode Runtime](sfng-multinode-runtime.md)

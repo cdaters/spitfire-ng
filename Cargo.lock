@@ -782,6 +782,7 @@ dependencies = [
  "chrono-tz",
  "ctrlc",
  "rpassword",
+ "rusqlite",
  "serde",
  "serialport",
  "sf-core",

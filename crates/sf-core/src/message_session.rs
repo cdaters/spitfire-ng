@@ -1,10 +1,11 @@
 use tracing::info;
 
 use crate::{
-    render_display, render_generated_menu, AuthenticatedCaller, CallerConfig, DisplayContext,
-    Message, MessageActor, MessageBackend, MessageCallerSearchDirection, MessageDiscoveryQuery,
-    MessageDiscoveryResult, MessageError, MessageKind, MessageVisibility, NewMessage,
-    SecurityLevel, SessionError, StockResources, Terminal, TerminalError, MAX_MESSAGE_BODY_BYTES,
+    render_display, render_generated_menu, AuthenticatedCaller, CallerConfig, CopyRecipient,
+    DisplayContext, Message, MessageActor, MessageBackend, MessageCallerSearchDirection,
+    MessageDeliveryRole, MessageDiscoveryQuery, MessageDiscoveryResult, MessageError, MessageKind,
+    MessageLifecycle, MessageVisibility, NewMessage, SecurityLevel, SessionError, StockResources,
+    Terminal, TerminalError, MAX_MESSAGE_BODY_BYTES, MAX_MESSAGE_CC_RECIPIENTS,
     MAX_MESSAGE_SEARCH_TERMS, MAX_MESSAGE_SEARCH_TERM_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
 };
 use crate::{Conference, MenuSection, MessageId, MessageRecipient, MessageSummary};
@@ -520,16 +521,150 @@ fn read_conferences(
         if mark_received {
             backend.mark_read(actor, conference.id, number)?;
         }
-        write_key(
-            terminal,
-            "message-read-prompt",
-            &crate::LocalizationArgs::new(),
-        )?;
+        let capabilities = backend.mutation_capabilities(actor, conference.id, number)?;
+        let prompt_key = if capabilities.undelete {
+            "message-read-prompt-deleted"
+        } else if capabilities.toggle_visibility || capabilities.copy {
+            "message-read-prompt-sysop"
+        } else if capabilities.delete {
+            "message-read-prompt-delete"
+        } else {
+            "message-read-prompt"
+        };
+        write_key(terminal, prompt_key, &crate::LocalizationArgs::new())?;
         let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         let command = first_command(&input);
         match command.unwrap_or(b'N') {
+            b'D' if capabilities.delete => {
+                write_key_line(
+                    terminal,
+                    "message-delete-wait",
+                    &crate::LocalizationArgs::new().with("number", number),
+                )?;
+                match backend.delete_message(actor, conference.id, number, message.state_version) {
+                    Ok(_) => {}
+                    Err(MessageError::MutationConflict | MessageError::AlreadyDeleted) => {
+                        write_key_line(
+                            terminal,
+                            "message-mutation-conflict",
+                            &crate::LocalizationArgs::new(),
+                        )?;
+                        continue;
+                    }
+                    Err(MessageError::MutationDenied) => {
+                        write_key_line(
+                            terminal,
+                            "message-mutation-denied",
+                            &crate::LocalizationArgs::new(),
+                        )?;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+                write_key_line(
+                    terminal,
+                    "message-delete-complete",
+                    &crate::LocalizationArgs::new().with("number", number),
+                )?;
+                if backend
+                    .mutation_capabilities(actor, conference.id, number)
+                    .map(|value| value.undelete)
+                    .unwrap_or(false)
+                {
+                    // The loop reopens and redisplays the contextual deleted message.
+                } else if index + 1 < scan.len() {
+                    index += 1;
+                } else {
+                    return Ok(ComposeOutcome::Cancelled);
+                }
+            }
+            b'U' if capabilities.undelete => {
+                match backend.undelete_message(actor, conference.id, number, message.state_version)
+                {
+                    Ok(_) => {}
+                    Err(MessageError::MutationConflict | MessageError::AlreadyActive) => {
+                        write_key_line(
+                            terminal,
+                            "message-mutation-conflict",
+                            &crate::LocalizationArgs::new(),
+                        )?;
+                        continue;
+                    }
+                    Err(MessageError::MutationDenied) => {
+                        write_key_line(
+                            terminal,
+                            "message-mutation-denied",
+                            &crate::LocalizationArgs::new(),
+                        )?;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+                write_key_line(
+                    terminal,
+                    "message-undelete-complete",
+                    &crate::LocalizationArgs::new().with("number", number),
+                )?;
+            }
+            b'P' if capabilities.toggle_visibility => {
+                let address_all_callers = if message.visibility == MessageVisibility::Private {
+                    write_key(
+                        terminal,
+                        "message-public-all-callers-prompt",
+                        &crate::LocalizationArgs::new().with("number", number),
+                    )?;
+                    let Some(answer) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+                        return Ok(ComposeOutcome::Disconnected);
+                    };
+                    first_command(&answer) != Some(b'N')
+                } else {
+                    false
+                };
+                match backend.toggle_message_visibility(
+                    actor,
+                    conference.id,
+                    number,
+                    message.state_version,
+                    address_all_callers,
+                ) {
+                    Ok(updated) => {
+                        write_key_line(
+                            terminal,
+                            if updated.visibility == MessageVisibility::Public {
+                                "message-now-public"
+                            } else {
+                                "message-now-private"
+                            },
+                            &crate::LocalizationArgs::new().with("number", number),
+                        )?;
+                    }
+                    Err(MessageError::PrivateMessageNeedsRecipient) => write_key_line(
+                        terminal,
+                        "message-private-needs-recipient",
+                        &crate::LocalizationArgs::new(),
+                    )?,
+                    Err(MessageError::MutationConflict) => write_key_line(
+                        terminal,
+                        "message-mutation-conflict",
+                        &crate::LocalizationArgs::new(),
+                    )?,
+                    Err(MessageError::MutationDenied) => write_key_line(
+                        terminal,
+                        "message-mutation-denied",
+                        &crate::LocalizationArgs::new(),
+                    )?,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            b'C' if capabilities.copy => {
+                if copy_message_interaction(terminal, backend, actor, conference, &message)?
+                    == ComposeOutcome::Disconnected
+                {
+                    return Ok(ComposeOutcome::Disconnected);
+                }
+            }
             b'N' if index + 1 < scan.len() => index += 1,
             b'N' => write_key_line(
                 terminal,
@@ -622,6 +757,139 @@ fn read_conferences(
             }
         }
     }
+}
+
+fn copy_message_interaction(
+    terminal: &mut dyn Terminal,
+    backend: &mut dyn MessageBackend,
+    actor: MessageActor,
+    source_conference: &Conference,
+    source: &Message,
+) -> Result<ComposeOutcome, SessionError> {
+    let available = backend.conferences(actor)?;
+    let maximum = available.iter().map(|item| item.number).max().unwrap_or(1);
+    write_key(
+        terminal,
+        "message-copy-conference-prompt",
+        &crate::LocalizationArgs::new().with("maximum", maximum),
+    )?;
+    let Some(destination_input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+        return Ok(ComposeOutcome::Disconnected);
+    };
+    let Some(destination_number) = parse_u16(&destination_input) else {
+        write_key_line(
+            terminal,
+            "message-conference-number-invalid",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(ComposeOutcome::Cancelled);
+    };
+    if !available
+        .iter()
+        .any(|item| item.number == destination_number)
+    {
+        write_key_line(
+            terminal,
+            "message-conference-unavailable",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(ComposeOutcome::Cancelled);
+    }
+    write_key_line(
+        terminal,
+        "message-copy-current-recipient",
+        &crate::LocalizationArgs::new().with("name", source.recipient_name.clone()),
+    )?;
+    write_key(
+        terminal,
+        "message-copy-change-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(change) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        return Ok(ComposeOutcome::Disconnected);
+    };
+    let recipient = if first_command(&change) == Some(b'Y') {
+        write_key_line(
+            terminal,
+            "message-copy-all-callers-help",
+            &crate::LocalizationArgs::new(),
+        )?;
+        write_key(
+            terminal,
+            "message-copy-recipient-prompt",
+            &crate::LocalizationArgs::new(),
+        )?;
+        let Some(input) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+            return Ok(ComposeOutcome::Disconnected);
+        };
+        if input.iter().all(u8::is_ascii_whitespace) {
+            CopyRecipient::AllCallers
+        } else {
+            match backend.recipient(&input) {
+                Ok(value) => CopyRecipient::Caller(value),
+                Err(MessageError::RecipientNotFound) => {
+                    write_key_line(
+                        terminal,
+                        "message-recipient-unavailable",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    return Ok(ComposeOutcome::Cancelled);
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    } else {
+        CopyRecipient::Preserve
+    };
+    match backend.copy_message(
+        actor,
+        source_conference.id,
+        source.number,
+        source.state_version,
+        destination_number,
+        recipient,
+        crate::session::unix_seconds()?,
+    ) {
+        Ok(_) => write_key_line(
+            terminal,
+            "message-copy-complete",
+            &crate::LocalizationArgs::new(),
+        )?,
+        Err(MessageError::SelfRecipient) => {
+            write_key_line(
+                terminal,
+                "message-self-recipient",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(ComposeOutcome::Cancelled);
+        }
+        Err(MessageError::RecipientConferenceNotQueued(number)) => {
+            write_key_line(
+                terminal,
+                "message-recipient-conference-not-queued",
+                &crate::LocalizationArgs::new().with("number", number),
+            )?;
+            return Ok(ComposeOutcome::Cancelled);
+        }
+        Err(MessageError::MutationConflict) => {
+            write_key_line(
+                terminal,
+                "message-mutation-conflict",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(ComposeOutcome::Cancelled);
+        }
+        Err(MessageError::MutationDenied) => {
+            write_key_line(
+                terminal,
+                "message-mutation-denied",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(ComposeOutcome::Cancelled);
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(ComposeOutcome::Saved)
 }
 
 fn follow_message_thread(
@@ -1132,8 +1400,32 @@ fn display_message(
             message.number, conference.number, conference.name
         ),
     )?;
-    write_line(terminal, &format!("To:   {}", message.recipient_name))?;
-    write_line(terminal, &format!("From: {}", message.author_name))?;
+    if message.delivery_role == MessageDeliveryRole::CarbonCopy {
+        write_key_line(
+            terminal,
+            "message-field-carbon-copy",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    write_key_line(
+        terminal,
+        "message-field-to",
+        &crate::LocalizationArgs::new().with("name", message.recipient_name.clone()),
+    )?;
+    if message.delivery_role == MessageDeliveryRole::CarbonCopy {
+        if let Some(primary) = message.primary_recipient_name.as_ref() {
+            write_key_line(
+                terminal,
+                "message-field-primary-recipient",
+                &crate::LocalizationArgs::new().with("name", primary.clone()),
+            )?;
+        }
+    }
+    write_key_line(
+        terminal,
+        "message-field-from",
+        &crate::LocalizationArgs::new().with("name", message.author_name.clone()),
+    )?;
     write_key(
         terminal,
         "message-field-subject",
@@ -1144,10 +1436,26 @@ fn display_message(
         terminal,
         &format!("Date/Time: {}", format_timestamp_utc(message.created_at)),
     )?;
-    if message.visibility == MessageVisibility::Private {
+    write_key_line(
+        terminal,
+        if message.visibility == MessageVisibility::Private {
+            "message-field-private"
+        } else {
+            "message-field-public"
+        },
+        &crate::LocalizationArgs::new(),
+    )?;
+    if message.lifecycle == MessageLifecycle::Deleted {
         write_key_line(
             terminal,
-            "message-field-private",
+            "message-field-deleted",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    if message.received {
+        write_key_line(
+            terminal,
+            "message-field-received",
             &crate::LocalizationArgs::new(),
         )?;
     }
@@ -1192,6 +1500,14 @@ fn compose_message(
             None
         } else {
             match backend.recipient(&input) {
+                Ok(recipient) if recipient.caller_id == actor.caller_id() => {
+                    write_key_line(
+                        terminal,
+                        "message-self-recipient",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    return Ok(ComposeOutcome::Cancelled);
+                }
                 Ok(recipient) => Some(recipient),
                 Err(MessageError::RecipientNotFound) => {
                     write_line(
@@ -1204,6 +1520,62 @@ fn compose_message(
             }
         }
     };
+
+    let mut cc_recipients = Vec::new();
+    if kind == MessageKind::Standard && recipient.is_some() {
+        while cc_recipients.len() < MAX_MESSAGE_CC_RECIPIENTS {
+            let ordinal = cc_recipients.len() + 1;
+            write_key(
+                terminal,
+                "message-cc-prompt",
+                &crate::LocalizationArgs::new().with(
+                    "ordinal",
+                    u64::try_from(ordinal).map_err(|_| MessageError::MessageNumberOverflow)?,
+                ),
+            )?;
+            let Some(input) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+                return Ok(ComposeOutcome::Disconnected);
+            };
+            if input.iter().all(u8::is_ascii_whitespace) {
+                break;
+            }
+            let candidate = match backend.recipient(&input) {
+                Ok(value) => value,
+                Err(MessageError::RecipientNotFound) => {
+                    write_key_line(
+                        terminal,
+                        "message-recipient-unavailable",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            if candidate.caller_id == actor.caller_id() {
+                write_key_line(
+                    terminal,
+                    "message-self-recipient",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                continue;
+            }
+            if recipient
+                .as_ref()
+                .is_some_and(|primary| primary.caller_id == candidate.caller_id)
+                || cc_recipients
+                    .iter()
+                    .any(|existing: &MessageRecipient| existing.caller_id == candidate.caller_id)
+            {
+                write_key_line(
+                    terminal,
+                    "message-duplicate-recipient",
+                    &crate::LocalizationArgs::new().with("name", candidate.display_name),
+                )?;
+                continue;
+            }
+            cc_recipients.push(candidate);
+        }
+    }
 
     let visibility = if kind == MessageKind::SysopComment {
         MessageVisibility::Private
@@ -1280,7 +1652,7 @@ fn compose_message(
         || (None, "All Callers".to_owned()),
         |recipient| (Some(recipient.caller_id), recipient.display_name),
     );
-    let stored = match backend.post(
+    let stored = match backend.post_with_cc(
         actor,
         NewMessage {
             conference_id: conference.id,
@@ -1293,8 +1665,12 @@ fn compose_message(
             visibility,
             kind,
         },
+        &cc_recipients,
     ) {
-        Ok(message) => message,
+        Ok(messages) => messages
+            .into_iter()
+            .next()
+            .ok_or(MessageError::MutationInvariant)?,
         Err(MessageError::RecipientConferenceNotQueued(number)) => {
             write_line(
                 terminal,
@@ -2138,6 +2514,7 @@ mod tests {
                     read_security: SecurityLevel::new(5).unwrap(),
                     post_security: SecurityLevel::new(5).unwrap(),
                     public_only: false,
+                    caller_deletion_enabled: true,
                     maximum_lines: 50,
                     privileged_security_levels: Vec::new(),
                 })
@@ -2180,6 +2557,98 @@ mod tests {
         haystack
             .windows(needle.len())
             .any(|window| window == needle)
+    }
+
+    #[test]
+    fn b009_contextual_sysop_read_commands_redisplay_and_use_copy_for_forwarding() {
+        let (_temp, mut database, alice, bob) = message_database();
+        let hasher = CredentialHasher::new(&PasswordHashConfig {
+            memory_kib: 8,
+            iterations: 1,
+            parallelism: 1,
+        })
+        .unwrap();
+        let hash = hasher.hash(b"threshold session password").unwrap();
+        let threshold_caller = database
+            .create_caller(
+                b"Threshold Caller",
+                &hash,
+                SecurityLevel::new(100).unwrap(),
+                CallerState::Active,
+                false,
+                1,
+            )
+            .unwrap();
+        let forward_caller = database
+            .create_caller(
+                b"Forward Caller",
+                &hash,
+                SecurityLevel::new(10).unwrap(),
+                CallerState::Active,
+                false,
+                1,
+            )
+            .unwrap();
+        let threshold = MessageActor::new(threshold_caller.id, SecurityLevel::new(100).unwrap());
+        let conference = database.conference(alice, 1).unwrap();
+        let source = NewMessage {
+            conference_id: conference.id,
+            recipient_caller_id: Some(bob.caller_id()),
+            recipient_name: "Bob Caller".to_owned(),
+            subject: b"M041 UI".to_vec(),
+            body: b"Mutation UI body\r\n".to_vec(),
+            created_at: 1,
+            parent_message_id: None,
+            visibility: MessageVisibility::Public,
+            kind: MessageKind::Standard,
+        };
+        let source = database.post(alice, source).unwrap();
+        let mut terminal = InMemoryTerminal::with_lines([
+            b"P".to_vec(),
+            b"P".to_vec(),
+            b"N".to_vec(),
+            b"C".to_vec(),
+            b"1".to_vec(),
+            b"Y".to_vec(),
+            b"Forward Caller".to_vec(),
+            b"D".to_vec(),
+            b"U".to_vec(),
+            b"Q".to_vec(),
+        ]);
+        assert_eq!(
+            read_conferences(
+                &mut terminal,
+                &mut database,
+                threshold,
+                std::slice::from_ref(&conference),
+                true,
+            )
+            .unwrap(),
+            ComposeOutcome::Cancelled
+        );
+        assert!(contains(
+            terminal.output(),
+            b"Message number 1 is now non-public."
+        ));
+        assert!(contains(
+            terminal.output(),
+            b"Address Message #1 to \"All Callers\"? [Y/n]"
+        ));
+        assert!(contains(terminal.output(), b"Message Copied."));
+        assert!(contains(terminal.output(), b"[U]ndelete"));
+        let reopened = database
+            .message(threshold, conference.id, source.number)
+            .unwrap();
+        assert_eq!(reopened.lifecycle, MessageLifecycle::Active);
+        assert_eq!(reopened.visibility, MessageVisibility::Public);
+        let forwarded = database
+            .messages(threshold, conference.id)
+            .unwrap()
+            .into_iter()
+            .find(|message| message.number != source.number)
+            .unwrap();
+        assert_eq!(forwarded.author_caller_id, Some(alice.caller_id()));
+        assert_eq!(forwarded.recipient_caller_id, Some(forward_caller.id));
     }
 
     #[test]
@@ -2319,6 +2788,7 @@ mod tests {
             read_security: SecurityLevel::new(5).unwrap(),
             post_security: SecurityLevel::new(5).unwrap(),
             public_only: false,
+            caller_deletion_enabled: true,
             maximum_lines: 25,
             privileged_security_levels: Vec::new(),
             active: true,
@@ -2337,6 +2807,12 @@ mod tests {
             parent_message_id: None,
             visibility: MessageVisibility::Public,
             kind: MessageKind::Standard,
+            lifecycle: crate::MessageLifecycle::Active,
+            state_version: 1,
+            delivery_role: crate::MessageDeliveryRole::Single,
+            delivery_ordinal: 0,
+            primary_recipient_name: None,
+            received: false,
         };
         let mut terminal = InMemoryTerminal::with_lines([
             b"".to_vec(),

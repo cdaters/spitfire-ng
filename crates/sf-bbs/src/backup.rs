@@ -325,10 +325,11 @@ fn validate_backup_directory(path: &Path) -> Result<ValidatedBackup, BoardBackup
             supported: BACKUP_FORMAT_VERSION,
         });
     }
-    if manifest.schema_version != SCHEMA_VERSION {
+    if !(10..=SCHEMA_VERSION).contains(&manifest.schema_version) {
         return Err(BoardBackupError::UnsupportedSchema {
             found: manifest.schema_version,
-            supported: SCHEMA_VERSION,
+            minimum: 10,
+            maximum: SCHEMA_VERSION,
         });
     }
     if manifest.created_at < 0 {
@@ -374,7 +375,7 @@ fn validate_backup_directory(path: &Path) -> Result<ValidatedBackup, BoardBackup
     validate_native_layout(&validated, &synthetic_paths)?;
 
     let database = RuntimeDatabase::open_read_only(&root.join(DATABASE_BACKUP_PATH))?;
-    let identity = database.validate_current_snapshot()?;
+    let identity = database.validate_snapshot_at_version(manifest.schema_version)?;
     if identity.name() != manifest.board_name
         || identity.sysop_name() != manifest.sysop_name
         || identity != validated.identity
@@ -463,7 +464,7 @@ fn validate_staged_board(
     let validated = config.validate()?;
     let paths = LogicalPaths::resolve(staging_root, &validated)?;
     let database = RuntimeDatabase::open_read_only(paths.database())?;
-    let identity = database.validate_current_snapshot()?;
+    let identity = database.validate_snapshot_at_version(backup.manifest.schema_version)?;
     if identity != validated.identity {
         return Err(BoardBackupError::IdentityMismatch);
     }
@@ -985,8 +986,14 @@ pub enum BoardBackupError {
     ManifestParse(#[source] toml::de::Error),
     #[error("backup format {found} is unsupported; this build supports {supported}")]
     UnsupportedFormat { found: u32, supported: u32 },
-    #[error("backup schema {found} is unsupported; this build requires {supported}")]
-    UnsupportedSchema { found: u32, supported: u32 },
+    #[error(
+        "backup schema {found} is unsupported; this build restores schemas {minimum} through {maximum}"
+    )]
+    UnsupportedSchema {
+        found: u32,
+        minimum: u32,
+        maximum: u32,
+    },
     #[error("backup manifest is invalid: {0}")]
     InvalidManifest(&'static str),
     #[error("unsafe path in backup manifest: {0:?}")]
@@ -1039,8 +1046,9 @@ pub enum BoardBackupError {
 mod tests {
     use super::*;
     use sf_core::{
-        CallerState, CredentialHasher, InMemoryTerminal, MessageActor, MessageBackend, MessageKind,
-        MessageVisibility, NewMessage, PasswordHashConfig, SecurityLevel,
+        CallerState, CopyRecipient, CredentialHasher, InMemoryTerminal, MessageActor,
+        MessageBackend, MessageKind, MessageRecipient, MessageVisibility, NewMessage,
+        PasswordHashConfig, SecurityLevel,
     };
 
     use crate::{setup_board, BoardRuntime, ConnectionReport, SetupPlan, BOARD_CONFIG_FILE};
@@ -1084,27 +1092,80 @@ mod tests {
                 1_777_000_000,
             )
             .unwrap();
+        let recipient = database
+            .create_caller(
+                b"Backup Recipient",
+                &hasher.hash(b"test-only recipient password").unwrap(),
+                SecurityLevel::new(20).unwrap(),
+                CallerState::Active,
+                false,
+                1_777_000_000,
+            )
+            .unwrap();
+        let sysop = database.caller_by_name(b"Sysop").unwrap().unwrap();
         let actor = MessageActor::new(
             caller.id,
             SecurityLevel::new(validated.caller.sysop_security).unwrap(),
         );
         let conference = database.conference(actor, 1).unwrap();
-        database
-            .post(
+        let sysop_actor = MessageActor::new(
+            sysop.id,
+            SecurityLevel::new(validated.caller.sysop_security).unwrap(),
+        );
+        let mut mutation_message = NewMessage {
+            conference_id: conference.id,
+            recipient_caller_id: Some(recipient.id),
+            recipient_name: recipient.display_name.clone(),
+            subject: b"Backup mutation preservation".to_vec(),
+            body: b"CC, receipt, tombstone, lineage, and audit remain in SQLite.\r\n".to_vec(),
+            created_at: 1_777_000_002,
+            parent_message_id: None,
+            visibility: MessageVisibility::Private,
+            kind: MessageKind::Standard,
+        };
+        let deliveries = database
+            .post_with_cc(
                 actor,
-                NewMessage {
-                    conference_id: conference.id,
-                    recipient_caller_id: None,
-                    recipient_name: "All Callers".to_owned(),
-                    subject: b"Backup preservation".to_vec(),
-                    body: b"Callers, messages, and receipts remain in SQLite.\r\n".to_vec(),
-                    created_at: 1_777_000_001,
-                    parent_message_id: None,
-                    visibility: MessageVisibility::Public,
-                    kind: MessageKind::Standard,
-                },
+                mutation_message.clone(),
+                &[MessageRecipient {
+                    caller_id: sysop.id,
+                    display_name: sysop.display_name,
+                }],
             )
             .unwrap();
+        let recipient_actor = MessageActor::new(
+            recipient.id,
+            SecurityLevel::new(validated.caller.sysop_security).unwrap(),
+        );
+        database
+            .mark_read(recipient_actor, conference.id, deliveries[0].number)
+            .unwrap();
+        database
+            .delete_message(
+                sysop_actor,
+                conference.id,
+                deliveries[1].number,
+                deliveries[1].state_version,
+            )
+            .unwrap();
+        database
+            .copy_message(
+                sysop_actor,
+                conference.id,
+                deliveries[0].number,
+                deliveries[0].state_version,
+                conference.number,
+                CopyRecipient::Preserve,
+                1_777_000_003,
+            )
+            .unwrap();
+        mutation_message.recipient_caller_id = None;
+        mutation_message.recipient_name = "All Callers".to_owned();
+        mutation_message.visibility = MessageVisibility::Public;
+        mutation_message.subject = b"Backup preservation".to_vec();
+        mutation_message.body = b"Callers, messages, and receipts remain in SQLite.\r\n".to_vec();
+        mutation_message.created_at = 1_777_000_001;
+        database.post(actor, mutation_message).unwrap();
         root
     }
 
@@ -1112,6 +1173,103 @@ mod tests {
         let config = RuntimeConfig::load(&root.join(BOARD_CONFIG_FILE)).unwrap();
         let paths = LogicalPaths::resolve(root, &config.validate().unwrap()).unwrap();
         RuntimeDatabase::open_read_only(paths.database()).unwrap()
+    }
+
+    fn rewrite_backup_database_as_schema_10(backup: &Path) {
+        let database_path = backup.join(DATABASE_BACKUP_PATH);
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = OFF;
+
+                CREATE TEMP TABLE message_export AS
+                SELECT
+                    m.message_id, m.conference_id, m.message_number,
+                    m.author_caller_id, m.author_name,
+                    r.caller_id AS recipient_caller_id,
+                    COALESCE(r.display_name_snapshot, 'All Callers') AS recipient_name,
+                    p.subject, p.body, m.created_at, m.parent_message_id,
+                    m.visibility, p.content_kind AS kind,
+                    CASE WHEN m.lifecycle_state = 'deleted' THEN 1 ELSE 0 END AS deleted
+                  FROM messages m
+                  JOIN message_fanouts f ON f.fanout_id = m.fanout_id
+                  JOIN message_payloads p ON p.payload_id = f.payload_id
+                  LEFT JOIN message_delivery_recipients r ON r.message_id = m.message_id;
+
+                CREATE TEMP TABLE receipt_export AS
+                SELECT caller_id, message_id, received_at
+                  FROM caller_message_receipts;
+
+                DROP TRIGGER message_mutation_events_append_only_delete;
+                DROP TRIGGER message_mutation_events_append_only_update;
+                DROP TRIGGER message_payloads_immutable_delete;
+                DROP TRIGGER message_payloads_immutable_update;
+                DROP TABLE message_lineage;
+                DROP TABLE message_mutation_events;
+                DROP TABLE caller_message_receipts;
+                DROP TABLE message_delivery_recipients;
+                DROP TABLE messages;
+                DROP TABLE message_fanouts;
+                DROP TABLE message_payloads;
+                ALTER TABLE message_conferences DROP COLUMN caller_deletion_enabled;
+
+                CREATE TABLE messages (
+                    message_id INTEGER PRIMARY KEY,
+                    conference_id INTEGER NOT NULL REFERENCES message_conferences(conference_id) ON DELETE RESTRICT,
+                    message_number INTEGER NOT NULL CHECK (message_number > 0),
+                    author_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                    author_name TEXT NOT NULL CHECK (length(author_name) BETWEEN 1 AND 60),
+                    recipient_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                    recipient_name TEXT NOT NULL CHECK (length(recipient_name) BETWEEN 1 AND 60),
+                    subject BLOB NOT NULL CHECK (length(subject) BETWEEN 1 AND 72),
+                    body BLOB NOT NULL CHECK (length(body) BETWEEN 1 AND 65536),
+                    created_at INTEGER NOT NULL,
+                    parent_message_id INTEGER REFERENCES messages(message_id) ON DELETE RESTRICT,
+                    visibility TEXT NOT NULL CHECK (visibility IN ('public', 'private')),
+                    kind TEXT NOT NULL CHECK (kind IN ('standard', 'sysop-comment')),
+                    deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+                    UNIQUE (conference_id, message_number)
+                );
+                INSERT INTO messages SELECT * FROM message_export ORDER BY message_id;
+                CREATE INDEX messages_conference_scan
+                    ON messages (conference_id, message_number, deleted);
+                CREATE INDEX messages_recipient_scan
+                    ON messages (recipient_caller_id, visibility, deleted);
+                CREATE INDEX messages_author_scan
+                    ON messages (author_caller_id, visibility, deleted);
+
+                CREATE TABLE caller_message_receipts (
+                    caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE CASCADE,
+                    message_id INTEGER NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+                    received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (caller_id, message_id)
+                );
+                INSERT INTO caller_message_receipts
+                SELECT * FROM receipt_export ORDER BY caller_id, message_id;
+                CREATE INDEX caller_message_receipts_message
+                    ON caller_message_receipts (message_id, caller_id);
+
+                DELETE FROM schema_migrations WHERE version = 11;
+                PRAGMA foreign_keys = ON;
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+        let mut manifest: BackupManifest =
+            toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest.schema_version = 10;
+        let (size_bytes, sha256) = hash_file(&database_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == BackupEntryKind::Database)
+            .unwrap();
+        entry.size_bytes = size_bytes;
+        entry.sha256 = sha256;
+        fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
     }
 
     #[test]
@@ -1135,6 +1293,9 @@ mod tests {
             b"untrusted partial upload",
         )
         .unwrap();
+        let expected_message_storage = restored_database(&source)
+            .message_mutation_storage_stats()
+            .unwrap();
         let backup = temp.path().join("snapshot");
         let report = backup_board(&config_path, &backup).unwrap();
 
@@ -1199,10 +1360,19 @@ mod tests {
         assert!(restored_status.contains("Base: modern-ng 1.1.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.1.1"));
+        assert!(restored_status.contains("Package: en-US 1.2.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
+        assert_eq!(
+            database.message_mutation_storage_stats().unwrap(),
+            expected_message_storage
+        );
+        assert!(expected_message_storage.recipient_relations >= 3);
+        assert!(expected_message_storage.tombstones >= 1);
+        assert!(expected_message_storage.receipts >= 1);
+        assert!(expected_message_storage.lineage_relations >= 1);
+        assert!(expected_message_storage.audit_events >= 3);
         let caller = database.caller_by_name(b"Backup Caller").unwrap().unwrap();
         let actor = MessageActor::new(caller.id, SecurityLevel::new(255).unwrap());
         let conference = database.conference(actor, 1).unwrap();
@@ -1240,6 +1410,54 @@ mod tests {
             .windows(b"MAIN MENU - Selection?".len())
             .any(|window| window == b"MAIN MENU - Selection?"));
         assert!(terminal.output().contains(&0x1b));
+    }
+
+    #[test]
+    fn schema_10_backup_restores_exactly_and_migrates_only_on_writable_startup() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-10-source");
+        let backup = temp.path().join("schema-10-snapshot");
+        backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
+        rewrite_backup_database_as_schema_10(&backup);
+
+        let restored = temp.path().join("schema-10-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 10);
+        let config = RuntimeConfig::load(&report.config_path).unwrap();
+        let paths = LogicalPaths::resolve(&restored, &config.validate().unwrap()).unwrap();
+        let snapshot = RuntimeDatabase::open_read_only(paths.database()).unwrap();
+        snapshot.validate_snapshot_at_version(10).unwrap();
+        drop(snapshot);
+
+        let mut migrated = RuntimeDatabase::open(paths.database()).unwrap();
+        let migration = migrated.migrate().unwrap();
+        assert_eq!(migration.starting_version, 10);
+        assert_eq!(migration.ending_version, SCHEMA_VERSION);
+        assert_eq!(migration.applied, 1);
+        migrated.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
+    fn restore_refuses_older_and_newer_schema_manifests_before_target_creation() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "version-source");
+        for (schema_version, directory) in [(9, "older"), (12, "newer")] {
+            let backup = temp.path().join(format!("{directory}-snapshot"));
+            backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
+            let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+            let mut manifest: BackupManifest =
+                toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+            manifest.schema_version = schema_version;
+            fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+            let target = temp.path().join(format!("{directory}-target"));
+            assert!(matches!(
+                restore_board(&backup, &target, false),
+                Err(ApplicationError::Backup(
+                    BoardBackupError::UnsupportedSchema { .. }
+                ))
+            ));
+            assert!(!target.exists());
+        }
     }
 
     #[test]

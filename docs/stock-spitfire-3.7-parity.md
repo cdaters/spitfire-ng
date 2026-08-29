@@ -489,7 +489,7 @@ the remaining real-client variants stay explicit. See the
 
 | ID | Documented capability | Manual evidence | Status | SPITFIRE NG acceptance target |
 |---|---|---|---|---|
-| A-060 | Atomic persistent board state | SF37 §3–5, §5.8, §9–12 | VERIFIED | Cold native backup/restore preserves exact validated TOML, a consistent integrity-checked current schema-10 SQLite snapshot, complete SYSTEM/DISPLAY resources, and all cataloged bytes behind one board-wide OS lock. A versioned SHA-256 manifest, full pre-mutation validation, same-filesystem staging, explicit replacement, rollback, new-board restore, caller reconnect, and corruption/confinement failure tests pass. Transient status/upload staging are deliberately excluded; legacy backup formats/history remain B-025. |
+| A-060 | Atomic persistent board state | SF37 §3–5, §5.8, §9–12 | VERIFIED | Cold native backup/restore preserves exact validated TOML, a consistent integrity-checked current schema-11 SQLite snapshot, complete SYSTEM/DISPLAY resources, and all cataloged bytes behind one board-wide OS lock. Exact schema-10 snapshots restore unchanged and migrate only on normal writable startup. A versioned SHA-256 manifest, full pre-mutation validation, same-filesystem staging, explicit replacement, rollback, new-board restore, caller reconnect, and corruption/confinement failure tests pass. Transient status/upload staging are deliberately excluded; legacy backup formats/history remain B-025. |
 | A-061 | Caller activity and Sysop notifications | SF37 §7, §8, §12 | VERIFIED | A public clean-board run emitted privacy-safe start/login/logoff/end/shutdown records. Focused tests prove durable private Sysop comments, secret-free failure logging, live/stale-safe pages, page/chat node states, caller/node/operator inspection, and clean restoration. Full historical daily log/maintenance reporting remains B-017. |
 | A-062 | End-to-end stock-core demonstration | SF37 §3–12 | VERIFIED | A clean non-fixture board created through the normal setup service completed Sysop initialization, caller creation/reconnect, preference persistence, messages/reply/Comment-to-Sysop, file browse/download/upload/statistics, live page/chat, node release, and clean shutdown through the real engine. |
 
@@ -498,9 +498,10 @@ the remaining real-client variants stay explicit. See the
 These remain stock-parity obligations, but they follow the first integrated
 board rather than blocking its first useful run.
 
-Current source records 3 VERIFIED, 0 IMPLEMENTED, 11 PARTIAL, and 11 NOT
-STARTED Category-B rows. Conference queues, caller/text message discovery, and
-named-Sysop read-only preview are the first verified advanced message features.
+Current source records 4 VERIFIED, 0 IMPLEMENTED, 10 PARTIAL, and 11 NOT
+STARTED Category-B rows. Conference queues, caller/text message discovery,
+auditable message mutation, and named-Sysop read-only preview are verified
+advanced message features.
 
 | ID | Capability | Manual evidence | Status | Notes / acceptance direction |
 |---|---|---|---|---|
@@ -512,7 +513,7 @@ named-Sysop read-only preview are the first verified advanced message features.
 | B-006 | Comprehensive display-resource precedence | SF37 §5.4 | PARTIAL | The bounded BBS/CLR resolver, exact-security overrides, profiles, generated fallback, and localization exist. This row retains the full caller-, bulletin-, questionnaire-, door-, event-, subscription-, maintenance-, and other advanced state-specific resource inventory plus RIP precedence. |
 | B-007 | Conference queue editing and mandatory conference 1 | SF37 §10.2 | VERIFIED | The message backend persists add/remove/list/reset membership, preserves mandatory Conference 1, filters inaccessible conferences, enforces recipient queue eligibility, and drives queued scans. |
 | B-008 | Message search by caller or up to six text terms | SF37 §10.2 | VERIFIED | Current source provides bounded current/all/queued caller and body-text discovery through the authoritative visibility boundary, with result reauthorization, deterministic limits, CP437 byte preservation, and no read-state mutation. Text matching is ASCII-case-insensitive and excludes Subject. NG intentionally improves the historical contiguous-phrase limitation with whitespace-delimited all-term matching while preserving the stock command, workflow, security, scope, and presentation. |
-| B-009 | Message threads, carbon copies, delete/undelete, move/copy/forward | SF37 §10.2, §13 | PARTIAL | Replies and exact-subject thread traversal are verified. Carbon copies and authorized/audited delete, undelete, public toggle, move, copy, and forward remain. |
+| B-009 | Message threads, carbon copies, delete/undelete, move/copy/forward | SF37 §10.2, §13 | VERIFIED | Replies and exact-subject threads remain intact. Schema 11 implements separately numbered primary plus up to nine CC deliveries, per-delivery receipt/tombstone state, caller-policy sender/direct/CC deletion, threshold delete/contextual Undelete and public/private audience transition, and source-retaining same/cross-conference Copy. Forward is Copy with recipient change; no separate Move/Forward command or implicit source delete exists. State versions, explicit lineage, private append-only audit, transactional migration, recovery, three-client acceptance, and two-node stale-conflict handling are verified. |
 | B-010 | Sysop message preview without marking received | SF37 §10.2, §13 | VERIFIED | The configured named Sysop can preview private received mail without changing receipt or last-read state; threshold-only callers do not gain the named-Sysop path. |
 | B-011 | File tagging and batch queues | SF37 §11.2, §11.4–11.5 | NOT STARTED | Preserve queue workflow independently of specific serial protocols. |
 | B-012 | File requests, duplicate upload detection, Sysop-only uploads | SF37 §5.6, §11.2 | PARTIAL | Exact case-insensitive same-area filename duplicates are race-safely rejected. File requests, digit-stripped/base-name heuristics, and Sysop validation/review remain. |

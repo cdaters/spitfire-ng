@@ -804,6 +804,12 @@ fn prompt_conference(
         &op("operator-config-public-only"),
         current.is_some_and(|value| value.public_only),
     )?;
+    let caller_deletion_enabled = prompt_yes_no(
+        input,
+        output,
+        &op("operator-config-caller-message-deletion"),
+        current.is_none_or(|value| value.caller_deletion_enabled),
+    )?;
     let maximum_lines = prompt_u16(
         input,
         output,
@@ -822,6 +828,7 @@ fn prompt_conference(
         read_security: SecurityLevel::new(read).map_err(sf_core::DatabaseError::from)?,
         post_security: SecurityLevel::new(post).map_err(sf_core::DatabaseError::from)?,
         public_only,
+        caller_deletion_enabled,
         maximum_lines,
         privileged_security_levels: current
             .map_or_else(Vec::new, |value| value.privileged_security_levels.clone()),
@@ -993,11 +1000,13 @@ mod tests {
             read_security: SecurityLevel::new(5).unwrap(),
             post_security: SecurityLevel::new(10).unwrap(),
             public_only: false,
+            caller_deletion_enabled: false,
             maximum_lines: 75,
             privileged_security_levels: vec![SecurityLevel::new(20).unwrap()],
         };
         let edited = admin.update_conference(1, &definition).unwrap();
         assert_eq!(edited.id, original.id);
+        assert!(!edited.caller_deletion_enabled);
         assert!(admin.set_conference_enabled(1, false).is_err());
         let second = admin.conferences().unwrap().remove(1);
         admin.set_conference_enabled(2, false).unwrap();
@@ -1014,6 +1023,7 @@ mod tests {
                 read_security: SecurityLevel::new(30).unwrap(),
                 post_security: SecurityLevel::new(40).unwrap(),
                 public_only: true,
+                caller_deletion_enabled: true,
                 maximum_lines: 99,
                 privileged_security_levels: vec![SecurityLevel::new(20).unwrap()],
             })

@@ -1,8 +1,9 @@
 # SPITFIRE Message System Design
 
-> **Implementation note (2026-08-27):** Stock Core Increment 3 implements the
-> first native SQLite backend/caller-facing conference path, and M040 adds the
-> bounded native caller/text discovery boundary. See the
+> **Implementation note:** The current native SQLite backend implements
+> caller-facing conferences, bounded caller/text discovery, and schema-11
+> auditable message mutation with separate payload and delivery identities.
+> See the
 > canonical [Native SPITFIRE NG Message System](sfng-message-system.md) for the
 > exact schema, authorization rules, implemented commands, tests, and current
 > fidelity gaps. This document remains the broader multi-backend design.
@@ -324,6 +325,12 @@ An adapter converts between:
 
 This avoids embedding network-specific logic throughout the message engine.
 
+The current local message domain is authoritative. Future adapters must use
+the message-domain interface for import/export and must not create a parallel
+authority for recipients, visibility, receipts, lifecycle, mutation, or audit.
+QWK/LAKOTA, SMB/DOVE-Net, FidoNet, and CircuitNet adapters are architectural
+targets only and are not implemented in current source.
+
 ## 16. QWK
 
 QWK support should be built into the message system rather than treated merely as an external door.
@@ -416,13 +423,14 @@ A message posted from the browser should be indistinguishable in the message bas
 
 ## 22. Search
 
-M040 implements stock current/all/queued Specific Caller and Text Search for
-the native backend. Discovery is typed, bounded, read-only, visibility-filtered,
-and returns references that are reauthorized on open. It does not mark a
-message read, cache body authority, or log caller query text. Original-runtime
-evidence confirms ASCII-insensitive body substrings, matching-message counts,
-and contiguous-phrase behavior for a space-containing query. NG intentionally
-retains whitespace-delimited all-term matching as a documented modernization.
+Current source implements stock current/all/queued Specific Caller and Text
+Search for the native backend. Discovery is typed, bounded, read-only,
+visibility-filtered, and returns references that are reauthorized on open. It
+does not mark a message read, cache body authority, or log caller query text.
+Original-runtime evidence confirms ASCII-insensitive body substrings,
+matching-message counts, and contiguous-phrase behavior for a space-containing
+query. NG intentionally retains whitespace-delimited all-term matching as a
+documented modernization.
 See the [Native SPITFIRE NG Message System](sfng-message-system.md).
 
 Future modern installations may extend message search.

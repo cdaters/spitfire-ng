@@ -36,7 +36,9 @@ completed manifest before publishing the directory.
 The snapshot contains:
 
 - exact static configuration;
-- consistent SQLite operational state;
+- consistent SQLite operational state, including message payload/delivery
+  identities, recipient/audience relations, tombstones, receipts,
+  Copy/Forward lineage, and mutation audit;
 - complete SYSTEM (including presentation and language package descriptors,
   catalogs/assets, licenses, and provenance) plus DISPLAY override resources;
   and
@@ -56,6 +58,11 @@ spitfire status /path/to/restored-board/spitfire.toml
 
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
+
+Current source restores exact schema-10 and schema-11 backups. A schema-10
+snapshot remains schema 10 during restore and migrates transactionally only on
+the first normal writable startup. Keep the old executable and pre-upgrade
+backup for rollback; there is no in-place downgrade from schema 11.
 
 ## Replace an existing board
 

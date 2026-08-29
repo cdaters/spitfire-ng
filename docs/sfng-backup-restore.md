@@ -52,7 +52,9 @@ lowercase SHA-256.
 
 SQLite remains authoritative for board identity; callers and Argon2id
 credentials; private profiles and preferences; statistics and new-file
-checkpoints; conferences, messages, queues, receipts, and last-read state; and
+checkpoints; conferences, immutable message payload/fan-out identities,
+separately numbered delivery recipients/audiences, tombstones, visibility,
+receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
 file areas, catalog metadata, hashes, attribution, state, and accounting. The
 snapshot does not duplicate that metadata in a second model.
 
@@ -70,7 +72,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite read-only and require schema 10, exact migration names,
+3. open SQLite read-only and require current schema 11, exact migration names,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
 4. use SQLite's backup API to create one consistent database copy, then apply
@@ -90,8 +92,10 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. Validation rejects unknown manifest fields, an incompatible backup or
-schema version, unsafe or duplicate paths, missing or undeclared files,
+target. This build accepts exact schema-10 and schema-11 snapshots. Schema 10
+is restored unchanged; only subsequent normal writable startup applies the
+transactional 10→11 migration. Validation rejects unknown manifest fields, an
+older/newer unsupported schema, unsafe or duplicate paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
 SQLite catalog rows and declared byte entries. Restore is intentionally not a
 schema migration or incompatible-version conversion path.
@@ -145,10 +149,11 @@ status/incomplete staging, restore to a new board, and authenticate the
 persisted caller through the common session engine. Replacement tests prove
 that post-snapshot caller/resource state is removed only after validation.
 
-Additional tests cover SQLite snapshot consistency and exact-schema
-validation, board-lock exclusion, missing catalog bytes, checksum corruption,
-manifest traversal, undeclared files, explicit replacement, rollback cleanup,
-and the Sysop CLI report. The combined workspace and existing transport,
+Additional tests cover SQLite snapshot consistency, schema-10 exact restore
+followed by normal migration, schema-11 exact restore, older/newer refusal,
+board-lock exclusion, missing catalog bytes, checksum corruption, manifest
+traversal, undeclared files, explicit replacement, rollback cleanup, and the
+Sysop CLI report. The combined workspace and existing transport,
 message, file-transfer, privacy, paging, and multinode regression suites remain
 the final release gate.
 

@@ -106,8 +106,10 @@ before Main. It is board/session policy, not a presentation-profile script.
 
 The conference screen can add, edit, enable, or disable a conference. It
 configures caller-visible number/name/description, read and post security,
-threshold versus exact read access, public-only policy, and maximum message
-lines.
+threshold versus exact read access, public-only policy, caller message-deletion
+policy, and maximum message lines. Caller deletion permits the sender, direct
+recipient, or CC recipient to tombstone only that delivery. It never grants an
+unrelated caller authority and does not limit threshold-Sysop mutation.
 
 Conference 1 is mandatory because Comment to Sysop uses it. Disabling a
 conference preserves messages and identity. There is no destructive
@@ -133,7 +135,7 @@ metadata or bytes. Disabling preserves both.
 ## 7. Presentation profile
 
 Normal setup selects `modern-ng` as both active and base. Section 7 can change
-the two confined profile IDs or select `legacy-resources` for an older board
+the two confined profile IDs or select `legacy-resources` for a pre-M031 board
 that still owns direct SYSTEM/DISPLAY content. It also selects
 `display-overrides` or `generated` menu presentation. Generated mode derives
 Main/Message/File/Sysop directly from the parsed, security-filtered `.MNU`
@@ -189,7 +191,8 @@ The complete validated format and authority boundaries are in
 
 ## Setup prompt behavior
 
-Disabled RAW/RLogin/Telnet listeners
+M037.3 closes the bounded setup/operator findings: disabled
+RAW/RLogin/Telnet listeners
 skip bind/port questions; listener prompts accept `y`, `Y`, `yes`, `n`, `N`,
 and `no` case-insensitively and invalid input reprompts; disabled listeners can
 retain safe internal defaults without forcing irrelevant questions. The

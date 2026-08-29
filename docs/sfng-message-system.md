@@ -2,10 +2,11 @@
 
 This is the canonical implementation and compatibility specification for the
 native message subsystem introduced in Stock SPITFIRE 3.7 Core Parity
-Increment 3 and extended in post-0.1.0 source with advanced message discovery.
-It explains what is implemented, which stock behaviors
-were established from Buffalo Creek's SPITFIRE 3.7 manual, how authorization
-and persistence work, and which historical features remain incomplete.
+Increment 3 and extended in post-0.1.0 source with advanced discovery and
+auditable message mutation. It explains what is implemented, which stock
+behaviors were established from Buffalo Creek's SPITFIRE 3.7 manual, how
+authorization and persistence work, and which historical features remain
+incomplete.
 
 The broader multi-backend direction remains in [Message System
 Design](07-message-system.md). Exact historical file findings remain in
@@ -52,15 +53,27 @@ Confirmed stock behavior relevant to this increment includes:
   Sysop may see otherwise authorized private results.
 - Text Search accepts one to six key words, searches current, all, or queued
   conferences, displays each visible match with a continue prompt, and reports
-  a final matching-message count. Historical evidence confirms ASCII-
+  a final matching-message count. Original-runtime evidence confirms ASCII-
   insensitive body substrings, Subject exclusion, and contiguous-phrase
-  behavior for a space-containing query.
+  behavior for the tested space-containing query.
 - Last-message-read state is per caller and conference. Historical storage
   uses each conference's `SFMSGx.LMR`; the native backend need not reproduce
   that physical layout.
 - Historical conference files include `SFMSGx.DAT`, `.PTR`, `.IDX`, and
   `.LMR`. They are a future compatibility backend, not the native SQLite
   representation.
+- Stock permits up to nine nonduplicate carbon copies. Live SF37 evidence
+  creates one separately numbered primary delivery and up to nine CC
+  deliveries sharing content; each delivery has its own recipient, RECEIVED,
+  and deleted state. Conference policy lets the sender, direct recipient, or
+  CC recipient delete that delivery, while configured threshold-Sysop status
+  can delete/undelete, toggle public state, and use read-time Copy. The only
+  observed Copy workflow handles same/cross-conference copying and recipient
+  change, always retains the source, and offers no automatic source delete.
+  Threshold `P` retains a named recipient for public→private and offers
+  `Address Message #N to "All Callers"? [Y/n]` for private→public: Yes changes
+  the audience to All, while No keeps the name. Identity, author, and RECEIVED
+  state survive these transitions.
 
 ## Implemented Domain Model
 
@@ -71,10 +84,12 @@ Confirmed stock behavior relevant to this increment includes:
 - `MessageId` is a stable internal identity; `Message::number` is allocated
   independently within its conference.
 - `Conference` holds its stock-oriented access mode, read/post levels,
-  public-only policy, line limit, and privileged levels.
-- `Message` holds immutable author and recipient snapshots, optional caller
-  identities, CP437-preserving subject/body bytes, timestamp, visibility,
-  kind, and optional reply parent.
+  public-only and caller-deletion policy, line limit, and privileged levels.
+- `Message` joins an immutable author/content payload with a separately
+  numbered delivery envelope: named or All-Callers audience, primary/CC role
+  and ordinal, recipient snapshot, conference placement, visibility,
+  active/deleted lifecycle, monotonic state version, receipt state, timestamp,
+  and optional reply parent.
 - `MessageKind::SysopComment` distinguishes the stock Conference 1 comment
   path without inventing a second mail store.
 - `MessageActor` identifies the authenticated caller whose current persisted
@@ -91,25 +106,38 @@ The session uses the narrow `MessageBackend` contract for:
 - accessible-conference listing and lookup;
 - visible-message listing and retrieval;
 - bounded caller/text discovery returning message references;
-- posting;
+- atomic posting with an optional ordered CC fan-out;
 - effective queued-conference lookup and replacement;
-- last-read updates and lookup; and
+- last-read updates and lookup;
 - direct-message receipt lookup;
-- caller received/sent/available counts.
+- caller received/sent/available counts;
+- dispatch-authorized mutation capabilities, delete/undelete and audience
+  toggle; and
+- same/cross-conference Copy with optional recipient change.
 
 `RuntimeDatabase` is the Increment 3 SQLite implementation. The session and
 transport adapters do not issue SQL. Future original-SPITFIRE, SMB, or network
 adapters must enforce the same authorization contract rather than relying on
 menu hiding.
 
+The local message domain is authoritative. Future QWK, SMB/DOVE-Net, FidoNet,
+CircuitNet, or other adapters must import and export through these domain
+interfaces instead of writing a parallel message store or bypassing delivery,
+visibility, receipt, mutation, and audit rules. This is an architecture
+boundary only; those network and offline-mail adapters are not implemented.
+
 Discovery returns references rather than cached body/authority snapshots. The
 session reopens every result through the ordinary conference/message path
 immediately before display. This remains deliberately narrower than the
-eventual backend described in `docs/07-message-system.md`; maintenance,
-deletion, network metadata, and imports will extend the boundary only when
-exercised.
+eventual backend described in `docs/07-message-system.md`; packing/retention,
+network metadata, and imports will extend the boundary only when exercised.
+Schema 11 provides immutable payloads, normalized fan-out and separately
+numbered ordered delivery identities, per-delivery tombstone/receipt state,
+Copy/Forward lineage, state versions, and same-transaction mutation audit.
+There is no atomic move: cross-conference Copy retains the source, and any
+later Delete is independently requested and authorized.
 
-## SQLite Schemas 3 and 8
+## SQLite Schemas 3, 8, and 11
 
 Migration 3 upgrades existing schema-2 boards transactionally and preserves
 board/caller state. It adds:
@@ -145,6 +173,21 @@ Foreign keys, uniqueness checks, range checks, normal scan indexes, and
 parameterized queries are used. Message subjects and bodies are SQLite BLOBs
 so CP437 bytes do not undergo an accidental UTF-8 conversion.
 
+Schema 11 `auditable_message_mutation` is current. It rebuilds legacy messages
+into immutable `message_payloads`, `message_fanouts`, separately mutable
+delivery `messages`, and named `message_delivery_recipients`; All Callers is an
+audience kind rather than a fake caller. `message_lineage` records Copy versus
+Forward, while append-only `message_mutation_events` records only bounded
+identifiers/state/actor/outcome—not subject, body, or recipient lists.
+
+Migration 10→11 is one validated transaction. Existing rows become one
+payload/fan-out/delivery while preserving message IDs and numbers, author,
+subject/body BLOB bytes, reply parent, visibility, deletion, receipts, and
+last-read. Before commit, Rust validation compares counts, identities, numbers,
+byte lengths, recipient cardinality, state, and foreign keys. Failure leaves
+schema 10 unchanged. There is no downgrade; rollback uses the old executable
+and a pre-upgrade cold backup.
+
 ## Authorization and Privacy
 
 Every backend operation reloads the actor by stable caller ID and rejects
@@ -173,9 +216,21 @@ nodes and reconnects.
 
 Discovery uses the same authority. Text search includes the actor's visible
 public/authored/received mail and current threshold-Sysop visibility. Specific-
-caller search adds the documented public-only restriction for ordinary
-callers. Deleted rows remain unavailable through the common message policy.
-Search terms and message content are not logged.
+caller search adds the manual's public-only restriction for ordinary callers.
+Deleted rows remain unavailable to ordinary callers and discovery. Threshold
+direct/read scans may reopen them for contextual Undelete. Search terms and
+message content are not logged.
+
+Every mutation reloads actor/message/conference/recipient state at dispatch.
+Ordinary sender, direct recipient, or CC recipient may tombstone only that
+delivery when conference caller deletion is enabled; unrelated callers and a
+named-but-below-threshold Sysop cannot. Threshold status may delete any
+delivery, undelete a deleted identity, toggle audience, and Copy. State-version
+predicates turn stale actions into deterministic conflicts. Each committed
+operation and its privacy-safe audit event share one transaction; a failed or
+denied action records no false committed event. Ordinary navigation skips
+deleted deliveries, while threshold readers can reopen them and receive
+contextual Undelete.
 
 ## Caller Experience
 
@@ -206,22 +261,43 @@ The Message Menu supports:
   state;
 - `T` — choose current/all/queued scope, enter one to six bounded body terms,
   and display authorized matches one at a time without changing read state;
+- `D` — tombstone the displayed delivery when dispatch authorization permits;
+- `U` — threshold-only and contextual while the displayed delivery is deleted;
+- `P` — threshold-only public/private and All-Callers audience transition;
+- `C` while reading — threshold-only same/cross-conference Copy; `Change? Yes`
+  selects a new recipient and is the stock Forward workflow;
 - `F`, `Q`, `G`, `X`, and `?` — the existing shared navigation, logoff,
   expert-mode, and help paths.
+
+Entry of a named primary automatically offers `Carbon copy #1:` through at
+most `Carbon copy #9:`. A blank finishes early. The same validation rejects
+the author, primary/CC duplicates, nonexistent/inactive callers, and a caller
+whose queue excludes the destination; valid earlier CCs survive a rejected
+attempt. Save commits the entire fan-out or none of it.
+
+Copy allocates a new destination conference-local number and independent
+active/unread/version state while sharing immutable payload bytes, preserving
+original author and reply parent, and linking the destination to its source.
+The source never changes. A recipient change preserves original authorship and
+records the threshold actor only in private audit metadata. No separate Move
+or Forward command and no automatic source deletion exist.
 
 Main-menu `C` implements Comment to Sysop. It resolves the configured Sysop
 caller, stores a private `SysopComment` in Conference 1, and fails clearly
 without saving if the configured Sysop caller has not been initialized.
 
-Current-source text matching is body-only and ASCII-case-insensitive. Each
-whitespace-delimited term is a contiguous substring, and all supplied terms
-must occur regardless of order or separation. Historical SPITFIRE treated the
-tested space-containing expression as one contiguous phrase; NG intentionally
-retains the more useful all-term behavior while preserving the stock command,
-scope, visibility, presentation, and read-only behavior. CP437 bytes outside
-ASCII are not decoded, folded, or normalized. Search examines at most 10,000
-candidates and returns at most 100 ordered references; the continue prompt
-provides one-result-at-a-time paging.
+Current-source text matching is body-only, ASCII-case-insensitive contiguous
+substring matching with all NG whitespace-delimited terms required and a
+displayed-message count. Original-runtime evidence establishes case-insensitive
+substrings, body rather than Subject, and message rather than occurrence
+counts. It also establishes that stock treats the tested space-containing
+`alpha beta` expression as one contiguous phrase: ordered-noncontiguous and
+reversed bodies do not match. NG intentionally retains its more useful all-term
+rule as a documented modernization while preserving the stock command, scope,
+visibility, presentation, and read-only behavior. CP437 bytes outside ASCII are
+not decoded, folded, or normalized. Search examines at most 10,000 candidates
+and returns at most 100 ordered references; the continue prompt provides one-
+result-at-a-time paging.
 
 ## Composition and Recovery
 
@@ -278,14 +354,17 @@ physical hardware remains unverified.
 
 - Conference administration is not yet caller/Sysop interactive; the fixture
   seeds configured records through the core API.
-- Caller/text discovery is verified with its all-term modernization
+- Original matcher/count behavior needed for B-008 acceptance is resolved and
+  bounded native discovery is VERIFIED with its all-term modernization
   documented. Explicit OR and quoted-phrase syntax remain possible future
   enhancements. Automatic logon/daily scanning remains follow-on work.
 - Message timestamps are stored as Unix seconds and rendered as explicit UTC;
   board-local timezone policy and exact stock date presentation remain open.
-- Deletion/undelete, copy/move/forward, carbon copies, purge, and broader Sysop
-  message maintenance are not implemented. Named-Sysop read-only preview is
-  verified.
+- Carbon copies, tombstone/undelete, public/private audience changes,
+  source-retaining Copy/Forward, and threshold mutation are verified. Physical
+  purge/packing/retention and broader maintenance/audit viewing remain future
+  work. Named-Sysop read-only preview remains verified and distinct from
+  threshold mutation authority.
 - Original SPITFIRE `.DAT/.PTR/.IDX/.LMR` is not an active backend yet.
 - SMB, QWK/LAKOTA, DOVE-Net, FidoNet, and CircuitNet are explicitly outside
   Increment 3.
@@ -305,12 +384,32 @@ bounded terms, CP437 exact matching, deterministic result limits, concurrent
 post/search connections, no read-state mutation, Sysop routing, RLogin auto-
 login, and the common network/stdio/serial/modem session path.
 
-Live acceptance used synthetic callers over RAW/text, Qodem 1.0.1 ANSI/CP437,
-and SyncTERM 1.9rc4 ANSI. Each caller posted one public message, found it
-through text and self-From discovery, returned to Main, and logged off normally.
-A read-only database check showed last-read zero and no receipts for all three
-callers. Private test captures and original-runtime evidence are not
-distributed with the public source.
+Schema-11 coverage adds schema-10→11 preservation and failure rollback; CP437 payload
+sharing; primary plus nine ordered CC deliveries; duplicate/self/nonexistent/
+queue rejection; per-delivery receipts/tombstones; sender/direct/CC/unrelated/
+threshold authorization; conference deletion policy; contextual Undelete;
+both audience-toggle branches; same/cross-conference Copy; Forward recipient
+change; source retention; destination numbering/receipt independence;
+lineage/audit privacy and append-only enforcement; stale/two-connection
+conflicts; discovery/preview regressions; and schema-11 cold backup/restore.
+
+Message-mutation live acceptance used only disposable synthetic callers and
+content. Qodem 1.0.1 ANSI/CP437 deleted a direct-recipient delivery. SyncTERM
+ANSI/CP437 displayed the separate CC number, CC/primary header, and deleted
+only that CC delivery. RAW/text verified unrelated denial, threshold delete/
+contextual Undelete, public→private, private→public with All Callers Yes and
+No, same- and cross-conference Copy, Forward through recipient change, source
+retention, and restored-board recipient privacy. Two simultaneous threshold
+clients displayed one version; the first Delete committed and the stale second
+received localized conflict/redisplay. Cold backup/new-root restore preserved
+an identical logical SQLite dump and the restored caller reopened the private
+Forward with original author attribution.
+
+Advanced-discovery live acceptance used synthetic callers over RAW/text,
+Qodem 1.0.1 ANSI/CP437, and SyncTERM 1.9rc4 ANSI. Each caller posted one public
+message, found it through text and self-From discovery, returned to Main, and
+logged off normally. A read-only database check showed last-read zero and no
+receipts for all three callers.
 
 The 2026-08-22 closure acceptance created a board through the normal setup
 service, installed controlled Conference 2 queue/direct/thread fixtures, and

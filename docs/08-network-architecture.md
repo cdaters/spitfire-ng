@@ -27,6 +27,13 @@ It should not dictate:
 
 Network modules should exchange messages with the SPITFIRE message system through a common internal representation.
 
+Current source makes the local schema-11 message domain authoritative for
+payloads, delivery identities, recipients/audiences, visibility, receipts,
+lifecycle, lineage, and mutation audit. Future adapters must import/export
+through the message-domain interfaces instead of creating a parallel message
+system or writing domain tables directly. No QWK/LAKOTA, SMB/DOVE-Net,
+FidoNet, or CircuitNet adapter is implemented yet.
+
 ## 3. Network Adapter Model
 
 Conceptually:

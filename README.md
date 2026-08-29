@@ -29,7 +29,8 @@ published in this repository.
 
 The latest downloadable binary remains 0.1.0. The `main` branch now contains
 post-0.1.0 source improvements, including advanced caller/text message
-discovery; those improvements are not present in the published 0.1.0 archive.
+discovery, CC delivery fan-out, and auditable message mutation; those
+improvements are not present in the published 0.1.0 archive.
 
 Available today:
 
@@ -41,7 +42,9 @@ Available today:
 - Telnet, RAW TCP, and RLogin compatibility listeners;
 - caller registration, Argon2id authentication, profiles, and security;
 - messages, conferences, private mail, replies, queues, receipts, and—when
-  built from current source—bounded Specific Caller and Text Search;
+  built from current source—bounded Specific Caller/Text Search, primary plus
+  CC delivery, authorized Delete/Undelete, audience transitions, and
+  source-retaining Copy/Forward;
 - file areas, uploads, downloads, new-file checks, and supported transfer
   protocols;
 - multinode operation, operator status, cold backup, and restore;

@@ -13,7 +13,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 struct Migration {
     version: u32,
@@ -21,7 +21,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 10] = [
+const MIGRATIONS: [Migration; 11] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -289,6 +289,217 @@ const MIGRATIONS: [Migration; 10] = [
         );
     "#,
     },
+    Migration {
+        version: 11,
+        name: "auditable_message_mutation",
+        sql: r#"
+        CREATE TABLE migration_11_validation (
+            message_count INTEGER NOT NULL,
+            receipt_count INTEGER NOT NULL,
+            last_read_count INTEGER NOT NULL,
+            deleted_count INTEGER NOT NULL,
+            private_count INTEGER NOT NULL,
+            parent_count INTEGER NOT NULL,
+            message_id_sum INTEGER NOT NULL,
+            message_number_sum INTEGER NOT NULL,
+            subject_bytes INTEGER NOT NULL,
+            body_bytes INTEGER NOT NULL
+        );
+
+        INSERT INTO migration_11_validation
+        SELECT
+            COUNT(*),
+            (SELECT COUNT(*) FROM caller_message_receipts),
+            (SELECT COUNT(*) FROM caller_last_read),
+            COALESCE(SUM(deleted), 0),
+            COALESCE(SUM(visibility = 'private'), 0),
+            COALESCE(SUM(parent_message_id IS NOT NULL), 0),
+            COALESCE(SUM(message_id), 0),
+            COALESCE(SUM(message_number), 0),
+            COALESCE(SUM(length(subject)), 0),
+            COALESCE(SUM(length(body)), 0)
+        FROM messages;
+
+        ALTER TABLE message_conferences ADD COLUMN caller_deletion_enabled INTEGER
+            NOT NULL DEFAULT 1 CHECK (caller_deletion_enabled IN (0, 1));
+
+        ALTER TABLE caller_message_receipts RENAME TO caller_message_receipts_v10;
+        ALTER TABLE messages RENAME TO messages_v10;
+
+        CREATE TABLE message_payloads (
+            payload_id INTEGER PRIMARY KEY,
+            subject BLOB NOT NULL CHECK (length(subject) BETWEEN 1 AND 72),
+            body BLOB NOT NULL CHECK (length(body) BETWEEN 1 AND 65536),
+            content_kind TEXT NOT NULL CHECK (content_kind IN ('standard', 'sysop-comment'))
+        );
+
+        CREATE TABLE message_fanouts (
+            fanout_id INTEGER PRIMARY KEY,
+            payload_id INTEGER NOT NULL REFERENCES message_payloads(payload_id) ON DELETE RESTRICT,
+            created_by_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE messages (
+            message_id INTEGER PRIMARY KEY,
+            fanout_id INTEGER NOT NULL REFERENCES message_fanouts(fanout_id) ON DELETE RESTRICT,
+            conference_id INTEGER NOT NULL REFERENCES message_conferences(conference_id) ON DELETE RESTRICT,
+            message_number INTEGER NOT NULL CHECK (message_number > 0),
+            author_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            author_name TEXT NOT NULL CHECK (length(author_name) BETWEEN 1 AND 60),
+            created_at INTEGER NOT NULL,
+            placed_at INTEGER NOT NULL,
+            parent_message_id INTEGER REFERENCES messages(message_id) ON DELETE RESTRICT,
+            audience_kind TEXT NOT NULL CHECK (audience_kind IN ('all-callers', 'local-recipient')),
+            visibility TEXT NOT NULL CHECK (visibility IN ('public', 'private')),
+            lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('active', 'deleted')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            delivery_role TEXT NOT NULL CHECK (delivery_role IN ('single', 'primary', 'cc')),
+            delivery_ordinal INTEGER NOT NULL CHECK (delivery_ordinal BETWEEN 0 AND 9),
+            primary_delivery_id INTEGER REFERENCES messages(message_id) ON DELETE RESTRICT,
+            UNIQUE (conference_id, message_number),
+            UNIQUE (fanout_id, delivery_ordinal),
+            UNIQUE (message_id, fanout_id),
+            CHECK (
+                (delivery_role = 'single' AND delivery_ordinal = 0 AND primary_delivery_id IS NULL)
+                OR (delivery_role = 'primary' AND delivery_ordinal = 0 AND primary_delivery_id = message_id)
+                OR (delivery_role = 'cc' AND delivery_ordinal BETWEEN 1 AND 9 AND primary_delivery_id IS NOT NULL)
+            ),
+            CHECK (visibility = 'public' OR audience_kind = 'local-recipient')
+        );
+
+        CREATE TABLE message_delivery_recipients (
+            message_id INTEGER PRIMARY KEY,
+            fanout_id INTEGER NOT NULL,
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            display_name_snapshot TEXT NOT NULL CHECK (length(display_name_snapshot) BETWEEN 1 AND 60),
+            added_at INTEGER NOT NULL,
+            FOREIGN KEY (message_id, fanout_id)
+                REFERENCES messages(message_id, fanout_id) ON DELETE CASCADE,
+            UNIQUE (fanout_id, caller_id)
+        );
+
+        CREATE TABLE message_mutation_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at INTEGER NOT NULL,
+            operation TEXT NOT NULL CHECK (operation IN (
+                'cc-created', 'deleted', 'undeleted', 'visibility-changed',
+                'copied', 'forwarded'
+            )),
+            actor_caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            actor_name_snapshot TEXT NOT NULL CHECK (length(actor_name_snapshot) BETWEEN 1 AND 60),
+            message_id INTEGER NOT NULL REFERENCES messages(message_id) ON DELETE RESTRICT,
+            derived_message_id INTEGER REFERENCES messages(message_id) ON DELETE RESTRICT,
+            prior_state_version INTEGER,
+            new_state_version INTEGER NOT NULL CHECK (new_state_version > 0),
+            source_conference_id INTEGER REFERENCES message_conferences(conference_id) ON DELETE RESTRICT,
+            source_message_number INTEGER,
+            destination_conference_id INTEGER REFERENCES message_conferences(conference_id) ON DELETE RESTRICT,
+            destination_message_number INTEGER,
+            prior_lifecycle TEXT CHECK (prior_lifecycle IS NULL OR prior_lifecycle IN ('active', 'deleted')),
+            new_lifecycle TEXT CHECK (new_lifecycle IS NULL OR new_lifecycle IN ('active', 'deleted')),
+            prior_visibility TEXT CHECK (prior_visibility IS NULL OR prior_visibility IN ('public', 'private')),
+            new_visibility TEXT CHECK (new_visibility IS NULL OR new_visibility IN ('public', 'private')),
+            prior_audience TEXT CHECK (prior_audience IS NULL OR prior_audience IN ('all-callers', 'local-recipient')),
+            new_audience TEXT CHECK (new_audience IS NULL OR new_audience IN ('all-callers', 'local-recipient')),
+            recipient_count INTEGER CHECK (recipient_count IS NULL OR recipient_count BETWEEN 0 AND 10),
+            outcome TEXT NOT NULL DEFAULT 'applied' CHECK (outcome = 'applied')
+        );
+
+        CREATE TABLE message_lineage (
+            derived_message_id INTEGER PRIMARY KEY REFERENCES messages(message_id) ON DELETE RESTRICT,
+            source_message_id INTEGER NOT NULL REFERENCES messages(message_id) ON DELETE RESTRICT,
+            relation TEXT NOT NULL CHECK (relation IN ('copy', 'forward')),
+            mutation_event_id INTEGER NOT NULL UNIQUE REFERENCES message_mutation_events(event_id) ON DELETE RESTRICT,
+            CHECK (derived_message_id <> source_message_id)
+        );
+
+        CREATE TABLE caller_message_receipts (
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE CASCADE,
+            message_id INTEGER NOT NULL REFERENCES messages(message_id) ON DELETE CASCADE,
+            received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (caller_id, message_id)
+        );
+
+        INSERT INTO message_payloads (payload_id, subject, body, content_kind)
+        SELECT message_id, subject, body, kind FROM messages_v10 ORDER BY message_id;
+
+        INSERT INTO message_fanouts (fanout_id, payload_id, created_by_caller_id, created_at)
+        SELECT message_id, message_id, author_caller_id, created_at
+          FROM messages_v10 ORDER BY message_id;
+
+        INSERT INTO messages (
+            message_id, fanout_id, conference_id, message_number,
+            author_caller_id, author_name, created_at, placed_at,
+            parent_message_id, audience_kind, visibility, lifecycle_state,
+            state_version, delivery_role, delivery_ordinal, primary_delivery_id
+        )
+        SELECT
+            message_id, message_id, conference_id, message_number,
+            author_caller_id, author_name, created_at, created_at,
+            parent_message_id,
+            CASE WHEN recipient_caller_id IS NULL THEN 'all-callers' ELSE 'local-recipient' END,
+            visibility,
+            CASE WHEN deleted = 1 THEN 'deleted' ELSE 'active' END,
+            1,
+            CASE WHEN recipient_caller_id IS NULL THEN 'single' ELSE 'primary' END,
+            0,
+            CASE WHEN recipient_caller_id IS NULL THEN NULL ELSE message_id END
+        FROM messages_v10 ORDER BY message_id;
+
+        INSERT INTO message_delivery_recipients (
+            message_id, fanout_id, caller_id, display_name_snapshot, added_at
+        )
+        SELECT message_id, message_id, recipient_caller_id, recipient_name, created_at
+          FROM messages_v10
+         WHERE recipient_caller_id IS NOT NULL
+         ORDER BY message_id;
+
+        INSERT INTO caller_message_receipts (caller_id, message_id, received_at)
+        SELECT caller_id, message_id, received_at
+          FROM caller_message_receipts_v10;
+
+        DROP TABLE caller_message_receipts_v10;
+        DROP TABLE messages_v10;
+
+        CREATE INDEX messages_conference_scan
+            ON messages (conference_id, message_number, lifecycle_state);
+        CREATE INDEX messages_author_scan
+            ON messages (author_caller_id, visibility, lifecycle_state);
+        CREATE INDEX message_recipients_caller_scan
+            ON message_delivery_recipients (caller_id, message_id);
+        CREATE INDEX caller_message_receipts_message
+            ON caller_message_receipts (message_id, caller_id);
+        CREATE INDEX message_mutation_events_message
+            ON message_mutation_events (message_id, event_id);
+        CREATE INDEX message_mutation_events_actor
+            ON message_mutation_events (actor_caller_id, event_id);
+
+        CREATE TRIGGER message_payloads_immutable_update
+        BEFORE UPDATE ON message_payloads
+        BEGIN
+            SELECT RAISE(ABORT, 'message payloads are immutable');
+        END;
+
+        CREATE TRIGGER message_payloads_immutable_delete
+        BEFORE DELETE ON message_payloads
+        BEGIN
+            SELECT RAISE(ABORT, 'message payloads are immutable');
+        END;
+
+        CREATE TRIGGER message_mutation_events_append_only_update
+        BEFORE UPDATE ON message_mutation_events
+        BEGIN
+            SELECT RAISE(ABORT, 'message mutation events are append-only');
+        END;
+
+        CREATE TRIGGER message_mutation_events_append_only_delete
+        BEFORE DELETE ON message_mutation_events
+        BEGIN
+            SELECT RAISE(ABORT, 'message mutation events are append-only');
+        END;
+    "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -407,12 +618,20 @@ impl RuntimeDatabase {
     /// Verifies the complete schema identity plus SQLite structural and
     /// relational integrity needed before a board snapshot is accepted.
     pub fn validate_current_snapshot(&self) -> Result<BoardIdentity, DatabaseError> {
+        self.validate_snapshot_at_version(SCHEMA_VERSION)
+    }
+
+    /// Validates an exact supported snapshot without applying migrations.
+    /// Native restore uses this for schema-10 rollback backups as well as the
+    /// current schema; normal writable startup remains the only migration
+    /// boundary.
+    pub fn validate_snapshot_at_version(
+        &self,
+        required: u32,
+    ) -> Result<BoardIdentity, DatabaseError> {
         let found = schema_version_from(&self.connection)?;
-        if found != SCHEMA_VERSION {
-            return Err(DatabaseError::SnapshotSchema {
-                found,
-                required: SCHEMA_VERSION,
-            });
+        if found != required {
+            return Err(DatabaseError::SnapshotSchema { found, required });
         }
         validate_applied_migrations(&self.connection)?;
 
@@ -442,6 +661,9 @@ impl RuntimeDatabase {
             .is_some()
         {
             return Err(DatabaseError::ForeignKeyCheck);
+        }
+        if required == 11 {
+            validate_schema_11_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -1233,6 +1455,81 @@ impl RuntimeDatabase {
     }
 }
 
+fn validate_schema_11_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let recipient_mismatch: i64 = connection
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+              FROM messages AS m
+              LEFT JOIN message_delivery_recipients AS r ON r.message_id = m.message_id
+             WHERE (m.audience_kind = 'local-recipient' AND r.message_id IS NULL)
+                OR (m.audience_kind = 'all-callers' AND r.message_id IS NOT NULL)
+                OR (m.delivery_role = 'cc' AND NOT EXISTS (
+                    SELECT 1 FROM messages AS primary_message
+                     WHERE primary_message.message_id = m.primary_delivery_id
+                       AND primary_message.fanout_id = m.fanout_id
+                       AND primary_message.delivery_role = 'primary'
+                ))
+            "#,
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if recipient_mismatch != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "message delivery recipient or primary linkage is invalid".to_owned(),
+        ));
+    }
+    let invalid_fanouts: i64 = connection
+        .query_row(
+            r#"
+            SELECT COUNT(*) FROM (
+                SELECT m.fanout_id,
+                       COUNT(*) AS delivery_count,
+                       COUNT(r.message_id) AS recipient_count,
+                       COUNT(DISTINCT r.caller_id) AS distinct_recipient_count,
+                       MIN(m.delivery_ordinal) AS minimum_ordinal,
+                       MAX(m.delivery_ordinal) AS maximum_ordinal
+                  FROM messages AS m
+                  LEFT JOIN message_delivery_recipients AS r ON r.message_id = m.message_id
+                 GROUP BY m.fanout_id
+                HAVING delivery_count NOT BETWEEN 1 AND 10
+                    OR recipient_count <> distinct_recipient_count
+                    OR minimum_ordinal <> 0
+                    OR maximum_ordinal <> delivery_count - 1
+            )
+            "#,
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid_fanouts != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "message fan-out cardinality or ordinal integrity is invalid".to_owned(),
+        ));
+    }
+    let lineage_mismatch: i64 = connection
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+              FROM message_lineage AS l
+              JOIN message_mutation_events AS e ON e.event_id = l.mutation_event_id
+             WHERE e.derived_message_id <> l.derived_message_id
+                OR (l.relation = 'copy' AND e.operation <> 'copied')
+                OR (l.relation = 'forward' AND e.operation <> 'forwarded')
+            "#,
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if lineage_mismatch != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "message lineage and mutation audit disagree".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuthenticationResult {
     Valid(Caller),
@@ -1314,12 +1611,118 @@ fn run_migration(
     transaction
         .execute_batch(migration.sql)
         .map_err(DatabaseError::Sqlite)?;
+    if migration.version == 11 {
+        validate_message_mutation_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_11_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
             params![migration.version, migration.name],
         )
         .map_err(DatabaseError::Sqlite)?;
+    Ok(())
+}
+
+fn validate_message_mutation_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected = transaction
+        .query_row(
+            r#"
+            SELECT message_count, receipt_count, last_read_count, deleted_count,
+                   private_count, parent_count, message_id_sum,
+                   message_number_sum, subject_bytes, body_bytes
+              FROM migration_11_validation
+            "#,
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            },
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let actual = transaction
+        .query_row(
+            r#"
+            SELECT
+                (SELECT COUNT(*) FROM messages),
+                (SELECT COUNT(*) FROM caller_message_receipts),
+                (SELECT COUNT(*) FROM caller_last_read),
+                (SELECT COUNT(*) FROM messages WHERE lifecycle_state = 'deleted'),
+                (SELECT COUNT(*) FROM messages WHERE visibility = 'private'),
+                (SELECT COUNT(*) FROM messages WHERE parent_message_id IS NOT NULL),
+                (SELECT COALESCE(SUM(message_id), 0) FROM messages),
+                (SELECT COALESCE(SUM(message_number), 0) FROM messages),
+                (SELECT COALESCE(SUM(length(subject)), 0) FROM message_payloads),
+                (SELECT COALESCE(SUM(length(body)), 0) FROM message_payloads)
+            "#,
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            },
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if expected != actual {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-10 message, receipt, pointer, state, identity, or payload counts changed"
+                .to_owned(),
+        ));
+    }
+
+    let recipient_mismatch: i64 = transaction
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+              FROM messages AS m
+              LEFT JOIN message_delivery_recipients AS r
+                ON r.message_id = m.message_id
+             WHERE (m.audience_kind = 'local-recipient' AND r.message_id IS NULL)
+                OR (m.audience_kind = 'all-callers' AND r.message_id IS NOT NULL)
+            "#,
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if recipient_mismatch != 0 {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-11 recipient cardinality validation failed".to_owned(),
+        ));
+    }
+
+    let mut statement = transaction
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(DatabaseError::Sqlite)?;
+    if statement
+        .query([])
+        .map_err(DatabaseError::Sqlite)?
+        .next()
+        .map_err(DatabaseError::Sqlite)?
+        .is_some()
+    {
+        return Err(DatabaseError::ForeignKeyCheck);
+    }
     Ok(())
 }
 
@@ -1367,6 +1770,8 @@ pub enum DatabaseError {
         stored: String,
         expected: &'static str,
     },
+    #[error("schema migration validation failed: {0}")]
+    MigrationValidation(String),
     #[error("database does not contain its required board identity")]
     MissingBoardIdentity,
     #[error("stored board identity is invalid: {0}")]
@@ -1425,7 +1830,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -1452,7 +1857,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 1,
+                applied: 2,
             }
         );
         let table_count: i64 = database
@@ -1464,6 +1869,200 @@ mod tests {
             )
             .unwrap();
         assert_eq!(table_count, 1);
+    }
+
+    #[test]
+    fn schema_ten_to_eleven_preserves_message_bytes_identity_receipts_pointers_and_tombstones() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK (version > 0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+            )
+            .unwrap();
+        for migration in MIGRATIONS.iter().take(10) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection
+            .execute_batch("PRAGMA foreign_keys = OFF;")
+            .unwrap();
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO callers (
+                    caller_id, display_name, normalized_name, security_level,
+                    account_state, is_new_caller, first_call_at
+                ) VALUES
+                    (1, 'Schema Ten Author', 'schema ten author', 10, 'active', 0, 1),
+                    (2, 'Schema Ten Recipient', 'schema ten recipient', 10, 'active', 0, 1);
+                INSERT INTO message_conferences (
+                    conference_id, conference_number, name, description,
+                    access_mode, read_security, post_security, public_only,
+                    maximum_lines
+                ) VALUES (1, 1, 'General', 'Migration fixture', 'at-least', 5, 5, 0, 50);
+                INSERT INTO messages (
+                    message_id, conference_id, message_number, author_caller_id,
+                    author_name, recipient_caller_id, recipient_name, subject,
+                    body, created_at, visibility, kind, deleted
+                ) VALUES (
+                    41, 1, 17, 1, 'Schema Ten Author', 2,
+                    'Schema Ten Recipient', X'4D303431DB', X'426F6479B30D0A',
+                    1234, 'private', 'standard', 1
+                );
+                INSERT INTO caller_message_receipts (caller_id, message_id, received_at)
+                VALUES (2, 41, '2026-08-28 12:00:00');
+                INSERT INTO caller_last_read (caller_id, conference_id, last_message_number)
+                VALUES (2, 1, 17);
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            MigrationReport {
+                starting_version: 10,
+                ending_version: 11,
+                applied: 1,
+            }
+        );
+        let preserved = database
+            .connection
+            .query_row(
+                r#"
+                SELECT m.message_id, m.message_number, p.subject, p.body,
+                       m.visibility, m.lifecycle_state, m.state_version,
+                       r.caller_id, r.display_name_snapshot
+                  FROM messages AS m
+                  JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id
+                  JOIN message_payloads AS p ON p.payload_id = f.payload_id
+                  JOIN message_delivery_recipients AS r ON r.message_id = m.message_id
+                 WHERE m.message_id = 41
+                "#,
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                        row.get::<_, Vec<u8>>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, String>(8)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            preserved,
+            (
+                41,
+                17,
+                b"M041\xDB".to_vec(),
+                b"Body\xB3\r\n".to_vec(),
+                "private".to_owned(),
+                "deleted".to_owned(),
+                1,
+                2,
+                "Schema Ten Recipient".to_owned(),
+            )
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM caller_message_receipts", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row(
+                    "SELECT last_message_number FROM caller_last_read",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            17
+        );
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn failed_schema_eleven_validation_rolls_back_to_unchanged_schema_ten() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK (version > 0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+            )
+            .unwrap();
+        for migration in MIGRATIONS.iter().take(10) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection
+            .execute_batch("PRAGMA foreign_keys = OFF;")
+            .unwrap();
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO callers (
+                    caller_id, display_name, normalized_name, security_level,
+                    account_state, is_new_caller, first_call_at
+                ) VALUES (1, 'Schema Ten Caller', 'schema ten caller', 10, 'active', 0, 1);
+                INSERT INTO message_conferences (
+                    conference_id, conference_number, name, description,
+                    access_mode, read_security, post_security, public_only,
+                    maximum_lines
+                ) VALUES (1, 1, 'General', 'Rollback fixture', 'at-least', 5, 5, 0, 50);
+                INSERT INTO messages (
+                    message_id, conference_id, message_number, author_caller_id,
+                    author_name, recipient_name, subject, body, created_at,
+                    visibility, kind
+                ) VALUES (1, 1, 1, 1, 'Schema Ten Caller', 'All Callers',
+                          X'5375626A656374', X'426F64790D0A', 1, 'public', 'standard');
+                INSERT INTO caller_message_receipts (caller_id, message_id)
+                VALUES (1, 999);
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert!(database.migrate().is_err());
+        assert_eq!(database.schema_version().unwrap(), 10);
+        let legacy_subject_column: i64 = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'subject'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_subject_column, 1);
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM messages", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]
@@ -1588,7 +2187,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         assert_eq!(
@@ -1624,7 +2223,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         let caller = database
@@ -1671,7 +2270,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         assert_eq!(
@@ -1711,7 +2310,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         let caller = database
@@ -1771,7 +2370,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 6,
             }
         );
         let caller = database
@@ -1811,7 +2410,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -1894,7 +2493,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         assert_eq!(
@@ -1994,7 +2593,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: 3,
             }
         );
         let caller = database
@@ -2079,7 +2678,7 @@ mod tests {
         let encoded = hasher.hash(password).unwrap();
         let caller = database
             .create_caller(
-                b"Alex   Test",
+                b"Craig   Test",
                 &encoded,
                 SecurityLevel::new(10).unwrap(),
                 CallerState::Active,
@@ -2087,20 +2686,20 @@ mod tests {
                 100,
             )
             .unwrap();
-        assert_eq!(caller.display_name, "Alex Test");
+        assert_eq!(caller.display_name, "Craig Test");
         assert!(matches!(
-            database.authenticate(b"alex test", password, &hasher).unwrap(),
+            database.authenticate(b"craig test", password, &hasher).unwrap(),
             AuthenticationResult::Valid(found) if found.id == caller.id
         ));
         assert_eq!(
             database
-                .authenticate(b"ALEX TEST", b"wrong", &hasher)
+                .authenticate(b"CRAIG TEST", b"wrong", &hasher)
                 .unwrap(),
             AuthenticationResult::Invalid
         );
         assert!(matches!(
             database.create_caller(
-                b"ALEX TEST",
+                b"CRAIG TEST",
                 &encoded,
                 SecurityLevel::new(10).unwrap(),
                 CallerState::Active,

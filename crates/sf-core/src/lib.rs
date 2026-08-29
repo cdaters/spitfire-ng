@@ -56,12 +56,14 @@ pub use interaction::{
 };
 pub use localization::*;
 pub use message::{
-    Conference, ConferenceAccessMode, ConferenceDefinition, ConferenceId, Message, MessageActor,
-    MessageBackend, MessageCallerSearchDirection, MessageDiscoveryMatch, MessageDiscoveryQuery,
-    MessageDiscoveryResult, MessageError, MessageId, MessageKind, MessageRecipient, MessageStats,
-    MessageSummary, MessageVisibility, NewMessage, MAX_CONFERENCES, MAX_MESSAGE_BODY_BYTES,
-    MAX_MESSAGE_LINES, MAX_MESSAGE_SEARCH_CANDIDATES, MAX_MESSAGE_SEARCH_RESULTS,
-    MAX_MESSAGE_SEARCH_TERMS, MAX_MESSAGE_SEARCH_TERM_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
+    Conference, ConferenceAccessMode, ConferenceDefinition, ConferenceId, CopyRecipient, Message,
+    MessageActor, MessageBackend, MessageCallerSearchDirection, MessageDeliveryRole,
+    MessageDiscoveryMatch, MessageDiscoveryQuery, MessageDiscoveryResult, MessageError, MessageId,
+    MessageKind, MessageLifecycle, MessageMutationCapabilities, MessageMutationStorageStats,
+    MessageRecipient, MessageStats, MessageSummary, MessageVisibility, NewMessage, MAX_CONFERENCES,
+    MAX_MESSAGE_BODY_BYTES, MAX_MESSAGE_CC_RECIPIENTS, MAX_MESSAGE_LINES,
+    MAX_MESSAGE_SEARCH_CANDIDATES, MAX_MESSAGE_SEARCH_RESULTS, MAX_MESSAGE_SEARCH_TERMS,
+    MAX_MESSAGE_SEARCH_TERM_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
 };
 pub use node::{
     MenuRendererPath, NodeChangeHook, NodeDefinition, NodeError, NodeId, NodeLease, NodeManager,

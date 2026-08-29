@@ -167,6 +167,7 @@ pub(crate) fn seed_fixture_messages(
         read_security: read,
         post_security: post,
         public_only: false,
+        caller_deletion_enabled: true,
         maximum_lines: 50,
         privileged_security_levels: Vec::new(),
     })?;
@@ -178,6 +179,7 @@ pub(crate) fn seed_fixture_messages(
         read_security: read,
         post_security: post,
         public_only: false,
+        caller_deletion_enabled: true,
         maximum_lines: 50,
         privileged_security_levels: Vec::new(),
     })?;

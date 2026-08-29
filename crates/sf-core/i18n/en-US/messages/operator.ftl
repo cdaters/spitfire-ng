@@ -137,6 +137,7 @@ operator-config-read-security = Read security
 operator-config-post-security = Message entry security
 operator-config-exact-read = Require exact read security (yes/no)
 operator-config-public-only = Public messages only (yes/no)
+operator-config-caller-message-deletion = Allow caller message deletion (yes/no)
 operator-config-maximum-lines = Maximum message lines
 operator-prompt-return = return
 operator-status-language-title = Language:

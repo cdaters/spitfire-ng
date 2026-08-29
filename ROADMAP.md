@@ -25,6 +25,11 @@ outcomes rather than internal checkpoint chronology.
   read-only, visibility-filtered results. Text Search keeps SPITFIRE's command
   flow while intentionally modernizing the historical phrase limitation with
   whitespace-delimited all-term matching.
+- Added post-0.1.0 CC delivery fan-out and auditable message mutation:
+  separately numbered primary/CC deliveries, per-delivery receipts and
+  tombstones, authorized Delete/Undelete and audience transitions,
+  source-retaining Copy/Forward, schema-11 lineage/audit, stale-conflict
+  protection, and schema-10/schema-11 recovery.
 
 ### Presentation and language
 
@@ -48,9 +53,10 @@ SPITFIRE NG 0.1.0 Development Preview is published for Apple Silicon macOS as
 tag `v0.1.0-development-preview`. The public-redownload checksum and bounded
 unsigned/unnotarized macOS first-run workflow have passed.
 
-Public source `main` now includes post-0.1.0 message-discovery improvements.
-No new binary, tag, or release has been published; the downloadable binary
-remains the accepted 0.1.0 Development Preview.
+Public source `main` now includes post-0.1.0 message-discovery and auditable
+message-mutation improvements. No new binary, tag, or release has been
+published; the downloadable binary remains the accepted 0.1.0 Development
+Preview and does not contain those later source changes.
 
 Near-term release work includes:
 

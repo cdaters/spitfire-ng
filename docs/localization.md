@@ -1,6 +1,7 @@
 # SPITFIRE NG Localization Contract
 
-This is the canonical format/API 1 specification for engine localization. Its purpose is
+This is the canonical format/API 1 specification for engine localization. It
+was implemented by M037.2 before Development Preview packaging. Its purpose is
 to keep three independent authorities explicit:
 
 ```text
@@ -37,15 +38,18 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.1.1 baseline is project-authored and embedded for
+The canonical `en-US` 1.2.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 380 semantic messages across shared, caller, and operator
+copy. It contains 409 semantic messages across shared, caller, and operator
 catalogs. The embedded recovery copy does not make English a profile
 requirement and does not authorize a package to omit the en-US baseline.
-Post-0.1.0 source advances the package for localized caller/text message-
-discovery labels, prompts, validation, counts, truncation feedback, and case-
-insensitive query wording. Original project-authored catalog/package bytes
-remain `MIT OR Apache-2.0`. External language packages retain their own
+M040 advanced 1.0.1 to 1.1.1 for localized caller/text message-discovery
+labels, prompts, validation, counts, truncation feedback, and the reconciled
+case-insensitive query wording. M041 advances 1.1.1 to 1.2.0 for CC entry,
+recipient validation, delivery state, delete/undelete, audience toggle,
+Copy/Forward, stale-conflict feedback, and caller-deletion configuration.
+Original project-authored catalog/package
+bytes remain `MIT OR Apache-2.0`. External language packages retain their own
 compatible package-level license and provenance.
 
 ## Why Fluent
@@ -85,7 +89,7 @@ default_locale = "en-US"
 ```
 
 Older configuration without this table reads as `en-US`; a subsequent normal
-save makes the selection explicit. Version 0.1.0 implements a board default plus an
+save makes the selection explicit. M037.2 implements board default plus an
 internal per-session resolver. A future caller preference can select a locale
 independently of profile, ANSI/text preference, graphics, and encoding without
 changing this format or requiring profile/language combinations.
@@ -99,7 +103,7 @@ through the candidate set.
 
 Before a board exists, `spitfire --locale <tag> ...` has first priority,
 followed by normalized `LC_ALL`, `LC_MESSAGES`, or `LANG` when supported, then
-embedded en-US. The Development Preview ships only en-US, so an explicitly unsupported bootstrap
+embedded en-US. M037.2 ships only en-US, so an explicitly unsupported bootstrap
 locale fails with a recovery diagnostic instead of silently changing language.
 
 ## Formatting and terminal output
@@ -176,5 +180,5 @@ errors remain on the documented diagnostic side of the boundary.
 
 Production translations, a caller locale selector/persistence field,
 translator community workflow and language-specific client QA are a later
-release. Version 0.1.0 does not implement RIP, Category-B behavior, or a separate
+milestone. M037.2 does not implement RIP, Category-B behavior, or a separate
 engine/profile per language.
