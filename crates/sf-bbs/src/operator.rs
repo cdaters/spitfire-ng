@@ -93,6 +93,24 @@ impl OperatorService {
         Ok(caller)
     }
 
+    pub fn set_caller_purge_protection(
+        &self,
+        name: &str,
+        protected: bool,
+    ) -> Result<Caller, ApplicationError> {
+        self.runtime
+            .set_caller_purge_protection(name.as_bytes(), protected)
+    }
+
+    pub fn update_caller_subscription(
+        &self,
+        name: &str,
+        expires_on: Option<chrono::NaiveDate>,
+    ) -> Result<Caller, ApplicationError> {
+        self.runtime
+            .update_caller_subscription(name.as_bytes(), expires_on)
+    }
+
     pub fn caller(&self, name: &str) -> Result<Caller, ApplicationError> {
         self.runtime.caller(name.as_bytes())
     }
@@ -162,10 +180,76 @@ pub fn run_operator_console(
             "PROFILE" => show_caller_profile(service, rest, output)?,
             "PROFILE-SET" => update_caller_profile(service, rest)?,
             "ENABLE" => {
-                service.set_caller_state(rest, CallerState::Active)?;
+                write_caller_mutation(
+                    output,
+                    service.set_caller_state(rest, CallerState::Active),
+                    "operator-caller-enabled",
+                )?;
             }
             "DISABLE" => {
-                service.set_caller_state(rest, CallerState::Disabled)?;
+                write_caller_mutation(
+                    output,
+                    service.set_caller_state(rest, CallerState::Disabled),
+                    "operator-caller-disabled",
+                )?;
+            }
+            "DELETE" => {
+                write_caller_mutation(
+                    output,
+                    service.set_caller_state(rest, CallerState::Deleted),
+                    "operator-caller-deleted",
+                )?;
+            }
+            "RESTORE" => {
+                write_caller_mutation(
+                    output,
+                    service.set_caller_state(rest, CallerState::Active),
+                    "operator-caller-restored",
+                )?;
+            }
+            "PURGE" => {
+                let (value, name) =
+                    rest.split_once(' ')
+                        .ok_or(ApplicationError::InvalidSetupValue(
+                            "use PURGE <ALLOW|PROTECT> <caller name>",
+                        ))?;
+                let protected = match value.to_ascii_uppercase().as_str() {
+                    "ALLOW" => false,
+                    "PROTECT" => true,
+                    _ => {
+                        return Err(ApplicationError::InvalidSetupValue(
+                            "use PURGE <ALLOW|PROTECT> <caller name>",
+                        ))
+                    }
+                };
+                write_caller_mutation(
+                    output,
+                    service.set_caller_purge_protection(name.trim(), protected),
+                    "operator-caller-purge-updated",
+                )?;
+            }
+            "SUBSCRIPTION" => {
+                let (value, name) =
+                    rest.split_once(' ')
+                        .ok_or(ApplicationError::InvalidSetupValue(
+                            "use SUBSCRIPTION <YYYY-MM-DD|PERMANENT> <caller name>",
+                        ))?;
+                let expires = if value.eq_ignore_ascii_case("PERMANENT") {
+                    None
+                } else {
+                    Some(
+                        chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+                            ApplicationError::InvalidSetupValue(
+                                "subscription date must be YYYY-MM-DD or PERMANENT",
+                            )
+                        })?,
+                    )
+                };
+                write_caller_mutation(
+                    output,
+                    service.update_caller_subscription(name.trim(), expires),
+                    "operator-caller-subscription-updated",
+                )?;
             }
             "SECURITY" => {
                 let (level, name) =
@@ -176,7 +260,11 @@ pub fn run_operator_console(
                 let level = level.parse::<u16>().map_err(|_| {
                     ApplicationError::InvalidSetupValue("security level must be numeric")
                 })?;
-                service.set_caller_security(name.trim(), level)?;
+                write_caller_mutation(
+                    output,
+                    service.set_caller_security(name.trim(), level),
+                    "operator-caller-security-changed",
+                )?;
             }
             "QUIT" | "EXIT" => return Ok(()),
             "" => {}
@@ -184,6 +272,24 @@ pub fn run_operator_console(
                 .map_err(ApplicationError::SetupIo)?,
         }
     }
+}
+
+fn write_caller_mutation(
+    output: &mut dyn Write,
+    result: Result<Caller, ApplicationError>,
+    success_key: &str,
+) -> Result<(), ApplicationError> {
+    let key = match result {
+        Ok(_) => success_key,
+        Err(ApplicationError::Database(sf_core::DatabaseError::ProtectedNamedSysop)) => {
+            "operator-caller-protected"
+        }
+        Err(ApplicationError::Database(sf_core::DatabaseError::CallerStateConflict { .. })) => {
+            "operator-caller-conflict"
+        }
+        Err(error) => return Err(error),
+    };
+    writeln!(output, "{}", op(key)).map_err(ApplicationError::SetupIo)
 }
 
 fn run_operator_chat(
@@ -275,7 +381,17 @@ fn show_callers(service: &OperatorService, output: &mut dyn Write) -> Result<(),
                     .with("id", caller.id.get())
                     .with("name", caller.display_name)
                     .with("security", caller.security_level.get())
+                    .with("base_security", caller.base_security_level.get())
                     .with("state", format!("{:?}", caller.state))
+                    .with("version", caller.state_version)
+                    .with("purge_protected", caller.purge_protected.to_string())
+                    .with(
+                        "subscription",
+                        caller
+                            .subscription_expires_on
+                            .map(|date| date.format("%Y-%m-%d").to_string())
+                            .unwrap_or_else(|| "permanent".to_owned()),
+                    )
                     .with("calls", caller.call_count)
             )
         )

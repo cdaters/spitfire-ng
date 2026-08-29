@@ -2228,7 +2228,7 @@ fn active_actor_snapshot(
 ) -> Result<(String, SecurityLevel), MessageError> {
     let value = connection
         .query_row(
-            "SELECT display_name, security_level FROM callers WHERE caller_id = ?1 AND account_state = 'active'",
+            "SELECT c.display_name, MIN(c.security_level, COALESCE((SELECT MIN(target_security_level) FROM caller_security_adjustments WHERE caller_id=c.caller_id AND status='active'), c.security_level)) FROM callers c WHERE c.caller_id = ?1 AND c.account_state = 'active'",
             params![caller_id.get()],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, u16>(1)?)),
         )

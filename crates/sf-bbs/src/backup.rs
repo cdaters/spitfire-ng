@@ -1183,6 +1183,16 @@ mod tests {
                 r#"
                 PRAGMA foreign_keys = OFF;
 
+                DROP TRIGGER caller_access_events_no_delete;
+                DROP TRIGGER caller_access_events_no_update;
+                DROP TABLE caller_security_adjustments;
+                DROP TABLE caller_access_events;
+                ALTER TABLE callers DROP COLUMN lifecycle_prior_state;
+                ALTER TABLE callers DROP COLUMN purge_protected;
+                ALTER TABLE callers DROP COLUMN subscription_expires_on;
+                ALTER TABLE callers DROP COLUMN state_version;
+                DELETE FROM schema_migrations WHERE version = 12;
+
                 CREATE TEMP TABLE message_export AS
                 SELECT
                     m.message_id, m.conference_id, m.message_number,
@@ -1272,6 +1282,42 @@ mod tests {
         fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
     }
 
+    fn rewrite_backup_database_as_schema_11(backup: &Path) {
+        let database_path = backup.join(DATABASE_BACKUP_PATH);
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA foreign_keys = OFF;
+            DROP TRIGGER caller_access_events_no_delete;
+            DROP TRIGGER caller_access_events_no_update;
+            DROP TABLE caller_security_adjustments;
+            DROP TABLE caller_access_events;
+            ALTER TABLE callers DROP COLUMN lifecycle_prior_state;
+            ALTER TABLE callers DROP COLUMN purge_protected;
+            ALTER TABLE callers DROP COLUMN subscription_expires_on;
+            ALTER TABLE callers DROP COLUMN state_version;
+            DELETE FROM schema_migrations WHERE version = 12;
+            PRAGMA foreign_keys = ON;
+            "#,
+            )
+            .unwrap();
+        drop(connection);
+        let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+        let mut manifest: BackupManifest =
+            toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest.schema_version = 11;
+        let (size_bytes, sha256) = hash_file(&database_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == BackupEntryKind::Database)
+            .unwrap();
+        entry.size_bytes = size_bytes;
+        entry.sha256 = sha256;
+        fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
     #[test]
     fn cold_backup_and_new_restore_preserve_all_authoritative_boundaries() {
         let temp = tempfile::tempdir().unwrap();
@@ -1286,6 +1332,47 @@ mod tests {
         };
         selected.caller.post_login_journey = sf_core::PostLoginJourney::Stock;
         selected.save_atomic(&config_path).unwrap();
+        let joker_bytes = b"Blocked Synthetic Caller\r\n@Synthetic Fragment\r\n";
+        fs::write(source.join("system/JOKER.DAT"), joker_bytes).unwrap();
+        let validated = selected.validate().unwrap();
+        let paths = LogicalPaths::resolve(&source, &validated).unwrap();
+        let mut access_database = RuntimeDatabase::open(paths.database()).unwrap();
+        let access_caller = access_database
+            .caller_by_name(b"Backup Caller")
+            .unwrap()
+            .unwrap();
+        let access_caller = access_database
+            .change_caller_base_security(
+                access_caller.id,
+                access_caller.state_version,
+                SecurityLevel::new(29).unwrap(),
+                sf_core::CallerAccessActor::LocalOperator,
+                &validated.caller,
+                1_777_000_100,
+            )
+            .unwrap();
+        let access_caller = access_database
+            .update_caller_subscription(
+                access_caller.id,
+                access_caller.state_version,
+                Some(chrono::NaiveDate::from_ymd_opt(2027, 8, 29).unwrap()),
+                sf_core::CallerAccessActor::LocalOperator,
+                &validated.caller,
+                1_777_000_101,
+                validated.timezone,
+            )
+            .unwrap();
+        access_database
+            .set_caller_purge_protection(
+                access_caller.id,
+                access_caller.state_version,
+                false,
+                sf_core::CallerAccessActor::LocalOperator,
+                &validated.caller,
+                1_777_000_102,
+            )
+            .unwrap();
+        drop(access_database);
         let original_config = fs::read(&config_path).unwrap();
         fs::write(source.join("work/runtime-status.toml"), b"transient").unwrap();
         fs::write(
@@ -1322,6 +1409,10 @@ mod tests {
             b"Preserved nested resource\r\n"
         );
         assert_eq!(
+            fs::read(restored.join("system/JOKER.DAT")).unwrap(),
+            joker_bytes
+        );
+        assert_eq!(
             fs::read(restored.join("system/presentation-profiles/modern-ng/profile.toml")).unwrap(),
             fs::read(source.join("system/presentation-profiles/modern-ng/profile.toml")).unwrap()
         );
@@ -1356,14 +1447,22 @@ mod tests {
             fs::read(source.join("system/language-packs/en-US/language.toml")).unwrap()
         );
         let restored_status = crate::board_status(&restore.config_path).unwrap();
-        assert!(restored_status.contains("Active: classic-spitfire 1.2.0"));
-        assert!(restored_status.contains("Base: modern-ng 1.1.0"));
+        assert!(restored_status.contains("Active: classic-spitfire 1.3.0"));
+        assert!(restored_status.contains("Base: modern-ng 1.2.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.2.0"));
+        assert!(restored_status.contains("Package: en-US 1.3.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
+        let restored_caller = database.caller_by_name(b"Backup Caller").unwrap().unwrap();
+        assert_eq!(restored_caller.base_security_level.get(), 29);
+        assert_eq!(
+            restored_caller.subscription_expires_on.unwrap().to_string(),
+            "2027-08-29"
+        );
+        assert!(!restored_caller.purge_protected);
+        assert!(restored_caller.state_version >= 3);
         assert_eq!(
             database.message_mutation_storage_stats().unwrap(),
             expected_message_storage
@@ -1433,15 +1532,47 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 1);
+        assert_eq!(migration.applied, 2);
         migrated.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
+    fn schema_11_backup_restores_exactly_then_migrates_to_schema_12() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-11-source");
+        let backup = temp.path().join("schema-11-snapshot");
+        backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
+        rewrite_backup_database_as_schema_11(&backup);
+        let restored = temp.path().join("schema-11-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 11);
+        let config = RuntimeConfig::load(&report.config_path).unwrap();
+        let paths = LogicalPaths::resolve(&restored, &config.validate().unwrap()).unwrap();
+        RuntimeDatabase::open_read_only(paths.database())
+            .unwrap()
+            .validate_snapshot_at_version(11)
+            .unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            sf_core::MigrationReport {
+                starting_version: 11,
+                ending_version: 12,
+                applied: 1,
+            }
+        );
+        database.validate_current_snapshot().unwrap();
+        let caller = database.caller_by_name(b"Backup Caller").unwrap().unwrap();
+        assert_eq!(caller.base_security_level, caller.security_level);
+        assert_eq!(caller.subscription_expires_on, None);
+        assert_eq!(caller.state_version, 0);
     }
 
     #[test]
     fn restore_refuses_older_and_newer_schema_manifests_before_target_creation() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "version-source");
-        for (schema_version, directory) in [(9, "older"), (12, "newer")] {
+        for (schema_version, directory) in [(9, "older"), (13, "newer")] {
             let backup = temp.path().join(format!("{directory}-snapshot"));
             backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
             let manifest_path = backup.join(BACKUP_MANIFEST_FILE);

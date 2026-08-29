@@ -85,6 +85,8 @@ pub enum ApplicationError {
     #[error(transparent)]
     Language(#[from] sf_core::LanguageError),
     #[error(transparent)]
+    Joker(#[from] sf_core::JokerError),
+    #[error(transparent)]
     Backup(#[from] crate::BoardBackupError),
     #[error(transparent)]
     Database(#[from] sf_core::DatabaseError),

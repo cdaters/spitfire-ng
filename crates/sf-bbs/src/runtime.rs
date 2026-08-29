@@ -7,10 +7,11 @@ use std::thread;
 use std::time::Duration;
 
 use sf_core::{
-    run_stock_session, BoardIdentity, Caller, CallerConfig, CallerState, CredentialHasher,
-    FileStorage, InteractionHub, LogicalPaths, NodeError, NodeManager, NodeRuntimeState,
-    RuntimeConfig, RuntimeDatabase, SecurityLevel, SessionCloseReason, SessionId, SessionState,
-    StockSessionContext, Terminal, TransportAdapterConfig, TransportConfig, TransportKind,
+    run_stock_session, BoardIdentity, Caller, CallerAccessActor, CallerConfig, CallerState,
+    CredentialHasher, FileStorage, InteractionHub, JokerPolicy, LogicalPath, LogicalPaths,
+    NodeError, NodeManager, NodeRuntimeState, RuntimeConfig, RuntimeDatabase, SecurityLevel,
+    SessionCloseReason, SessionId, SessionState, StockSessionContext, Terminal,
+    TransportAdapterConfig, TransportConfig, TransportKind,
 };
 use tracing::{info, warn};
 
@@ -79,6 +80,7 @@ pub struct BoardRuntime {
     interaction: InteractionHub,
     presentation: PresentationResolver,
     language: sf_core::LanguageResolver,
+    joker_policy: JokerPolicy,
     status_path: PathBuf,
 }
 
@@ -105,6 +107,11 @@ impl BoardRuntime {
         paths.create_directories()?;
         let presentation = PresentationResolver::load(&paths, &validated.presentation);
         let language = sf_core::LanguageResolver::load(&paths, &validated.language.default_locale);
+        let joker_policy = JokerPolicy::load(
+            &paths.get(LogicalPath::System).join("JOKER.DAT"),
+            1,
+            &validated.caller.sysop_caller_name,
+        )?;
         info!(
             mode = ?presentation.status().mode,
             source = presentation.status().effective_source,
@@ -177,6 +184,7 @@ impl BoardRuntime {
             interaction: InteractionHub::new(),
             presentation,
             language,
+            joker_policy,
             status_path,
         })
     }
@@ -232,14 +240,22 @@ impl BoardRuntime {
         name: &[u8],
         state: CallerState,
     ) -> Result<Caller, ApplicationError> {
-        let database = RuntimeDatabase::open(self.paths.database())?;
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
         let caller = database
             .caller_by_name(name)?
             .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
-        database.set_caller_state(caller.id, state)?;
-        database
-            .caller_by_id(caller.id)?
-            .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))
+        let updated = database.mutate_caller_lifecycle(
+            caller.id,
+            caller.state_version,
+            state,
+            CallerAccessActor::LocalOperator,
+            &self.caller_config,
+            current_unix_seconds()?,
+        )?;
+        if matches!(state, CallerState::Disabled | CallerState::Deleted) {
+            self.invalidate_caller_sessions(caller.id)?;
+        }
+        Ok(updated)
     }
 
     pub fn set_caller_security(
@@ -247,14 +263,77 @@ impl BoardRuntime {
         name: &[u8],
         security: SecurityLevel,
     ) -> Result<Caller, ApplicationError> {
-        let database = RuntimeDatabase::open(self.paths.database())?;
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
         let caller = database
             .caller_by_name(name)?
             .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
-        database.set_caller_security(caller.id, security)?;
         database
-            .caller_by_id(caller.id)?
-            .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))
+            .change_caller_base_security(
+                caller.id,
+                caller.state_version,
+                security,
+                CallerAccessActor::LocalOperator,
+                &self.caller_config,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn set_caller_purge_protection(
+        &self,
+        name: &[u8],
+        protected: bool,
+    ) -> Result<Caller, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        let caller = database
+            .caller_by_name(name)?
+            .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
+        database
+            .set_caller_purge_protection(
+                caller.id,
+                caller.state_version,
+                protected,
+                CallerAccessActor::LocalOperator,
+                &self.caller_config,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn update_caller_subscription(
+        &self,
+        name: &[u8],
+        expires_on: Option<chrono::NaiveDate>,
+    ) -> Result<Caller, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        let caller = database
+            .caller_by_name(name)?
+            .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
+        database
+            .update_caller_subscription(
+                caller.id,
+                caller.state_version,
+                expires_on,
+                CallerAccessActor::LocalOperator,
+                &self.caller_config,
+                current_unix_seconds()?,
+                self.timezone,
+            )
+            .map_err(Into::into)
+    }
+
+    fn invalidate_caller_sessions(
+        &self,
+        caller_id: sf_core::CallerId,
+    ) -> Result<(), ApplicationError> {
+        for node in self.nodes.snapshots()? {
+            if node.caller_id == Some(caller_id) {
+                if let Some(session) = node.session_id {
+                    self.interaction.request_disconnect(session)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn is_synthetic_fixture(&self) -> bool {
@@ -376,6 +455,7 @@ impl BoardRuntime {
                     presentation_profile,
                     menu_mode,
                     locale: self.language.status().effective_locale.as_str(),
+                    joker_policy: &self.joker_policy,
                 },
             )
         });
@@ -977,10 +1057,17 @@ mod tests {
             let config = RuntimeConfig::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
             let validated = config.validate().unwrap();
             let paths = LogicalPaths::resolve(&root, &validated).unwrap();
-            let database = RuntimeDatabase::open(paths.database()).unwrap();
+            let mut database = RuntimeDatabase::open(paths.database()).unwrap();
             let caller = database.caller_by_name(name).unwrap().unwrap();
             database
-                .set_caller_security(caller.id, SecurityLevel::new(security).unwrap())
+                .change_caller_base_security(
+                    caller.id,
+                    caller.state_version,
+                    SecurityLevel::new(security).unwrap(),
+                    sf_core::CallerAccessActor::LocalOperator,
+                    &validated.caller,
+                    1_700_000_000,
+                )
                 .unwrap();
         }
         fs::write(
@@ -1071,10 +1158,17 @@ mod tests {
             let config = RuntimeConfig::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
             let validated = config.validate().unwrap();
             let paths = LogicalPaths::resolve(&root, &validated).unwrap();
-            let database = RuntimeDatabase::open(paths.database()).unwrap();
+            let mut database = RuntimeDatabase::open(paths.database()).unwrap();
             let caller = database.caller_by_name(name).unwrap().unwrap();
             database
-                .set_caller_security(caller.id, SecurityLevel::new(security).unwrap())
+                .change_caller_base_security(
+                    caller.id,
+                    caller.state_version,
+                    SecurityLevel::new(security).unwrap(),
+                    sf_core::CallerAccessActor::LocalOperator,
+                    &validated.caller,
+                    1_700_000_000,
+                )
                 .unwrap();
         }
         let config_path = root.join(FIXTURE_CONFIG_FILE);
@@ -1334,6 +1428,65 @@ mod tests {
         runtime.run_connection(&mut reconnect).unwrap();
         assert!(contains(reconnect.output(), b"Terminal: Text"));
         assert!(!contains(reconnect.output(), b"\x1B[1;33m"));
+    }
+
+    #[test]
+    fn disabling_an_active_caller_requests_disconnect_and_enable_does_not_restore_session() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("active-lifecycle-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Active Lifecycle Caller",
+            b"test-only active lifecycle password",
+            CallerState::Active,
+        );
+        let runtime = Arc::new(BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap());
+        let service = crate::OperatorService::new(Arc::clone(&runtime));
+        service
+            .set_availability(sf_core::SysopAvailability::Available)
+            .unwrap();
+        let connection = Arc::clone(&runtime);
+        let caller = thread::spawn(move || {
+            let mut terminal = InMemoryTerminal::with_lines([
+                b"N".to_vec(),
+                b"Active Lifecycle Caller".to_vec(),
+                b"test-only active lifecycle password".to_vec(),
+                b"P".to_vec(),
+                b"Lifecycle test".to_vec(),
+                b"G".to_vec(),
+            ]);
+            let report = connection.run_connection(&mut terminal).unwrap();
+            (report, terminal)
+        });
+        let started = Instant::now();
+        let page = loop {
+            if let Some(page) = service.pages().unwrap().into_iter().next() {
+                break page;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5));
+            thread::sleep(Duration::from_millis(5));
+        };
+        let disabled = service
+            .set_caller_state("Active Lifecycle Caller", CallerState::Disabled)
+            .unwrap();
+        assert_eq!(disabled.state, CallerState::Disabled);
+        service.decline(page.session_id).unwrap();
+        let (report, terminal) = caller.join().unwrap();
+        let ConnectionReport::Completed(report) = report else {
+            panic!("all nodes busy");
+        };
+        assert_eq!(report.close_reason, SessionCloseReason::OperatorDisconnect);
+        assert!(contains(terminal.output(), b"Sysop has disconnected"));
+        let enabled = service
+            .set_caller_state("Active Lifecycle Caller", CallerState::Active)
+            .unwrap();
+        assert_eq!(enabled.state, CallerState::Active);
+        assert_eq!(
+            runtime.node_snapshots().unwrap()[0].state,
+            NodeRuntimeState::Waiting
+        );
     }
 
     #[test]
@@ -2711,6 +2864,138 @@ mod tests {
         assert_eq!(report.close_reason, SessionCloseReason::AccountUnavailable);
         assert!(!contains(terminal.output(), b"MAIN MENU"));
         assert!(!contains(terminal.output(), b"test-only disabled password"));
+    }
+
+    #[test]
+    fn joker_full_and_substring_rules_deny_returning_and_new_names_privately() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("joker-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Blocked Caller",
+            b"test-only blocked password",
+            CallerState::Active,
+        );
+        fs::write(
+            root.join("system/JOKER.DAT"),
+            b"Blocked Caller\r\n@fragment\r\n",
+        )
+        .unwrap();
+        let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
+        let mut returning =
+            InMemoryTerminal::with_lines([b"N".to_vec(), b"blocked caller".to_vec()]);
+        let ConnectionReport::Completed(report) = runtime.run_connection(&mut returning).unwrap()
+        else {
+            panic!("all nodes unexpectedly busy");
+        };
+        assert_eq!(report.close_reason, SessionCloseReason::AccountUnavailable);
+        assert!(contains(
+            returning.output(),
+            b"caller account is not available"
+        ));
+        assert!(!contains(returning.output(), b"Blocked Caller"));
+        assert!(!contains(returning.output(), b"fragment"));
+
+        let mut new_caller =
+            InMemoryTerminal::with_lines([b"Y".to_vec(), b"Synthetic Fragment Name".to_vec()]);
+        let ConnectionReport::Completed(report) = runtime.run_connection(&mut new_caller).unwrap()
+        else {
+            panic!("all nodes unexpectedly busy");
+        };
+        assert_eq!(report.close_reason, SessionCloseReason::AccountUnavailable);
+        assert!(!runtime.caller_exists(b"Synthetic Fragment Name").unwrap());
+    }
+
+    #[test]
+    fn subscription_warning_expiry_and_renewal_preserve_base_security() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("subscription-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Subscription Caller",
+            b"test-only subscription password",
+            CallerState::Active,
+        );
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let mut config = RuntimeConfig::load(&config_path).unwrap();
+        config.caller.subscription.enabled = true;
+        config.caller.subscription.warning_days = 7;
+        config.caller.subscription.expired_security = 5;
+        config.save_atomic(&config_path).unwrap();
+        let validated = config.validate().unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let now = current_unix_seconds().unwrap();
+        let today = chrono::DateTime::<chrono::Utc>::from_timestamp(now, 0)
+            .unwrap()
+            .with_timezone(&validated.timezone)
+            .date_naive();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let caller = database
+            .caller_by_name(b"Subscription Caller")
+            .unwrap()
+            .unwrap();
+        database
+            .update_caller_subscription(
+                caller.id,
+                caller.state_version,
+                Some(today),
+                CallerAccessActor::LocalOperator,
+                &validated.caller,
+                now,
+                validated.timezone,
+            )
+            .unwrap();
+        drop(database);
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let mut warning = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Subscription Caller".to_vec(),
+            b"test-only subscription password".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut warning).unwrap();
+        assert!(contains(warning.output(), b"subscription will expire soon"));
+        drop(runtime);
+
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let caller = database
+            .caller_by_name(b"Subscription Caller")
+            .unwrap()
+            .unwrap();
+        database
+            .update_caller_subscription(
+                caller.id,
+                caller.state_version,
+                Some(today.pred_opt().unwrap()),
+                CallerAccessActor::LocalOperator,
+                &validated.caller,
+                now,
+                validated.timezone,
+            )
+            .unwrap();
+        drop(database);
+        let runtime = Arc::new(BoardRuntime::load(&config_path).unwrap());
+        let mut expired = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Subscription Caller".to_vec(),
+            b"test-only subscription password".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut expired).unwrap();
+        assert!(contains(expired.output(), b"access level changed"));
+        let restricted = runtime.caller(b"Subscription Caller").unwrap();
+        assert_eq!(restricted.base_security_level.get(), 10);
+        assert_eq!(restricted.security_level.get(), 5);
+        let service = crate::OperatorService::new(Arc::clone(&runtime));
+        let renewed = service
+            .update_caller_subscription("Subscription Caller", Some(today.succ_opt().unwrap()))
+            .unwrap();
+        assert_eq!(renewed.base_security_level.get(), 10);
+        assert_eq!(renewed.security_level.get(), 10);
     }
 
     #[test]

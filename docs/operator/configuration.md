@@ -91,9 +91,10 @@ This section controls:
 - minutes per call and per board-local day;
 - first-day minutes;
 - maximum calls per board-local day;
-- keyboard-idle timeout; and
+- keyboard-idle timeout;
 - the optional fixed post-login journey (`none` or engine-owned `stock`); and
-- disabled/optional/required postal, phone, email, and birth-date groups.
+- disabled/optional/required postal, phone, email, and birth-date groups; and
+- optional subscription warnings and expired-security policy.
 
 Numerical security gates menu commands, conferences, file areas, and the
 caller-facing Sysop boundary. Keep the ordinary new-caller level below the
@@ -101,6 +102,22 @@ Sysop threshold. Collect only profile data the board actually needs; contact
 fields are private, but unnecessary collection is still unnecessary risk.
 The `stock` post-login journey reads real message, caller, and new-file state
 before Main. It is board/session policy, not a presentation-profile script.
+
+Subscription policy is off by default. To enable it on a stopped board, edit
+the caller section in `spitfire.toml`:
+
+```toml
+[caller.subscription]
+enabled = true
+warning_days = 7
+expired_security = 5
+```
+
+`warning_days` must be 0–365 and `expired_security` must be 0–9999. Dates are
+assigned per caller from `spitfire console`; they remain valid through the
+displayed date in the board's configured time zone. Expiry lowers effective
+security without overwriting base security. See
+[Caller Management](caller-management.md).
 
 ## 5. Message conferences
 

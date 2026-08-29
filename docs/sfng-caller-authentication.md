@@ -78,7 +78,8 @@ The native record currently stores:
 | Structured postal address, phone, email, full birth date | Modernized, private by default | Sysop policy makes each group disabled, optional, or required. Postal/phone remain strings; birth date is strict `YYYY-MM-DD`. |
 | Upload/download/message counters and last area/conference | Deferred | Their owning stock increments have not been implemented. |
 | Expert/more/terminal preferences | Preserved/modernized | Schema 5 persists graphics/text, width, page length, MORE, scroll-prompt, and hot-key choices. Session-local Xpert remains separate. See [Caller/Sysop Interaction](sfng-caller-sysop-interaction.md). |
-| Subscription, purge protection, questionnaire responses | Deferred | Stock advanced/maintenance behavior remains listed in the parity checklist. |
+| Subscription and purge protection | Implemented in current schema 12 | Full-year expiry, recoverable security adjustment, lifecycle version, and future-packer protection belong to the caller access service. |
+| Questionnaire responses | Deferred | B-004 remains a separate sensitive submission owner. |
 
 `CallerState::Disabled` denies login. `Deleted` remains a durable state rather
 than causing immediate physical removal. Administrative state-changing UI is
@@ -126,9 +127,10 @@ Schema 2 established caller identity and credentials. Schema 5 added terminal
 preferences, schema 6 added transfer preference, schema 7 added nullable
 structured address fields, phone, email, and ISO birth date, and schema 10
 adds one privacy-bounded latest access-denial record per known caller without
-changing the authentication boundary. Its
-canonical behavior is documented in
-[Caller/Sysop Interaction](sfng-caller-sysop-interaction.md).
+changing the authentication boundary. Schema 11 changes message storage.
+Schema 12 adds auditable caller access lifecycle, subscription adjustment, and
+purge-protection state. Its canonical behavior is documented in
+[Caller Access Lifecycle and Security](sfng-caller-access.md).
 
 Migration 2 adds only `callers` and `caller_credentials`. The migration is
 transactional and upgrades an Increment 0/1 schema without replacing board
@@ -154,6 +156,31 @@ acknowledgement state. Unknown supplied names do not create a row. Passwords,
 submitted values, remote addresses, contact details, and backend error detail
 are neither stored nor displayed. A caller can receive only their own newest
 unacknowledged notice after successful authentication.
+
+### Implemented schema-12 caller-access boundary
+
+Migration 12, `auditable_caller_access_lifecycle`, and its bounded runtime are
+implemented. The complete public architecture is
+[Caller Access Lifecycle and Security](sfng-caller-access.md).
+
+The implementation retains the existing stable caller ID, credentials, private
+profile, Active/Disabled/Deleted state, and stored numeric security. Disabled
+is the native representation of stock Locked Out; Deleted remains a
+recoverable tombstone. Additions are a caller lifecycle version,
+nullable board-local `subscription_expires_on`, purge protection, reasoned
+security-adjustment rows, and append-only privacy-safe access events. Stored
+security becomes explicit operator-assigned **base security**; effective
+security is derived and never cached as a competing authority.
+
+The configured named Sysop is protected as an identity invariant separately
+from callers who merely meet the Sysop threshold. A bounded
+`SYSTEM/JOKER.DAT` policy preserves stock full-name and `@` substring denial
+without matching contact data or logging rule text. Access changes reauthorize
+at dispatch and invalidate stale sessions safely. Physical caller purge,
+legacy `SFUSERS.DAT` parsing, questionnaires, ratio/quota restrictions, and a
+general audit viewer remain outside this boundary. Disable/tombstone requests
+active-session disconnect; every command dispatch reloads lifecycle and
+derived security so an online caller cannot retain stale authority.
 
 ## Session flow
 

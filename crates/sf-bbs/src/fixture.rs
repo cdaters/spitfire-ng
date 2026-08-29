@@ -224,7 +224,7 @@ pub(crate) fn write_default_resources(
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Modern SPITFIRE NG 1.1.0\n\nThe default project-authored post-preview presentation. Version 1.1.0 adds the M040 caller/text message-discovery menu surfaces and declares MIT OR Apache-2.0 package provenance. No Buffalo Creek resource bytes are included.\n",
+        b"# Modern SPITFIRE NG 1.2.0\n\nThe default project-authored post-preview presentation. Version 1.2.0 adds the LOCKOUT, SUBWARN, and SFSUBCHG caller-access presentation boundaries while retaining the current message-system surfaces. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&system.join("SFMAIN.MNU"), MAIN_MENU)?;
@@ -349,6 +349,14 @@ pub(crate) fn write_default_resources(
             b"This caller account is not available. Please contact the Sysop.\r\n".as_slice(),
         ),
         (
+            "SUBWARN.BBS",
+            b"Your SPITFIRE subscription will expire soon. Please contact the Sysop to renew.\r\n".as_slice(),
+        ),
+        (
+            "SFSUBCHG.BBS",
+            b"Your SPITFIRE subscription has expired and your access level has changed.\r\n".as_slice(),
+        ),
+        (
             "TOOMANY.BBS",
             b"Your maximum number of calls for this board day has been reached.\r\n".as_slice(),
         ),
@@ -388,6 +396,14 @@ pub(crate) fn write_default_resources(
             "GOODBYE.CLR",
             "@CLS@\x1B[1;36mThank you for calling @BOARD@. Goodbye!\x1B[0m\r\n",
         ),
+        (
+            "SUBWARN.CLR",
+            "\x1B[1;33mYour SPITFIRE subscription will expire soon. Contact the Sysop to renew.\x1B[0m\r\n",
+        ),
+        (
+            "SFSUBCHG.CLR",
+            "\x1B[1;31mYour SPITFIRE subscription expired and your access level changed.\x1B[0m\r\n",
+        ),
     ] {
         write_new(&display.join(name), body.as_bytes())?;
     }
@@ -420,7 +436,7 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Minimal Terminal 1.1.0\n\nThe project-authored text-first SPITFIRE NG presentation. Version 1.1.0 adds the M040 caller/text message-discovery menu surfaces and declares MIT OR Apache-2.0 package provenance. No Buffalo Creek resource bytes are included.\n",
+        b"# Minimal Terminal 1.2.0\n\nThe project-authored text-first SPITFIRE NG presentation. Version 1.2.0 adds the LOCKOUT, SUBWARN, and SFSUBCHG caller-access presentation boundaries while retaining the current message-system surfaces. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&help_directory.join("SPITFIRE.HLP"), &minimal_help_bytes()?)?;
@@ -548,6 +564,14 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
             b"This caller account is unavailable.\r\nContact the Sysop for help.\r\n".as_slice(),
         ),
         (
+            "SUBWARN.BBS",
+            b"Your subscription will expire soon.\r\nContact the Sysop to renew.\r\n".as_slice(),
+        ),
+        (
+            "SFSUBCHG.BBS",
+            b"Your subscription expired.\r\nYour access level has changed.\r\n".as_slice(),
+        ),
+        (
             "TOOMANY.BBS",
             b"The daily call limit has been reached.\r\n".as_slice(),
         ),
@@ -586,7 +610,7 @@ fn write_classic_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Classic SPITFIRE-Inspired 1.2.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.2.0 adds the M040 caller/text message-discovery menu surfaces. Modern SPITFIRE NG authentication, authorization, privacy, storage, transport, and transfer behavior remain authoritative.\n",
+        b"# Classic SPITFIRE-Inspired 1.3.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.3.0 adds the LOCKOUT, SUBWARN, and SFSUBCHG caller-access presentation boundaries while retaining the current message-system surfaces. Modern SPITFIRE NG authentication, authorization, privacy, storage, transport, and transfer behavior remain authoritative.\n",
     )?;
     write_new(
         &licenses.join("ASSET-LICENSE.txt"),
@@ -754,7 +778,7 @@ fn classic_display_plan() -> &'static [(&'static str, &'static str, &'static [&'
                 "Copyright (C) 1987-2010 Mike Woltz",
                 "Buffalo Creek Software",
                 "",
-                "Classic SPITFIRE-Inspired presentation 1.2.0",
+                "Classic SPITFIRE-Inspired presentation 1.3.0",
                 "Not an official Buffalo Creek Software release or endorsement.",
             ],
             false,
@@ -774,6 +798,24 @@ fn classic_display_plan() -> &'static [(&'static str, &'static str, &'static [&'
             &[
                 "This caller account is unavailable.",
                 "Contact the Sysop for assistance.",
+            ],
+            false,
+        ),
+        (
+            "SUBWARN",
+            "SUBSCRIPTION WARNING",
+            &[
+                "Your SPITFIRE subscription will expire soon.",
+                "Contact the Sysop to renew your access.",
+            ],
+            false,
+        ),
+        (
+            "SFSUBCHG",
+            "SUBSCRIPTION CHANGE",
+            &[
+                "Your SPITFIRE subscription has expired.",
+                "Your access level has changed.",
             ],
             false,
         ),
@@ -1094,7 +1136,10 @@ fn classic_panel(
 
 fn classic_panel_color(stem: &str) -> &'static [u8] {
     match stem {
-        "SFONFAIL" | "LOCKOUT" | "PRIVATE" | "TOOMANY" | "SFTIMEUP" | "SFASLEEP" => b"\x1B[1;31m",
+        "SFONFAIL" | "LOCKOUT" | "PRIVATE" | "TOOMANY" | "SFTIMEUP" | "SFASLEEP" | "SFSUBCHG" => {
+            b"\x1B[1;31m"
+        }
+        "SUBWARN" => b"\x1B[1;33m",
         "SFDOWN" | "SFUP" | "SF1STM" | "SF1STF" | "SFMSG1" | "SFMSG2" | "SFIL1" | "SFIL2" => {
             b"\x1B[1;36m"
         }
@@ -1947,15 +1992,15 @@ mod tests {
             toml::from_str(&fs::read_to_string(classic.join(PROFILE_DESCRIPTOR)).unwrap()).unwrap();
         assert_eq!(descriptor.id, CLASSIC_PROFILE_ID);
         assert_eq!(descriptor.version, CLASSIC_PROFILE_VERSION);
-        assert_eq!(descriptor.resources.len(), 64);
-        assert_eq!(descriptor.provenance.len(), 64);
+        assert_eq!(descriptor.resources.len(), 68);
+        assert_eq!(descriptor.provenance.len(), 68);
         assert_eq!(
             descriptor
                 .resources
                 .iter()
                 .filter(|resource| resource.format == ProfileFormat::Bbs)
                 .count(),
-            32
+            34
         );
         assert_eq!(
             descriptor
@@ -1963,7 +2008,7 @@ mod tests {
                 .iter()
                 .filter(|resource| resource.format == ProfileFormat::Clr)
                 .count(),
-            31
+            33
         );
         assert!(descriptor
             .provenance

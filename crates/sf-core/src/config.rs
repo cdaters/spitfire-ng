@@ -222,6 +222,8 @@ pub struct CallerConfig {
     pub security_limits: Vec<SecurityLimitConfig>,
     #[serde(default)]
     pub profile: CallerProfilePolicy,
+    #[serde(default)]
+    pub subscription: SubscriptionConfig,
     /// Optional engine-owned sequence run after successful authentication and
     /// before Main. Presentation profiles cannot select or redefine it.
     #[serde(default)]
@@ -245,9 +247,21 @@ impl Default for CallerConfig {
             password: PasswordHashConfig::default(),
             security_limits: Vec::new(),
             profile: CallerProfilePolicy::default(),
+            subscription: SubscriptionConfig::default(),
             post_login_journey: PostLoginJourney::None,
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SubscriptionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub warning_days: u16,
+    #[serde(default)]
+    pub expired_security: u16,
 }
 
 /// Fixed post-authentication behavior owned by the common session engine.
@@ -836,6 +850,9 @@ fn validate_caller(caller: &CallerConfig) -> Result<(), ConfigError> {
     if caller.new_caller_security > 9_999 || caller.sysop_security > 9_999 {
         return Err(ConfigError::InvalidSecurityLevel);
     }
+    if caller.subscription.warning_days > 365 || caller.subscription.expired_security > 9_999 {
+        return Err(ConfigError::InvalidSubscriptionPolicy);
+    }
     if caller.minutes_per_call == 0
         || caller.minutes_per_day == 0
         || caller.new_caller_first_day_minutes == 0
@@ -1056,6 +1073,10 @@ pub enum ConfigError {
     InvalidInactivityLimit,
     #[error("caller.maximum_login_attempts must be in 1..=10")]
     InvalidLoginAttempts,
+    #[error(
+        "caller.subscription warning_days must be in 0..=365 and expired_security in 0..=9999"
+    )]
+    InvalidSubscriptionPolicy,
     #[error("password lengths must satisfy 8 <= minimum <= maximum <= 1024")]
     InvalidPasswordLength,
     #[error("Argon2id memory, iteration, and parallelism parameters must be nonzero")]

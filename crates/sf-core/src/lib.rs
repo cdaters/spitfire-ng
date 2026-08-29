@@ -6,6 +6,7 @@
 
 pub mod board;
 pub mod caller;
+pub mod caller_access;
 pub mod config;
 pub mod credentials;
 pub mod database;
@@ -33,12 +34,17 @@ pub use caller::{
     CallerSessionContext, CallerState, GraphicsPreference, PostalAddress, SecurityLevel,
     SessionAllowance, TimePolicy, TransferPreference, MAX_CALLER_NAME_BYTES, MAX_SECURITY_LEVEL,
 };
+pub use caller_access::{
+    CallerAccessActor, JokerError, JokerPolicy, JokerRuleKind, SubscriptionEvaluation,
+    MAX_JOKER_BYTES, MAX_JOKER_LINE_BYTES, MAX_JOKER_RULES,
+};
 pub use config::{
     BoardAccessMode, BoardConfig, CallerConfig, CallerProfilePolicy, ConfigError, LanguageConfig,
     LegacyNodeConfig, MenuPresentationMode, NetworkTerminalDefaults, NodeOverrideConfig,
     NodePoolConfig, PasswordHashConfig, PathConfig, PostLoginJourney, PresentationConfig,
     PresentationMode, ProfileFieldPolicy, RuntimeConfig, SecurityLimitConfig, StorageConfig,
-    TransportAdapterConfig, TransportConfig, ValidatedConfig, CONFIG_FORMAT_VERSION,
+    SubscriptionConfig, TransportAdapterConfig, TransportConfig, ValidatedConfig,
+    CONFIG_FORMAT_VERSION,
 };
 pub use credentials::{CredentialError, CredentialHasher, CREDENTIAL_SCHEME};
 pub use database::{

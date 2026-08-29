@@ -4,9 +4,10 @@ use crate::{
     render_display, render_generated_menu, AuthenticatedCaller, CallerConfig, CopyRecipient,
     DisplayContext, Message, MessageActor, MessageBackend, MessageCallerSearchDirection,
     MessageDeliveryRole, MessageDiscoveryQuery, MessageDiscoveryResult, MessageError, MessageKind,
-    MessageLifecycle, MessageVisibility, NewMessage, SecurityLevel, SessionError, StockResources,
-    Terminal, TerminalError, MAX_MESSAGE_BODY_BYTES, MAX_MESSAGE_CC_RECIPIENTS,
-    MAX_MESSAGE_SEARCH_TERMS, MAX_MESSAGE_SEARCH_TERM_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
+    MessageLifecycle, MessageVisibility, NewMessage, RuntimeDatabase, SecurityLevel, Session,
+    SessionError, StockResources, StockSessionContext, Terminal, TerminalError,
+    MAX_MESSAGE_BODY_BYTES, MAX_MESSAGE_CC_RECIPIENTS, MAX_MESSAGE_SEARCH_TERMS,
+    MAX_MESSAGE_SEARCH_TERM_BYTES, MAX_MESSAGE_SUBJECT_BYTES,
 };
 use crate::{Conference, MenuSection, MessageId, MessageRecipient, MessageSummary};
 
@@ -39,12 +40,15 @@ pub(crate) enum ComposeOutcome {
     Disconnected,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_message_menu(
     resources: &StockResources,
     context: &DisplayContext<'_>,
     terminal: &mut dyn Terminal,
-    backend: &mut dyn MessageBackend,
-    authenticated: &AuthenticatedCaller,
+    backend: &mut RuntimeDatabase,
+    session: &mut Session,
+    stock: &StockSessionContext<'_>,
+    authenticated: &mut AuthenticatedCaller,
     caller_config: &CallerConfig,
     expert: &mut bool,
 ) -> Result<MessageMenuResult, SessionError> {
@@ -102,6 +106,21 @@ pub(crate) fn run_message_menu(
             });
         };
         commands += 1;
+        if !crate::session::refresh_caller_access_for_dispatch(
+            session,
+            terminal,
+            backend,
+            authenticated,
+            caller_config,
+            stock,
+            context,
+        )? {
+            return Ok(MessageMenuResult {
+                exit: MessageMenuExit::EndOfInput,
+                commands,
+            });
+        }
+        let actor = message_actor(authenticated, caller_config)?;
         let Some(item) = menu.find(command, authenticated.caller.security_level.get()) else {
             write_key_line(
                 terminal,

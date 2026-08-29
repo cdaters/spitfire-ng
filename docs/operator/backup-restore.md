@@ -38,9 +38,12 @@ The snapshot contains:
 - exact static configuration;
 - consistent SQLite operational state, including message payload/delivery
   identities, recipient/audience relations, tombstones, receipts,
-  Copy/Forward lineage, and mutation audit;
+  Copy/Forward lineage, mutation audit, caller lifecycle versions, base
+  security, subscription state, reasoned security adjustments, purge
+  protection, recoverable caller tombstones, and caller-access audit;
 - complete SYSTEM (including presentation and language package descriptors,
-  catalogs/assets, licenses, and provenance) plus DISPLAY override resources;
+  catalogs/assets, licenses, provenance, and optional `JOKER.DAT`) plus DISPLAY
+  override resources;
   and
 - every available or disabled cataloged file's bytes.
 
@@ -59,10 +62,11 @@ spitfire status /path/to/restored-board/spitfire.toml
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
 
-Current source restores exact schema-10 and schema-11 backups. A schema-10
-snapshot remains schema 10 during restore and migrates transactionally only on
-the first normal writable startup. Keep the old executable and pre-upgrade
-backup for rollback; there is no in-place downgrade from schema 11.
+Current source restores exact schema-10, schema-11, and schema-12 backups. A
+snapshot remains at its original schema during restore and migrates
+transactionally only on the first normal writable startup. Keep the old
+executable and pre-upgrade backup for rollback; there is no in-place downgrade
+from schema 12.
 
 ## Replace an existing board
 

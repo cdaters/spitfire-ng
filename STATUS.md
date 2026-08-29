@@ -8,10 +8,14 @@ backup/restore, license, privacy, public-redownload, checksum, and first-run
 checks.
 
 The public `main` branch is now ahead of that binary release. Current source
-adds post-0.1.0 advanced message discovery and auditable message mutation; the
-downloadable 0.1.0 archive is unchanged and does not contain those additions.
+adds post-0.1.0 advanced message discovery, auditable message mutation, and an
+auditable caller-access lifecycle; the downloadable 0.1.0 archive is unchanged
+and does not contain those additions.
 
 ## Current source additions
+
+The Category-B ledger now records 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
+11 NOT STARTED rows.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -28,6 +32,22 @@ downloadable 0.1.0 archive is unchanged and does not contain those additions.
 - Schema-11 immutable payloads, delivery identities, Copy/Forward lineage,
   privacy-safe mutation audit, and state-version conflict protection
 - Schema-10→11 migration plus schema-10/schema-11 cold backup and restore
+- Active, Disabled/Locked Out, and recoverable Deleted caller lifecycle
+- Disable/enable, tombstone/restore, and persisted purge protection without a
+  physical purge
+- Operator-assigned base security plus derived effective security and
+  reasoned adjustments
+- Board-local nullable subscription expiration, warning window, post-date
+  expiry, and renewal that restores current base security where appropriate
+- Bounded `JOKER.DAT` complete-name and `@` substring policy with generic,
+  privacy-safe denials
+- Named-Sysop identity protection separate from threshold privilege
+- Active-session invalidation and lifecycle/security reauthorization at every
+  main, message, and file command dispatch
+- Append-only privacy-safe caller-access audit and optimistic state-version
+  conflict handling
+- Transactional schema-11→12 migration plus exact schema-10/schema-11/
+  schema-12 cold backup and restore
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -43,6 +63,9 @@ selection, visibility, or result presentation.
 - Caller registration, authentication, privacy, profiles, and security levels
 - Message conferences, mail, replies, threads, queues, and receipts
 - Advanced caller/text discovery and auditable message mutation when built
+  from current post-0.1.0 source
+- Auditable caller lifecycle, base/effective security, subscription policy,
+  JOKER name denial, named-Sysop protection, and schema-12 recovery when built
   from current post-0.1.0 source
 - File areas, catalogs, search, uploads, downloads, and new-file checks
 - ASCII, XMODEM, YMODEM, and ZMODEM-family transfer support as documented

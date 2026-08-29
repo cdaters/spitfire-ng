@@ -13,7 +13,25 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 11;
+pub const SCHEMA_VERSION: u32 = 12;
+
+const CALLER_SELECT: &str = r#"
+SELECT c.caller_id, c.display_name, c.normalized_name,
+       MIN(c.security_level, COALESCE((
+           SELECT MIN(a.target_security_level)
+             FROM caller_security_adjustments AS a
+            WHERE a.caller_id = c.caller_id AND a.status = 'active'
+       ), c.security_level)),
+       c.account_state, c.first_call_at, c.last_call_at, c.call_count,
+       c.total_time_seconds, c.messages_posted, c.files_uploaded, c.upload_bytes,
+       c.files_downloaded, c.download_bytes, c.graphics_preference,
+       c.screen_width, c.page_length, c.more_prompt, c.scroll_prompt, c.hot_keys,
+       c.transfer_protocol, c.address_line_1, c.address_line_2, c.city, c.region,
+       c.postal_code, c.country, c.phone, c.email, c.birthday, c.is_new_caller,
+       c.security_level, c.state_version, c.subscription_expires_on,
+       c.purge_protected, c.lifecycle_prior_state
+  FROM callers AS c
+"#;
 
 struct Migration {
     version: u32,
@@ -21,7 +39,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 11] = [
+const MIGRATIONS: [Migration; 12] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -500,6 +518,100 @@ const MIGRATIONS: [Migration; 11] = [
         END;
     "#,
     },
+    Migration {
+        version: 12,
+        name: "auditable_caller_access_lifecycle",
+        sql: r#"
+        CREATE TABLE migration_12_validation (
+            caller_count INTEGER NOT NULL,
+            caller_id_sum INTEGER NOT NULL,
+            security_sum INTEGER NOT NULL,
+            active_count INTEGER NOT NULL,
+            disabled_count INTEGER NOT NULL,
+            deleted_count INTEGER NOT NULL,
+            credential_count INTEGER NOT NULL,
+            profile_bytes INTEGER NOT NULL
+        );
+        INSERT INTO migration_12_validation
+        SELECT COUNT(*), COALESCE(SUM(caller_id), 0), COALESCE(SUM(security_level), 0),
+               COALESCE(SUM(account_state='active'), 0),
+               COALESCE(SUM(account_state='disabled'), 0),
+               COALESCE(SUM(account_state='deleted'), 0),
+               (SELECT COUNT(*) FROM caller_credentials),
+               COALESCE(SUM(length(COALESCE(address_line_1,'')) + length(COALESCE(address_line_2,''))
+                 + length(COALESCE(city,'')) + length(COALESCE(region,''))
+                 + length(COALESCE(postal_code,'')) + length(COALESCE(country,''))
+                 + length(COALESCE(phone,'')) + length(COALESCE(email,''))
+                 + length(COALESCE(birthday,''))), 0)
+          FROM callers;
+
+        ALTER TABLE callers ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0
+            CHECK (state_version >= 0);
+        ALTER TABLE callers ADD COLUMN subscription_expires_on TEXT
+            CHECK (subscription_expires_on IS NULL OR (
+                length(subscription_expires_on) = 10
+                AND substr(subscription_expires_on, 5, 1) = '-'
+                AND substr(subscription_expires_on, 8, 1) = '-'
+            ));
+        ALTER TABLE callers ADD COLUMN purge_protected INTEGER NOT NULL DEFAULT 1
+            CHECK (purge_protected IN (0, 1));
+        ALTER TABLE callers ADD COLUMN lifecycle_prior_state TEXT
+            CHECK (lifecycle_prior_state IS NULL OR lifecycle_prior_state IN ('active', 'disabled'));
+
+        CREATE TABLE caller_access_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            operation TEXT NOT NULL CHECK (operation IN (
+                'caller-created', 'security-changed', 'disabled', 'enabled',
+                'tombstoned', 'restored', 'purge-protection-changed',
+                'subscription-updated', 'subscription-expired',
+                'subscription-adjustment-resolved', 'subscription-warning',
+                'joker-denied'
+            )),
+            outcome TEXT NOT NULL DEFAULT 'committed' CHECK (outcome IN ('committed', 'denied')),
+            subject_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            actor_kind TEXT NOT NULL CHECK (actor_kind IN ('caller', 'threshold-sysop', 'local-operator', 'system-policy')),
+            actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            prior_lifecycle TEXT CHECK (prior_lifecycle IS NULL OR prior_lifecycle IN ('active', 'disabled', 'deleted')),
+            new_lifecycle TEXT CHECK (new_lifecycle IS NULL OR new_lifecycle IN ('active', 'disabled', 'deleted')),
+            prior_state_version INTEGER CHECK (prior_state_version IS NULL OR prior_state_version >= 0),
+            new_state_version INTEGER CHECK (new_state_version IS NULL OR new_state_version >= 0),
+            prior_base_security INTEGER CHECK (prior_base_security IS NULL OR prior_base_security BETWEEN 0 AND 9999),
+            new_base_security INTEGER CHECK (new_base_security IS NULL OR new_base_security BETWEEN 0 AND 9999),
+            adjustment_kind TEXT CHECK (adjustment_kind IS NULL OR adjustment_kind = 'subscription-expired'),
+            policy_generation INTEGER CHECK (policy_generation IS NULL OR policy_generation > 0)
+        );
+
+        CREATE TABLE caller_security_adjustments (
+            adjustment_id INTEGER PRIMARY KEY,
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            kind TEXT NOT NULL CHECK (kind = 'subscription-expired'),
+            target_security_level INTEGER NOT NULL CHECK (target_security_level BETWEEN 0 AND 9999),
+            status TEXT NOT NULL CHECK (status IN ('active', 'resolved')),
+            applied_at INTEGER NOT NULL CHECK (applied_at >= 0),
+            resolved_at INTEGER CHECK (
+                (status = 'active' AND resolved_at IS NULL)
+                OR (status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at >= applied_at)
+            ),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            applied_event_id INTEGER NOT NULL REFERENCES caller_access_events(event_id) ON DELETE RESTRICT,
+            resolved_event_id INTEGER REFERENCES caller_access_events(event_id) ON DELETE RESTRICT
+        );
+        CREATE UNIQUE INDEX caller_security_adjustments_one_active_kind
+            ON caller_security_adjustments (caller_id, kind) WHERE status = 'active';
+        CREATE INDEX caller_access_events_subject
+            ON caller_access_events (subject_caller_id, event_id);
+
+        CREATE TRIGGER caller_access_events_no_update
+        BEFORE UPDATE ON caller_access_events BEGIN
+            SELECT RAISE(ABORT, 'caller access events are append-only');
+        END;
+        CREATE TRIGGER caller_access_events_no_delete
+        BEFORE DELETE ON caller_access_events BEGIN
+            SELECT RAISE(ABORT, 'caller access events are append-only');
+        END;
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -662,8 +774,11 @@ impl RuntimeDatabase {
         {
             return Err(DatabaseError::ForeignKeyCheck);
         }
-        if required == 11 {
+        if required >= 11 {
             validate_schema_11_snapshot(&self.connection)?;
+        }
+        if required == 12 {
+            validate_schema_12_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -900,7 +1015,7 @@ impl RuntimeDatabase {
 
     pub fn caller_by_id(&self, caller_id: CallerId) -> Result<Option<Caller>, DatabaseError> {
         self.query_caller(
-            "SELECT caller_id, display_name, normalized_name, security_level, account_state, first_call_at, last_call_at, call_count, total_time_seconds, messages_posted, files_uploaded, upload_bytes, files_downloaded, download_bytes, graphics_preference, screen_width, page_length, more_prompt, scroll_prompt, hot_keys, transfer_protocol, address_line_1, address_line_2, city, region, postal_code, country, phone, email, birthday, is_new_caller FROM callers WHERE caller_id = ?1",
+            &format!("{CALLER_SELECT} WHERE c.caller_id = ?1"),
             rusqlite::params![caller_id.get()],
         )
     }
@@ -910,7 +1025,7 @@ impl RuntimeDatabase {
         normalized_name: &str,
     ) -> Result<Option<Caller>, DatabaseError> {
         self.query_caller(
-            "SELECT caller_id, display_name, normalized_name, security_level, account_state, first_call_at, last_call_at, call_count, total_time_seconds, messages_posted, files_uploaded, upload_bytes, files_downloaded, download_bytes, graphics_preference, screen_width, page_length, more_prompt, scroll_prompt, hot_keys, transfer_protocol, address_line_1, address_line_2, city, region, postal_code, country, phone, email, birthday, is_new_caller FROM callers WHERE normalized_name = ?1",
+            &format!("{CALLER_SELECT} WHERE c.normalized_name = ?1"),
             rusqlite::params![normalized_name],
         )
     }
@@ -951,6 +1066,11 @@ impl RuntimeDatabase {
             Option<String>,
             Option<String>,
             bool,
+            u16,
+            i64,
+            Option<String>,
+            bool,
+            Option<String>,
         );
         let stored: Option<StoredCaller> = self
             .connection
@@ -987,6 +1107,11 @@ impl RuntimeDatabase {
                     row.get(28)?,
                     row.get(29)?,
                     row.get(30)?,
+                    row.get(31)?,
+                    row.get(32)?,
+                    row.get(33)?,
+                    row.get(34)?,
+                    row.get(35)?,
                 ))
             })
             .optional()
@@ -1025,6 +1150,11 @@ impl RuntimeDatabase {
                     email,
                     birthday,
                     is_new_caller,
+                    base_security,
+                    state_version,
+                    subscription_expires_on,
+                    purge_protected,
+                    lifecycle_prior_state,
                 )| {
                     Ok(Caller {
                         id: CallerId::new(caller_id).map_err(DatabaseError::InvalidStoredCaller)?,
@@ -1032,7 +1162,20 @@ impl RuntimeDatabase {
                         normalized_name,
                         security_level: SecurityLevel::new(security)
                             .map_err(DatabaseError::InvalidStoredCaller)?,
+                        base_security_level: SecurityLevel::new(base_security)
+                            .map_err(DatabaseError::InvalidStoredCaller)?,
                         state: CallerState::from_database_value(&state)
+                            .map_err(DatabaseError::InvalidStoredCaller)?,
+                        state_version: nonnegative_u64(state_version)?,
+                        subscription_expires_on: subscription_expires_on
+                            .as_deref()
+                            .map(parse_subscription_date)
+                            .transpose()?,
+                        purge_protected,
+                        lifecycle_prior_state: lifecycle_prior_state
+                            .as_deref()
+                            .map(CallerState::from_database_value)
+                            .transpose()
                             .map_err(DatabaseError::InvalidStoredCaller)?,
                         first_call_at,
                         last_call_at,
@@ -1318,7 +1461,8 @@ impl RuntimeDatabase {
         Ok(())
     }
 
-    pub fn set_caller_state(
+    #[cfg(test)]
+    pub(crate) fn set_caller_state(
         &self,
         caller_id: CallerId,
         state: CallerState,
@@ -1328,24 +1472,6 @@ impl RuntimeDatabase {
             .execute(
                 "UPDATE callers SET account_state = ?2, updated_at = CURRENT_TIMESTAMP WHERE caller_id = ?1",
                 params![caller_id.get(), state.as_database_value()],
-            )
-            .map_err(DatabaseError::Sqlite)?;
-        if changed != 1 {
-            return Err(DatabaseError::MissingCaller(caller_id.get()));
-        }
-        Ok(())
-    }
-
-    pub fn set_caller_security(
-        &self,
-        caller_id: CallerId,
-        security: SecurityLevel,
-    ) -> Result<(), DatabaseError> {
-        let changed = self
-            .connection
-            .execute(
-                "UPDATE callers SET security_level = ?2, updated_at = CURRENT_TIMESTAMP WHERE caller_id = ?1",
-                params![caller_id.get(), security.get()],
             )
             .map_err(DatabaseError::Sqlite)?;
         if changed != 1 {
@@ -1530,6 +1656,78 @@ fn validate_schema_11_snapshot(connection: &Connection) -> Result<(), DatabaseEr
     Ok(())
 }
 
+fn validate_schema_12_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let mut dates = connection
+        .prepare(
+            "SELECT subscription_expires_on FROM callers WHERE subscription_expires_on IS NOT NULL",
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let dates = dates
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(DatabaseError::Sqlite)?;
+    for date in dates {
+        parse_subscription_date(&date.map_err(DatabaseError::Sqlite)?)?;
+    }
+    let invalid_lifecycle_state: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM callers WHERE account_state<>'deleted' AND lifecycle_prior_state IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid_lifecycle_state != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "caller tombstone recovery state is invalid".to_owned(),
+        ));
+    }
+    let invalid_adjustment_state: i64 = connection
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+              FROM caller_security_adjustments AS a
+              JOIN caller_access_events AS applied ON applied.event_id = a.applied_event_id
+              LEFT JOIN caller_access_events AS resolved ON resolved.event_id = a.resolved_event_id
+             WHERE applied.operation <> 'subscription-expired'
+                OR applied.outcome <> 'committed'
+                OR applied.subject_caller_id <> a.caller_id
+                OR applied.adjustment_kind <> a.kind
+                OR (a.status = 'active' AND (a.resolved_at IS NOT NULL OR a.resolved_event_id IS NOT NULL))
+                OR (a.status = 'resolved' AND (
+                    a.resolved_at IS NULL
+                    OR a.resolved_event_id IS NULL
+                    OR resolved.operation <> 'subscription-adjustment-resolved'
+                    OR resolved.outcome <> 'committed'
+                    OR resolved.subject_caller_id <> a.caller_id
+                    OR resolved.adjustment_kind <> a.kind
+                ))
+            "#,
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid_adjustment_state != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "caller security adjustment and audit state disagree".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_subscription_date(value: &str) -> Result<chrono::NaiveDate, DatabaseError> {
+    if value.len() != 10
+        || value.as_bytes()[4] != b'-'
+        || value.as_bytes()[7] != b'-'
+        || value
+            .bytes()
+            .enumerate()
+            .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
+    {
+        return Err(DatabaseError::InvalidSubscriptionDate(value.to_owned()));
+    }
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| DatabaseError::InvalidSubscriptionDate(value.to_owned()))
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuthenticationResult {
     Valid(Caller),
@@ -1617,6 +1815,12 @@ fn run_migration(
             .execute("DROP TABLE migration_11_validation", [])
             .map_err(DatabaseError::Sqlite)?;
     }
+    if migration.version == 12 {
+        validate_caller_access_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_12_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
@@ -1624,6 +1828,42 @@ fn run_migration(
         )
         .map_err(DatabaseError::Sqlite)?;
     Ok(())
+}
+
+fn validate_caller_access_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT caller_count, caller_id_sum, security_sum, active_count, disabled_count, deleted_count, credential_count, profile_bytes FROM migration_12_validation",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let actual: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(caller_id),0), COALESCE(SUM(security_level),0), COALESCE(SUM(account_state='active'),0), COALESCE(SUM(account_state='disabled'),0), COALESCE(SUM(account_state='deleted'),0), (SELECT COUNT(*) FROM caller_credentials), COALESCE(SUM(length(COALESCE(address_line_1,'')) + length(COALESCE(address_line_2,'')) + length(COALESCE(city,'')) + length(COALESCE(region,'')) + length(COALESCE(postal_code,'')) + length(COALESCE(country,'')) + length(COALESCE(phone,'')) + length(COALESCE(email,'')) + length(COALESCE(birthday,''))),0) FROM callers",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if expected != actual {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-11 caller identity, credentials, profile, lifecycle, or security changed"
+                .to_owned(),
+        ));
+    }
+    let fabricated: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM callers WHERE state_version<>0 OR subscription_expires_on IS NOT NULL OR purge_protected<>1 OR lifecycle_prior_state IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if fabricated != 0 {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-12 migration fabricated caller lifecycle or subscription state".to_owned(),
+        ));
+    }
+    validate_schema_12_snapshot(transaction)
 }
 
 fn validate_message_mutation_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
@@ -1789,6 +2029,14 @@ pub enum DatabaseError {
     InvalidCaller(#[from] CallerError),
     #[error("stored caller record is invalid: {0}")]
     InvalidStoredCaller(CallerError),
+    #[error("stored subscription date is not strict ISO YYYY-MM-DD: {0:?}")]
+    InvalidSubscriptionDate(String),
+    #[error("caller access mutation conflicts with state version {actual}; expected {expected}")]
+    CallerStateConflict { expected: u64, actual: u64 },
+    #[error("configured named Sysop is protected from this caller mutation")]
+    ProtectedNamedSysop,
+    #[error("caller access mutation is not authorized")]
+    CallerAccessUnauthorized,
     #[error(transparent)]
     Credential(#[from] CredentialError),
     #[error("caller name is already registered: {0:?}")]
@@ -1830,7 +2078,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 12,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -1857,7 +2105,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: 3,
             }
         );
         let table_count: i64 = database
@@ -1924,8 +2172,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 10,
-                ending_version: 11,
-                applied: 1,
+                ending_version: 12,
+                applied: 2,
             }
         );
         let preserved = database
@@ -2066,6 +2314,107 @@ mod tests {
     }
 
     #[test]
+    fn schema_eleven_to_twelve_preserves_callers_without_fabricated_access_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK (version > 0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+        ).unwrap();
+        for migration in MIGRATIONS.iter().take(11) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute(
+            "INSERT INTO callers (caller_id, display_name, normalized_name, security_level, account_state, is_new_caller, first_call_at, phone) VALUES (7, 'Schema Eleven Caller', 'schema eleven caller', 37, 'disabled', 0, 1, 'private-test-value')",
+            [],
+        ).unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            MigrationReport {
+                starting_version: 11,
+                ending_version: 12,
+                applied: 1,
+            }
+        );
+        let caller = database
+            .caller_by_id(CallerId::new(7).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(caller.id.get(), 7);
+        assert_eq!(caller.state, CallerState::Disabled);
+        assert_eq!(caller.base_security_level.get(), 37);
+        assert_eq!(caller.security_level.get(), 37);
+        assert_eq!(caller.state_version, 0);
+        assert_eq!(caller.subscription_expires_on, None);
+        assert!(caller.purge_protected);
+        assert_eq!(caller.profile.phone.as_deref(), Some("private-test-value"));
+        assert_eq!(
+            database
+                .connection
+                .query_row("SELECT COUNT(*) FROM caller_access_events", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn failed_schema_twelve_validation_rolls_back_to_unchanged_schema_eleven() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK (version > 0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+        ).unwrap();
+        for migration in MIGRATIONS.iter().take(11) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute(
+            "INSERT INTO callers (caller_id, display_name, normalized_name, security_level, account_state, is_new_caller, first_call_at) VALUES (9, 'Rollback Caller', 'rollback caller', 25, 'active', 0, 1)",
+            [],
+        ).unwrap();
+        let broken_sql = MIGRATIONS[11].sql.replace(
+            "ALTER TABLE callers ADD COLUMN state_version",
+            "UPDATE callers SET security_level = security_level + 1;\nALTER TABLE callers ADD COLUMN state_version",
+        );
+        let broken = Migration {
+            version: 12,
+            name: "auditable_caller_access_lifecycle",
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        assert!(apply_migration(&mut connection, &broken).is_err());
+        assert_eq!(schema_version_from(&connection).unwrap(), 11);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT security_level FROM callers WHERE caller_id=9",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            25
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('callers') WHERE name='state_version'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='caller_access_events'", [], |row| row.get::<_, i64>(0)
+        ).unwrap(), 0);
+    }
+
+    #[test]
     fn consistent_snapshot_is_read_only_validated_and_excludes_later_writes() {
         let temp = tempfile::tempdir().unwrap();
         let path = database_path(&temp);
@@ -2140,6 +2489,39 @@ mod tests {
     }
 
     #[test]
+    fn schema_12_snapshot_rejects_an_impossible_subscription_date() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        database.migrate().unwrap();
+        let identity = BoardIdentity::new("Date Validation Board", "Date Sysop").unwrap();
+        database.ensure_board_identity(&identity).unwrap();
+        let encoded = test_hasher().hash(b"test-only date password").unwrap();
+        let caller = database
+            .create_caller(
+                b"Date Validation Caller",
+                &encoded,
+                SecurityLevel::new(10).unwrap(),
+                CallerState::Active,
+                false,
+                100,
+            )
+            .unwrap();
+        database
+            .connection
+            .execute(
+                "UPDATE callers SET subscription_expires_on='2026-02-30' WHERE caller_id=?1",
+                [caller.id.get()],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            database.validate_current_snapshot(),
+            Err(DatabaseError::InvalidSubscriptionDate(value)) if value == "2026-02-30"
+        ));
+    }
+
+    #[test]
     fn migrations_are_idempotent() {
         let temp = tempfile::tempdir().unwrap();
         let mut database = RuntimeDatabase::open(&database_path(&temp)).unwrap();
@@ -2187,7 +2569,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         assert_eq!(
@@ -2223,7 +2605,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         let caller = database
@@ -2270,7 +2652,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         assert_eq!(
@@ -2310,7 +2692,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         let caller = database
@@ -2370,7 +2752,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         let caller = database
@@ -2410,7 +2792,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 6,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -2493,7 +2875,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         assert_eq!(
@@ -2593,7 +2975,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         let caller = database
@@ -2678,7 +3060,7 @@ mod tests {
         let encoded = hasher.hash(password).unwrap();
         let caller = database
             .create_caller(
-                b"Craig   Test",
+                b"Alex   Test",
                 &encoded,
                 SecurityLevel::new(10).unwrap(),
                 CallerState::Active,
@@ -2686,20 +3068,20 @@ mod tests {
                 100,
             )
             .unwrap();
-        assert_eq!(caller.display_name, "Craig Test");
+        assert_eq!(caller.display_name, "Alex Test");
         assert!(matches!(
-            database.authenticate(b"craig test", password, &hasher).unwrap(),
+            database.authenticate(b"alex test", password, &hasher).unwrap(),
             AuthenticationResult::Valid(found) if found.id == caller.id
         ));
         assert_eq!(
             database
-                .authenticate(b"CRAIG TEST", b"wrong", &hasher)
+                .authenticate(b"ALEX TEST", b"wrong", &hasher)
                 .unwrap(),
             AuthenticationResult::Invalid
         );
         assert!(matches!(
             database.create_caller(
-                b"CRAIG TEST",
+                b"ALEX TEST",
                 &encoded,
                 SecurityLevel::new(10).unwrap(),
                 CallerState::Active,

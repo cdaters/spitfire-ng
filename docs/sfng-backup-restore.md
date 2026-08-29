@@ -52,10 +52,14 @@ lowercase SHA-256.
 
 SQLite remains authoritative for board identity; callers and Argon2id
 credentials; private profiles and preferences; statistics and new-file
-checkpoints; conferences, immutable message payload/fan-out identities,
+checkpoints; schema-12 caller lifecycle versions, authoritative base security,
+subscription expiration, reasoned security adjustments, purge protection,
+recoverable tombstones, and privacy-safe caller-access events; conferences,
+immutable message payload/fan-out identities,
 separately numbered delivery recipients/audiences, tombstones, visibility,
 receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
-file areas, catalog metadata, hashes, attribution, state, and accounting. The
+file areas, catalog metadata, hashes, attribution, state, and accounting.
+`SYSTEM/JOKER.DAT`, when present, is preserved as exact resource bytes. The
 snapshot does not duplicate that metadata in a second model.
 
 Transient `WORK/runtime-status.toml`, incomplete `WORK/upload-staging` bytes,
@@ -72,7 +76,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite read-only and require current schema 11, exact migration names,
+3. open SQLite read-only and require current schema 12, exact migration names,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
 4. use SQLite's backup API to create one consistent database copy, then apply
@@ -92,10 +96,11 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 and schema-11 snapshots. Schema 10
-is restored unchanged; only subsequent normal writable startup applies the
-transactional 10→11 migration. Validation rejects unknown manifest fields, an
-older/newer unsupported schema, unsafe or duplicate paths, missing or undeclared files,
+target. This build accepts exact schema-10, schema-11, and schema-12 snapshots.
+An older schema is restored unchanged; only subsequent normal writable startup
+applies the transactional 10→11 and/or 11→12 migrations. Validation rejects
+unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
+paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
 SQLite catalog rows and declared byte entries. Restore is intentionally not a
 schema migration or incompatible-version conversion path.
@@ -160,3 +165,21 @@ the final release gate.
 See also [Setup and Configuration](sfng-setup-configuration.md),
 [Native File System](sfng-file-system.md), and the
 [Stock SPITFIRE 3.7 Parity Checklist](stock-spitfire-3.7-parity.md).
+
+## Schema-12 caller-access recovery boundary
+
+Schema 12 extends the schema-10/11 restore implementation with
+exact preservation and validation of caller lifecycle versions, base security,
+subscription expiration, purge protection, reasoned security adjustments, and
+append-only caller access events. Its confined `SYSTEM/JOKER.DAT` policy is
+already within the recursive SYSTEM backup boundary and must restore byte-
+exactly.
+
+The implemented migration keeps schema-11 backups restorable at their exact
+version and applies 11→12 only during later normal writable startup. Migration
+failure must leave schema 11 unchanged; an older executable must refuse schema
+12. New-root/replacement restore must reject orphan adjustments, invalid dates,
+duplicate active adjustment kinds, broken audit links, named-Sysop invariant
+violations, policy corruption, and newer versions before publication. See
+[Caller Access Lifecycle and Security](sfng-caller-access.md) for the public
+caller-access model.

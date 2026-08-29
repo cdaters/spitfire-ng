@@ -38,16 +38,16 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.2.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.3.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 409 semantic messages across shared, caller, and operator
+copy. It contains 426 semantic messages across shared, caller, and operator
 catalogs. The embedded recovery copy does not make English a profile
 requirement and does not authorize a package to omit the en-US baseline.
-M040 advanced 1.0.1 to 1.1.1 for localized caller/text message-discovery
-labels, prompts, validation, counts, truncation feedback, and the reconciled
-case-insensitive query wording. M041 advances 1.1.1 to 1.2.0 for CC entry,
-recipient validation, delivery state, delete/undelete, audience toggle,
-Copy/Forward, stale-conflict feedback, and caller-deletion configuration.
+Post-0.1.0 catalogs add localized message discovery and mutation, caller
+lifecycle, named-Sysop protection, base/effective security, subscription,
+JOKER denial, and local-operator outcomes. The independently authored Modern
+and Minimal profiles are version 1.2.0 and Classic is version 1.3.0 with
+LOCKOUT, SUBWARN, and SFSUBCHG presentation boundaries.
 Original project-authored catalog/package
 bytes remain `MIT OR Apache-2.0`. External language packages retain their own
 compatible package-level license and provenance.
@@ -179,6 +179,15 @@ errors remain on the documented diagnostic side of the boundary.
 ## Deferred work
 
 Production translations, a caller locale selector/persistence field,
-translator community workflow and language-specific client QA are a later
-milestone. M037.2 does not implement RIP, Category-B behavior, or a separate
-engine/profile per language.
+translator community workflow and language-specific client QA remain future
+work. Localization does not implement RIP or a separate engine/profile per
+language.
+
+Current source implements caller-access keys and resources. Semantic catalog
+entries cover bounded caller find/add, lifecycle confirmation,
+named-Sysop protection, stale conflict, base-security/subscription changes,
+renewal, and privacy-safe denial. Stock-style presentation additionally uses
+`LOCKOUT`, `SUBWARN`, and `SFSUBCHG` BBS/CLR resources through the existing
+bounded resolver. Lifecycle values, audit codes, stored ISO dates, command
+tokens, and `JOKER.DAT` remain invariant and unlocalized. See
+[Caller Access Lifecycle and Security](sfng-caller-access.md).

@@ -8,8 +8,9 @@ use crate::{
     receive_binary_files, render_display, render_generated_menu, send_binary_files, AsciiTransfer,
     AuthenticatedCaller, CallerConfig, DisplayContext, FileAccess, FileActor, FileArea,
     FileBackend, FileError, FileSearch, FileStorage, FileTransfer, MenuSection, ProtocolFile,
-    SecurityLevel, SessionError, SessionId, SessionStatusObserver, StockResources, Terminal,
-    TerminalError, TransferDirection, TransferPreference, TransferProtocol,
+    RuntimeDatabase, SecurityLevel, Session, SessionError, SessionId, SessionStatusObserver,
+    StockResources, StockSessionContext, Terminal, TerminalError, TransferDirection,
+    TransferPreference, TransferProtocol,
 };
 
 const MAX_AREA_NUMBER_INPUT: usize = 10;
@@ -34,13 +35,13 @@ pub(crate) fn run_file_menu(
     resources: &StockResources,
     context: &DisplayContext<'_>,
     terminal: &mut dyn Terminal,
-    backend: &mut dyn FileBackend,
+    backend: &mut RuntimeDatabase,
     storage: &FileStorage,
     status: &dyn SessionStatusObserver,
-    session_id: SessionId,
-    authenticated: &AuthenticatedCaller,
+    session: &mut Session,
+    authenticated: &mut AuthenticatedCaller,
     caller_config: &CallerConfig,
-    timezone: Tz,
+    stock: &StockSessionContext<'_>,
     expert: &mut bool,
 ) -> Result<FileMenuResult, SessionError> {
     let actor = file_actor(authenticated, caller_config)?;
@@ -97,6 +98,21 @@ pub(crate) fn run_file_menu(
             });
         };
         commands += 1;
+        if !crate::session::refresh_caller_access_for_dispatch(
+            session,
+            terminal,
+            backend,
+            authenticated,
+            caller_config,
+            stock,
+            context,
+        )? {
+            return Ok(FileMenuResult {
+                exit: FileMenuExit::EndOfInput,
+                commands,
+            });
+        }
+        let actor = file_actor(authenticated, caller_config)?;
         let Some(item) = menu.find(command, authenticated.caller.security_level.get()) else {
             write_key_line(
                 terminal,
@@ -118,15 +134,15 @@ pub(crate) fn run_file_menu(
                     )?;
                 }
             }
-            b'X' => list_area_files(terminal, backend, actor, &current, timezone)?,
-            b'P' => search_by_filename(terminal, backend, actor, timezone)?,
-            b'S' => search_descriptions(terminal, backend, actor, timezone)?,
+            b'X' => list_area_files(terminal, backend, actor, &current, stock.timezone)?,
+            b'P' => search_by_filename(terminal, backend, actor, stock.timezone)?,
+            b'S' => search_descriptions(terminal, backend, actor, stock.timezone)?,
             b'N' => list_new_files(
                 terminal,
                 backend,
                 actor,
                 &current,
-                timezone,
+                stock.timezone,
                 crate::session::unix_seconds()?,
             )?,
             b'L' => {
@@ -148,7 +164,7 @@ pub(crate) fn run_file_menu(
                     backend,
                     storage,
                     status,
-                    session_id,
+                    session.id(),
                     actor,
                     &current,
                     access,

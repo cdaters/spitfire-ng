@@ -230,6 +230,7 @@ pub struct StockSessionContext<'a> {
     pub presentation_profile: &'a str,
     pub menu_mode: &'a str,
     pub locale: &'a str,
+    pub joker_policy: &'a crate::JokerPolicy,
 }
 
 /// Runs one stock-oriented SPITFIRE session. Every transport calls this same
@@ -389,14 +390,15 @@ fn run_stock_session_inner(
     let mut first_file_entry = true;
     let mut commands_processed = 0;
     loop {
-        if stock.interaction.take_disconnect(session.id())? {
-            write_key_line(
-                terminal,
-                "caller-operator-disconnected",
-                &crate::LocalizationArgs::new(),
-            )?;
-            session.close(SessionCloseReason::OperatorDisconnect)?;
-            terminal.disconnect()?;
+        if !refresh_caller_access_for_dispatch(
+            session,
+            terminal,
+            database,
+            &mut authenticated,
+            caller_config,
+            &stock,
+            &context,
+        )? {
             break;
         }
         let elapsed = session
@@ -448,10 +450,10 @@ fn run_stock_session_inner(
                 database,
                 stock.file_storage,
                 stock.status,
-                session.id(),
-                &authenticated,
+                session,
+                &mut authenticated,
                 caller_config,
-                stock.timezone,
+                &stock,
                 &mut expert,
             )?;
             commands_processed += file_result.commands;
@@ -530,6 +532,17 @@ fn run_stock_session_inner(
             break;
         };
         commands_processed += 1;
+        if !refresh_caller_access_for_dispatch(
+            session,
+            terminal,
+            database,
+            &mut authenticated,
+            caller_config,
+            &stock,
+            &context,
+        )? {
+            break;
+        }
         let Some(item) = menu.find(command, authenticated.caller.security_level.get()) else {
             write_key_line(
                 terminal,
@@ -564,7 +577,9 @@ fn run_stock_session_inner(
                     &context,
                     terminal,
                     database,
-                    &authenticated,
+                    session,
+                    &stock,
+                    &mut authenticated,
                     caller_config,
                     &mut expert,
                 )?;
@@ -674,6 +689,64 @@ fn run_stock_session_inner(
     session_outcome(session, commands_processed, Some((caller_id, caller_name)))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refresh_caller_access_for_dispatch(
+    session: &mut Session,
+    terminal: &mut dyn Terminal,
+    database: &mut RuntimeDatabase,
+    authenticated: &mut AuthenticatedCaller,
+    caller_config: &CallerConfig,
+    stock: &StockSessionContext<'_>,
+    context: &DisplayContext<'_>,
+) -> Result<bool, SessionError> {
+    if stock.interaction.take_disconnect(session.id())? {
+        write_key_line(
+            terminal,
+            "caller-operator-disconnected",
+            &crate::LocalizationArgs::new(),
+        )?;
+        session.close(SessionCloseReason::OperatorDisconnect)?;
+        terminal.disconnect()?;
+        return Ok(false);
+    }
+
+    let caller_id = authenticated.caller.id;
+    let dispatch_policy = database.enforce_caller_access_at_dispatch(
+        caller_id,
+        caller_config,
+        unix_seconds()?,
+        stock.timezone,
+    )?;
+    let refreshed = database
+        .caller_by_id(caller_id)?
+        .ok_or(DatabaseError::MissingCaller(caller_id.get()))?;
+    if refreshed.state != CallerState::Active {
+        let resources = active_resources(terminal, stock.resources, stock.text_resources);
+        render_policy_display(
+            terminal,
+            resources,
+            "LOCKOUT",
+            context,
+            "This caller account is unavailable.",
+        )?;
+        session.close(SessionCloseReason::AccountUnavailable)?;
+        terminal.disconnect()?;
+        return Ok(false);
+    }
+    authenticated.caller = refreshed;
+    if dispatch_policy.adjustment_applied {
+        let resources = active_resources(terminal, stock.resources, stock.text_resources);
+        render_policy_display(
+            terminal,
+            resources,
+            "SFSUBCHG",
+            context,
+            "Your subscription access level has changed.",
+        )?;
+    }
+    Ok(true)
+}
+
 fn publish_presentation_context(
     stock: &StockSessionContext<'_>,
     negotiated: &TerminalInfo,
@@ -753,6 +826,17 @@ fn authenticate_session(
 ) -> Result<Option<AuthenticatedCaller>, SessionError> {
     if let Some(credentials) = terminal.take_supplied_credentials() {
         let known_caller = known_caller_for_login(database, credentials.username())?;
+        if reject_joker_name(
+            session,
+            terminal,
+            database,
+            credentials.username(),
+            known_caller.as_ref().map(|caller| caller.id),
+            stock,
+            context,
+        )? {
+            return Ok(None);
+        }
         let result = if credentials.password().len() <= config.maximum_password_length {
             database.authenticate(credentials.username(), credentials.password(), hasher)
         } else {
@@ -851,6 +935,18 @@ fn login_existing_caller(
             session.close(SessionCloseReason::EndOfInput)?;
             return Ok(None);
         };
+        let known_caller = known_caller_for_login(database, &name)?;
+        if reject_joker_name(
+            session,
+            terminal,
+            database,
+            &name,
+            known_caller.as_ref().map(|caller| caller.id),
+            stock,
+            context,
+        )? {
+            return Ok(None);
+        }
         write_key(
             terminal,
             "caller-auth-password-prompt",
@@ -942,6 +1038,36 @@ fn known_caller_for_login(
     }
 }
 
+fn reject_joker_name(
+    session: &mut Session,
+    terminal: &mut dyn Terminal,
+    database: &RuntimeDatabase,
+    name: &[u8],
+    caller_id: Option<CallerId>,
+    stock: &StockSessionContext<'_>,
+    context: &DisplayContext<'_>,
+) -> Result<bool, SessionError> {
+    if stock.joker_policy.denial_for(name).ok().flatten().is_none() {
+        return Ok(false);
+    }
+    database.record_joker_denial(caller_id, stock.joker_policy.generation(), unix_seconds()?)?;
+    render_policy_display(
+        terminal,
+        stock.resources,
+        "LOCKOUT",
+        context,
+        "This caller name is unavailable.",
+    )?;
+    session.close(SessionCloseReason::AccountUnavailable)?;
+    terminal.disconnect()?;
+    warn!(
+        caller_id = caller_id.map(CallerId::get),
+        policy_generation = stock.joker_policy.generation(),
+        "caller denied by JOKER name policy"
+    );
+    Ok(true)
+}
+
 fn register_new_caller(
     session: &mut Session,
     terminal: &mut dyn Terminal,
@@ -973,6 +1099,9 @@ fn register_new_caller(
             }
             Err(error) => return Err(error.into()),
         };
+        if reject_joker_name(session, terminal, database, &name, None, stock, context)? {
+            return Ok(None);
+        }
         match database.caller_by_name(&name) {
             Ok(Some(_)) => {
                 write_line(
@@ -1124,11 +1253,33 @@ fn begin_or_close(
     terminal: &mut dyn Terminal,
     database: &mut RuntimeDatabase,
     config: &CallerConfig,
-    caller: Caller,
+    mut caller: Caller,
     stock: &StockSessionContext<'_>,
     context: &DisplayContext<'_>,
 ) -> Result<Option<AuthenticatedCaller>, SessionError> {
     let now = unix_seconds()?;
+    let subscription =
+        database.evaluate_caller_subscription(caller.id, config, now, stock.timezone)?;
+    if subscription.adjustment_applied {
+        render_policy_display(
+            terminal,
+            stock.resources,
+            "SFSUBCHG",
+            context,
+            "Your subscription access level has changed.",
+        )?;
+    } else if subscription.warning {
+        render_policy_display(
+            terminal,
+            stock.resources,
+            "SUBWARN",
+            context,
+            "Your SPITFIRE subscription is nearing expiration.",
+        )?;
+    }
+    caller = database
+        .caller_by_id(caller.id)?
+        .ok_or(DatabaseError::MissingCaller(caller.id.get()))?;
     if stock.board_access.is_private()
         && caller.security_level.get() < stock.private_security_level.get()
     {

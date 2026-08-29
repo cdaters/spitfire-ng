@@ -35,8 +35,9 @@ published in this repository.
 
 The latest downloadable binary remains 0.1.0. The `main` branch now contains
 post-0.1.0 source improvements, including advanced caller/text message
-discovery, CC delivery fan-out, and auditable message mutation; those
-improvements are not present in the published 0.1.0 archive.
+discovery, auditable message mutation, and an auditable caller-access lifecycle
+with schema-12 persistence; those improvements are not present in the
+published 0.1.0 archive.
 
 Available today:
 
@@ -46,14 +47,18 @@ Available today:
   profiles;
 - engine-generated stock menus and exact-security display overrides;
 - Telnet, RAW TCP, and RLogin compatibility listeners;
-- caller registration, Argon2id authentication, profiles, and security;
+- caller registration, Argon2id authentication, profiles, and security plus—
+  when built from current source—disable/restore, recoverable deletion,
+  base/effective security, subscription expiry/warnings/renewal, JOKER name
+  denial, named-Sysop protection, and active-session invalidation;
 - messages, conferences, private mail, replies, queues, receipts, and—when
   built from current source—bounded Specific Caller/Text Search, primary plus
   CC delivery, authorized Delete/Undelete, audience transitions, and
   source-retaining Copy/Forward;
 - file areas, uploads, downloads, new-file checks, and supported transfer
   protocols;
-- multinode operation, operator status, cold backup, and restore;
+- multinode operation, operator status, cold backup, and restore, including
+  schema-12 caller-access state when built from current source;
 - an en-US localization baseline and versioned language-pack interface; and
 - a verified Moebius 1.0.29 workflow for authoring `.CLR` screens on macOS.
 
@@ -119,6 +124,7 @@ explains listener configuration, first calls, messages, files, and backups.
 - [Compatibility principles](docs/02-compatibility-principles.md)
 - [Presentation profiles](docs/presentation-profiles.md)
 - [Localization](docs/localization.md)
+- [Caller access lifecycle and security](docs/sfng-caller-access.md)
 - [Roadmap](ROADMAP.md)
 
 ## Custom ANSI screens

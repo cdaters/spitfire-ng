@@ -3,6 +3,10 @@
 These guides are for Sysops running the SPITFIRE NG Development Preview. The
 accepted Apple Silicon package does not require a source checkout.
 
+The latest downloadable binary remains 0.1.0. Sections explicitly labeled
+current source may describe post-0.1.0 behavior on `main`, including schema-12
+caller access; those features are not in the published 0.1.0 archive.
+
 ## Start a board
 
 1. [Verify and install the package](development-preview-package.md)

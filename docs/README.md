@@ -61,6 +61,10 @@ the historical or architectural material to set up a board.
 - [Nodes and Events](14-nodes-events.md)
 - [Native Setup and Configuration](sfng-setup-configuration.md)
 - [Native Caller and Authentication](sfng-caller-authentication.md)
+- [Caller Access Lifecycle and Security](sfng-caller-access.md) — Active,
+  Locked Out, and recoverable Deleted states; base/effective security;
+  subscription and JOKER policy; named-Sysop protection; audit, concurrency,
+  schema-12 migration, and recovery.
 - [Native Caller/Sysop Interaction](sfng-caller-sysop-interaction.md)
 - [Native Message System](sfng-message-system.md) — Conferences, queues,
   caller/text discovery, immutable payloads, primary/CC delivery identities,

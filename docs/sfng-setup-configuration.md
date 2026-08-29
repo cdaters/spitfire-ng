@@ -155,6 +155,13 @@ level distinct; the initial value must be at least the threshold. The threshold
 default of 50 is an NG setup choice, not a claimed historical constant.
 `.MNU` minimum-security records and exact display suffixes are separate again.
 
+Optional `[caller.subscription]` policy defines `enabled`, a 0–365 day warning
+window, and a 0–9999 expired-security target. The caller's stored security is
+base security; current authorization derives effective security from base and
+active reasoned adjustments. Expiration dates are nullable, use full ISO form,
+and follow the board's configured local date. See
+[Caller Access Lifecycle and Security](sfng-caller-access.md).
+
 `presentation.menu_mode = "display-overrides"` permits board/active-profile
 exact-security BBS/CLR menu art and otherwise generates from the parsed `.MNU`.
 `"generated"` bypasses exact menu art deliberately. The post-login `none` or
@@ -229,8 +236,9 @@ For node allocation and live status behavior, see
   `spitfire console` for live status/page/chat/disconnect and essential caller
   list/state/security operations; see
   [Caller/Sysop Interaction](sfng-caller-sysop-interaction.md).
-- Caller administration is intentionally limited to list, enable/disable, and
-  security adjustment rather than arbitrary record editing.
+- Caller administration supports list, enable/disable, recoverable
+  delete/restore, base-security, subscription, purge protection, and private
+  profile fields rather than arbitrary record editing or physical purge.
 - Native backup/restore is CLI-based; there is no remote/web UI, legacy
   `.$$$`/`.$??` importer, configuration-history browser, or live snapshot.
 - File-area configuration covers the working Increment 5 fields; destructive

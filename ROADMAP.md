@@ -30,6 +30,12 @@ outcomes rather than internal checkpoint chronology.
   tombstones, authorized Delete/Undelete and audience transitions,
   source-retaining Copy/Forward, schema-11 lineage/audit, stale-conflict
   protection, and schema-10/schema-11 recovery.
+- Added post-0.1.0 auditable caller access: Active/Locked Out/recoverable
+  Deleted lifecycle, disable/restore, purge protection, base/effective
+  security, board-local subscription warning/expiry/renewal, bounded JOKER
+  name denial, named-Sysop invariants, active-session invalidation,
+  dispatch-time reauthorization, privacy-safe audit, stale-conflict handling,
+  schema-12 persistence, and schema-10/schema-11/schema-12 recovery.
 
 ### Presentation and language
 
@@ -53,10 +59,10 @@ SPITFIRE NG 0.1.0 Development Preview is published for Apple Silicon macOS as
 tag `v0.1.0-development-preview`. The public-redownload checksum and bounded
 unsigned/unnotarized macOS first-run workflow have passed.
 
-Public source `main` now includes post-0.1.0 message-discovery and auditable
-message-mutation improvements. No new binary, tag, or release has been
-published; the downloadable binary remains the accepted 0.1.0 Development
-Preview and does not contain those later source changes.
+Public source `main` now includes post-0.1.0 message-discovery, auditable
+message-mutation, and auditable caller-access improvements. No new binary, tag,
+or release has been published; the downloadable binary remains the accepted
+0.1.0 Development Preview and does not contain those later source changes.
 
 Near-term release work includes:
 
@@ -72,8 +78,8 @@ The remaining advanced compatibility work is deliberately separate from the
 accepted stock-core tier:
 
 - advanced display/resource types, including RIP;
-- questionnaires, bulletins, subscriptions, ratios, batch workflows, and
-  deeper maintenance controls;
+- questionnaires, bulletins, ratios, batch workflows, and deeper maintenance
+  controls;
 - QWK/LAKOTA offline mail;
 - SMB/DOVE-Net, FidoNet, and CircuitNet interoperability;
 - expanded doors and external-program support; and

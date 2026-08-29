@@ -174,7 +174,7 @@ operator-status-node-live = Node { $node } { $state } caller={ $caller } transpo
 operator-status-node-presentation =   terminal={ $terminal } ansi={ $ansi } encoding={ $encoding } size={ $columns }x{ $rows } page={ $page } locale={ $locale } profile={ $profile } menu-mode={ $menu_mode } context={ $context } renderer={ $renderer } security={ $security } sysop-threshold={ $threshold } actions={ $actions }
 operator-status-node-offline = Node { $node } { $state } { $description }
 operator-console-title = SPITFIRE NG OPERATOR CONSOLE — { $board }
-operator-console-commands = Commands: STATUS, PAGES, AVAILABLE ON|OFF, ANSWER <session>, DECLINE <session>, DISCONNECT <session>, CALLERS, PROFILE <name>, PROFILE-SET <field> <name>|<value>, ENABLE <name>, DISABLE <name>, SECURITY <level> <name>, QUIT
+operator-console-commands = Commands: STATUS, PAGES, AVAILABLE ON|OFF, ANSWER <session>, DECLINE <session>, DISCONNECT <session>, CALLERS, PROFILE <name>, PROFILE-SET <field> <name>|<value>, ENABLE <name>, DISABLE <name>, DELETE <name>, RESTORE <name>, SECURITY <level> <name>, PURGE <ALLOW|PROTECT> <name>, SUBSCRIPTION <YYYY-MM-DD|PERMANENT> <name>, QUIT
 operator-console-prompt = Operator> { " " }
 operator-console-availability-help = Use AVAILABLE ON or AVAILABLE OFF.
 operator-console-chat-active = Chat active for session { $session }. /Q ends chat.
@@ -184,7 +184,19 @@ operator-console-caller-line = Caller> { $line }
 operator-console-sysop-prompt = Sysop> { " " }
 operator-console-node-row = Node { $node }: { $state } session={ $session } caller={ $caller } transport={ $transport }
 operator-console-page-row = Session { $session } Node { $node } Caller { $caller }: { $state }
-operator-console-caller-row = #{ $id } { $name } security={ $security } state={ $state } calls={ $calls }
+operator-console-caller-row = #{ $id } { $name } security={ $security } base={ $base_security } state={ $state } version={ $version } purge-protected={ $purge_protected } subscription={ $subscription } calls={ $calls }
+operator-caller-lifecycle-active = Active
+operator-caller-lifecycle-disabled = Locked Out
+operator-caller-lifecycle-deleted = Deleted (recoverable)
+operator-caller-protected = The configured named Sysop is protected from that operation.
+operator-caller-conflict = That caller changed in another operator session. Reload the caller and try again.
+operator-caller-security-changed = Caller base security changed.
+operator-caller-disabled = Caller is now Locked Out.
+operator-caller-enabled = Caller is active.
+operator-caller-deleted = Caller is marked Deleted and remains recoverable.
+operator-caller-restored = Caller identity was restored.
+operator-caller-subscription-updated = Caller subscription was updated.
+operator-caller-purge-updated = Caller purge protection was updated. No hard purge was performed.
 operator-console-profile-title = Private profile for { $caller }:
 operator-console-profile-value = { $label }: { $value }
 operator-console-profile-address-1 = Address 1
