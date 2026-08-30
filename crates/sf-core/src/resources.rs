@@ -42,7 +42,24 @@ impl MenuSection {
         match self {
             Self::Main => matches!(
                 identifier,
-                b'E' | b'Q' | b'F' | b'G' | b'H' | b'R' | b'Y' | b'I' | b'J' | b'A' | b'B' | b'?'
+                b'E' | b'Q'
+                    | b'F'
+                    | b'G'
+                    | b'H'
+                    | b'R'
+                    | b'Y'
+                    | b'I'
+                    | b'J'
+                    | b'L'
+                    | b'P'
+                    | b'C'
+                    | b'K'
+                    | b'X'
+                    | b'D'
+                    | b'V'
+                    | b'A'
+                    | b'B'
+                    | b'?'
             ),
             Self::Message => matches!(
                 identifier,
@@ -146,6 +163,9 @@ pub struct StockResources {
     pub displays: BTreeMap<String, DisplayResource>,
     /// One-based historical help records stored at zero-based vector indexes.
     pub help_records: Vec<HelpRecord>,
+    /// Optional project-native board-owned thought catalog. This is never a
+    /// claim that legacy `THOUGHTS.BBS` bytes have been decoded.
+    pub thoughts: Option<crate::NativeThoughtCatalog>,
 }
 
 impl StockResources {
@@ -205,8 +225,7 @@ pub fn render_generated_menu(
     let column_width = 30;
     let gutter_width = 8;
     let title = localized_bytes(&info, menu.section.title_key(), &LocalizationArgs::new());
-    let two_columns = info.capabilities.ansi
-        && width >= 80
+    let two_columns = width >= 80
         && height >= 20
         && title.len().saturating_add(2) <= column_width
         && visible
@@ -311,9 +330,16 @@ fn menu_action_key(section: MenuSection, command: u8, identifier: u8) -> Option<
         (MenuSection::Main, b'Q') => "menu-action-main-files",
         (MenuSection::Main, b'H') => "menu-action-main-page",
         (MenuSection::Main, b'G') => "menu-action-main-statistics",
-        (MenuSection::Main, b'Y') => "menu-action-main-profile",
+        (MenuSection::Main, b'Y') => "menu-action-main-bulletins",
+        (MenuSection::Main, b'L') => "menu-action-main-directory",
+        (MenuSection::Main, b'I') => "menu-action-main-locate",
+        (MenuSection::Main, b'P') => "menu-action-main-other-bbs",
+        (MenuSection::Main, b'C') => "menu-action-main-add-bbs",
+        (MenuSection::Main, b'K') => "menu-action-main-system-info",
+        (MenuSection::Main, b'X') => "menu-action-main-newsletter",
+        (MenuSection::Main, b'D') => "menu-action-main-profile",
         (MenuSection::Main, b'R') => "menu-action-main-terminal",
-        (MenuSection::Main, b'I') => "menu-action-main-about",
+        (MenuSection::Main, b'V') => "menu-action-main-about",
         (MenuSection::Main, b'F') => "menu-action-main-sysop",
         (MenuSection::Message, b'Z') => "menu-action-message-change",
         (MenuSection::Message, b'I') => "menu-action-message-read",

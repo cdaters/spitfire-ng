@@ -38,10 +38,11 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.4.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.5.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 428 semantic messages across shared, caller, and operator
-catalogs. The embedded recovery copy does not make English a profile
+copy. It contains 484 semantic messages, including the complete schema-14
+public-information catalog, across shared, caller, and operator messages. The
+embedded recovery copy does not make English a profile
 requirement and does not authorize a package to omit the en-US baseline.
 Post-0.1.0 catalogs add localized message discovery and mutation, caller
 lifecycle, named-Sysop protection, base/effective security, subscription,
@@ -50,6 +51,11 @@ and Minimal profiles are version 1.2.0 and Classic is version 1.3.0 with
 LOCKOUT, SUBWARN, and SFSUBCHG presentation boundaries.
 M042.5 advances only en-US to 1.4.0 for SSH listener/status and durable caller
 identity administration text; presentation-profile packages are unchanged.
+M043 advances en-US to 1.5.0 for directory privacy, locate, Other BBS,
+bulletin/newsletter/system-information/thought, validation, denial, and
+conflict states. Modern and Minimal advance to 1.3.0 and Classic to 1.4.0 for
+their project-authored Main-menu resource mappings; behavior and visibility
+remain engine-owned.
 Original project-authored catalog/package
 bytes remain `MIT OR Apache-2.0`. External language packages retain their own
 compatible package-level license and provenance.

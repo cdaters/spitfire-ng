@@ -101,15 +101,18 @@ separate concepts.
 An authenticated caller can use:
 
 - Main `Y` for caller statistics;
+- Main `#` to choose listed or unlisted public-directory status;
+- Main `L` to locate visible callers by public handle;
 - Main `R` to view/edit enabled private profile groups;
 - Main `U` for graphics/text, dimensions, paging, hot-key, and transfer
   preferences; and
 - Main `X` for session-local expert-mode menu behavior.
 
 The operator cannot see credentials. There is no host-side password reset,
-destructive delete/packing, public profile directory, or arbitrary record
-editor in current source. The 0.1.0 downloadable binary predates the bounded
-identity command and SSH listener.
+destructive delete/packing, unrestricted caller-record directory, or arbitrary
+record editor in current source. The public directory is separately
+board-enabled and caller-opt-in. The 0.1.0 downloadable binary predates the
+bounded identity command, SSH listener, and schema-14 public-information work.
 
 ## JOKER name policy
 
@@ -143,3 +146,22 @@ For the complete model, see
 [Native Caller and Authentication Model](../sfng-caller-authentication.md).
 For SSH mapping and host-key policy, see
 [Secure SSH Caller Transport](../sfng-secure-ssh-transport.md).
+
+## Public caller information
+
+Schema 14 implements a board-disabled, caller-opt-in public directory. Main
+`#` lets a caller change only their own listed/unlisted preference; Main `L`
+locates visible public handles. Login identifier, real name, contact/profile
+data, security/subscription details, and Disabled/Deleted callers are never
+part of that projection. Board policy can permit listing but cannot override
+an opt-out.
+
+Use `INFO-POLICY` and versioned `INFO-POLICY-SET` in the local operator console
+to inspect or change directory, last-call date, city/region, and caller Other
+BBS addition policy. Use `BBS-LIST`, `BBS-ADD`, `BBS-EDIT`, `BBS-MOVE`, and
+`BBS-STATE` for versioned Other BBS maintenance. Stale versions conflict;
+public output never shows contributor identity.
+
+See [Public Information](../sfng-public-information.md) for the complete
+projection, authorization, audit, and recovery contract. Exact
+`SFBBSLST.DAT` and `THOUGHTS.BBS` adapters remain evidence-gated.

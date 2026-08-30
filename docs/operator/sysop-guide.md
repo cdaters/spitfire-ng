@@ -32,7 +32,9 @@ From another terminal:
 spitfire status /path/to/board/spitfire.toml
 ```
 
-Status shows product/board identity, listeners, and node state. For an active
+Status shows product/board identity, listeners, node state, and the current
+public-directory/last-call/location/caller-additions policy with its version.
+For an active
 authenticated session it also reports the engine-known transport, reported
 terminal type when present, ANSI state, effective encoding, negotiated size,
 effective page length, locale, profile, menu mode/context, caller security,
@@ -67,6 +69,10 @@ The console prints its command list at startup:
 | `CALLERS` | List caller IDs, names, security, state, and call count without credentials. |
 | `PROFILE <name>` | Show that caller's private enabled profile fields. |
 | `PROFILE-SET <field> <name>|<value>` | Set or clear an authorized profile field. |
+| `INFO-POLICY` | Show current public-directory and caller-addition policy/version. |
+| `INFO-POLICY-SET ...` | Replace public-information policy using its expected version. |
+| `BBS-LIST` / `BBS-ADD` | List all native Other BBS rows or append an operator row. |
+| `BBS-EDIT` / `BBS-MOVE` / `BBS-STATE` | Versioned edit, atomic reorder, and disable/restore of Other BBS rows. |
 | `ENABLE <name>` / `DISABLE <name>` | Change account admission state. |
 | `SECURITY <level> <name>` | Set numerical caller security. |
 | `QUIT` | Stop the console-owned server and return to the shell. |
@@ -89,7 +95,8 @@ use Comment to Sysop receipt paths, and see the security-gated `@` Sysop menu.
 The current caller-facing Sysop menu provides a safe navigation boundary;
 historical maintenance commands outside the implemented core report
 unavailable. Use the host `config`, `console`, backup, and restore commands for
-their documented operations.
+their documented operations. See [Public Information](../sfng-public-information.md)
+for exact M043 console syntax and privacy rules.
 
 ## Routine operation
 
@@ -119,5 +126,5 @@ At shutdown:
 Telnet, RAW TCP, and RLogin are compatibility protocols. They expose caller
 passwords and content to anyone able to observe the connection. Default
 loopback binds are deliberate. Restrict non-loopback listeners to an
-appropriate trusted network/VPN and firewall until an encrypted transport is
-implemented.
+appropriate trusted network/VPN and firewall, or use the separately configured
+SSH caller transport.

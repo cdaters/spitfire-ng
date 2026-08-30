@@ -15,10 +15,11 @@ use crate::{
     CredentialError, CredentialHasher, DatabaseError, DisplayCallerContext, DisplayContext,
     DisplaySource, FileActor, FileBackend, FileError, FileStorage, GraphicsPreference,
     InteractionError, InteractionHub, MenuDefinition, MenuRendererPath, MenuSection,
-    MessageBackend, MessageError, NodeError, NodeId, NodePresentationContext, PageAnswer,
-    PagingTerminal, PostLoginJourney, PostalAddress, ProfileFieldPolicy, ResourceError,
-    RuntimeDatabase, SecurityLevel, StockResources, Terminal, TerminalError, TerminalInfo,
-    TerminalTextEncoding, TransferDirection,
+    MessageBackend, MessageError, NewOtherBbsEntry, NodeError, NodeId, NodePresentationContext,
+    PageAnswer, PagingTerminal, PostLoginJourney, PostalAddress, ProfileFieldPolicy,
+    PublicInformationActor, PublicInformationError, ResourceError, RuntimeDatabase, SecurityLevel,
+    StockResources, Terminal, TerminalError, TerminalInfo, TerminalTextEncoding,
+    ThoughtCatalogReader, TransferDirection,
 };
 
 const MAX_MENU_COMMAND_BYTES: usize = 8;
@@ -632,10 +633,29 @@ fn run_stock_session_inner(
             (MenuSection::Main, b'R') => {
                 edit_terminal_preferences(terminal, database, &mut authenticated)?
             }
-            (MenuSection::Main, b'Y') => {
+            (MenuSection::Main, b'Y') if item.command.eq_ignore_ascii_case(&b'R') => {
                 edit_caller_profile(terminal, database, &mut authenticated, caller_config)?
             }
-            (MenuSection::Main, b'I') => show_about(terminal, resources, &context)?,
+            (MenuSection::Main, b'D') => {
+                edit_caller_profile(terminal, database, &mut authenticated, caller_config)?
+            }
+            (MenuSection::Main, b'I') if item.command.eq_ignore_ascii_case(&b'A') => {
+                show_about(terminal, resources, &context)?
+            }
+            (MenuSection::Main, b'V') => show_about(terminal, resources, &context)?,
+            (MenuSection::Main, b'L') => {
+                show_caller_directory(terminal, database, &mut authenticated, stock.timezone)?
+            }
+            (MenuSection::Main, b'I') => locate_caller(terminal, database, stock.timezone)?,
+            (MenuSection::Main, b'P') => show_other_bbs(terminal, database)?,
+            (MenuSection::Main, b'C') => add_other_bbs(terminal, database, &authenticated)?,
+            (MenuSection::Main, b'Y') => show_bulletins(terminal, resources, &context)?,
+            (MenuSection::Main, b'X') => {
+                show_newsletter(terminal, database, resources, &context, &authenticated)?
+            }
+            (MenuSection::Main, b'K') => {
+                show_system_information(terminal, database, stock.board, stock.timezone)?
+            }
             (MenuSection::Main, b'J') => {
                 if compose_sysop_comment(terminal, database, &authenticated, caller_config)?
                     == ComposeOutcome::Disconnected
@@ -1762,6 +1782,495 @@ fn edit_caller_profile(
     Ok(())
 }
 
+fn show_caller_directory(
+    terminal: &mut dyn Terminal,
+    database: &mut RuntimeDatabase,
+    authenticated: &mut AuthenticatedCaller,
+    timezone: chrono_tz::Tz,
+) -> Result<(), SessionError> {
+    write_key_line(
+        terminal,
+        "caller-directory-listing-status",
+        &crate::LocalizationArgs::new().with(
+            "status",
+            if authenticated.caller.public_directory_listed {
+                crate::text("caller-directory-listed", &crate::LocalizationArgs::new())
+            } else {
+                crate::text("caller-directory-unlisted", &crate::LocalizationArgs::new())
+            },
+        ),
+    )?;
+    write_key(
+        terminal,
+        "caller-directory-listing-change-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    if read_yes_no_choice(terminal)? == Some(true) {
+        write_key(
+            terminal,
+            "caller-directory-listing-enable-prompt",
+            &crate::LocalizationArgs::new(),
+        )?;
+        if let Some(listed) = read_yes_no_choice(terminal)? {
+            match database.update_caller_publicity(
+                PublicInformationActor::Caller(authenticated.caller.id),
+                authenticated.caller.id,
+                authenticated.caller.publicity_state_version,
+                listed,
+                unix_seconds()?,
+            ) {
+                Ok(publicity) => {
+                    authenticated.caller.public_directory_listed = publicity.listed;
+                    authenticated.caller.publicity_state_version = publicity.state_version;
+                    write_key_line(
+                        terminal,
+                        "caller-directory-listing-saved",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                }
+                Err(DatabaseError::PublicInformation(
+                    PublicInformationError::CallerPublicityConflict { .. },
+                )) => {
+                    authenticated.caller = database
+                        .caller_by_id(authenticated.caller.id)?
+                        .ok_or(DatabaseError::MissingCaller(authenticated.caller.id.get()))?;
+                    write_key_line(
+                        terminal,
+                        "caller-public-information-conflict",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    if !database.public_directory_policy()?.enabled {
+        return write_key_line(
+            terminal,
+            "caller-directory-disabled",
+            &crate::LocalizationArgs::new(),
+        )
+        .map_err(Into::into);
+    }
+    terminal.begin_output();
+    write_key_line(
+        terminal,
+        "caller-directory-title",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let mut offset = 0;
+    let mut displayed = 0_u64;
+    loop {
+        let candidates = database.public_caller_directory(offset, 11)?;
+        for candidate in candidates.iter().take(10) {
+            if let Some(current) = database.revalidate_public_caller(candidate.caller_id)? {
+                write_public_caller(terminal, &current, timezone)?;
+                displayed += 1;
+            }
+            if terminal.output_aborted() {
+                return Ok(());
+            }
+        }
+        if candidates.len() <= 10 {
+            break;
+        }
+        write_key(
+            terminal,
+            "caller-directory-more-prompt",
+            &crate::LocalizationArgs::new(),
+        )?;
+        if read_yes_no_choice(terminal)? != Some(true) {
+            break;
+        }
+        offset += 10;
+    }
+    if displayed == 0 {
+        write_key_line(
+            terminal,
+            "caller-directory-empty",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    Ok(())
+}
+
+fn locate_caller(
+    terminal: &mut dyn Terminal,
+    database: &RuntimeDatabase,
+    timezone: chrono_tz::Tz,
+) -> Result<(), SessionError> {
+    write_key(
+        terminal,
+        "caller-locate-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(query) = read_utf8_input(terminal, crate::MAX_DIRECTORY_QUERY_BYTES)? else {
+        return Ok(());
+    };
+    let matches = match database.locate_public_callers(&query) {
+        Ok(matches) => matches,
+        Err(DatabaseError::PublicInformation(PublicInformationError::InvalidQuery)) => {
+            write_key_line(
+                terminal,
+                "caller-locate-invalid",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    for candidate in matches {
+        let Some(current) = database.revalidate_public_caller(candidate.caller_id)? else {
+            continue;
+        };
+        write_key(
+            terminal,
+            "caller-locate-confirm",
+            &crate::LocalizationArgs::new().with("handle", current.handle.clone()),
+        )?;
+        if read_yes_no_choice(terminal)? == Some(true) {
+            if let Some(current) = database.revalidate_public_caller(current.caller_id)? {
+                write_public_caller(terminal, &current, timezone)?;
+            }
+            return Ok(());
+        }
+    }
+    write_key_line(
+        terminal,
+        "caller-locate-none",
+        &crate::LocalizationArgs::new(),
+    )?;
+    Ok(())
+}
+
+fn write_public_caller(
+    terminal: &mut dyn Terminal,
+    caller: &crate::PublicCallerSummary,
+    timezone: chrono_tz::Tz,
+) -> Result<(), SessionError> {
+    write_key_line(
+        terminal,
+        "caller-directory-row",
+        &crate::LocalizationArgs::new().with("handle", caller.handle.clone()),
+    )?;
+    if let Some(last_call) = caller.last_call_at {
+        let date = chrono::DateTime::from_timestamp(last_call, 0)
+            .map(|value| value.with_timezone(&timezone).date_naive().to_string())
+            .unwrap_or_else(|| {
+                crate::text(
+                    "caller-public-information-unavailable",
+                    &crate::LocalizationArgs::new(),
+                )
+            });
+        write_key_line(
+            terminal,
+            "caller-directory-last-call",
+            &crate::LocalizationArgs::new().with("date", date),
+        )?;
+    }
+    if let Some(location) = &caller.city_region {
+        write_key_line(
+            terminal,
+            "caller-directory-location",
+            &crate::LocalizationArgs::new().with("location", location.clone()),
+        )?;
+    }
+    Ok(())
+}
+
+fn show_other_bbs(
+    terminal: &mut dyn Terminal,
+    database: &RuntimeDatabase,
+) -> Result<(), SessionError> {
+    terminal.begin_output();
+    write_key_line(
+        terminal,
+        "caller-other-bbs-title",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let entries = database.other_bbs_entries(false)?;
+    if entries.is_empty() {
+        write_key_line(
+            terminal,
+            "caller-other-bbs-empty",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    for entry in entries {
+        write_key_line(
+            terminal,
+            "caller-other-bbs-row",
+            &crate::LocalizationArgs::new()
+                .with("name", entry.name)
+                .with("speed", entry.speed)
+                .with("dial", entry.dial_string),
+        )?;
+        if terminal.output_aborted() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn add_other_bbs(
+    terminal: &mut dyn Terminal,
+    database: &mut RuntimeDatabase,
+    authenticated: &AuthenticatedCaller,
+) -> Result<(), SessionError> {
+    if !database
+        .public_directory_policy()?
+        .caller_bbs_additions_enabled
+    {
+        return write_key_line(
+            terminal,
+            "caller-other-bbs-add-disabled",
+            &crate::LocalizationArgs::new(),
+        )
+        .map_err(Into::into);
+    }
+    write_key(
+        terminal,
+        "caller-other-bbs-name-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(name) = read_utf8_input(terminal, crate::MAX_OTHER_BBS_NAME_BYTES)? else {
+        return Ok(());
+    };
+    write_key(
+        terminal,
+        "caller-other-bbs-speed-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(speed) = read_utf8_input(terminal, crate::MAX_OTHER_BBS_SPEED_BYTES)? else {
+        return Ok(());
+    };
+    write_key(
+        terminal,
+        "caller-other-bbs-dial-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(dial_string) = read_utf8_input(terminal, crate::MAX_OTHER_BBS_DIAL_BYTES)? else {
+        return Ok(());
+    };
+    match database.add_other_bbs(
+        PublicInformationActor::Caller(authenticated.caller.id),
+        NewOtherBbsEntry {
+            name,
+            speed,
+            dial_string,
+        },
+        unix_seconds()?,
+    ) {
+        Ok(_) => write_key_line(
+            terminal,
+            "caller-other-bbs-saved",
+            &crate::LocalizationArgs::new(),
+        )?,
+        Err(DatabaseError::PublicInformation(
+            PublicInformationError::InvalidText { .. } | PublicInformationError::DuplicateOtherBbs,
+        )) => write_key_line(
+            terminal,
+            "caller-other-bbs-invalid",
+            &crate::LocalizationArgs::new(),
+        )?,
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn show_bulletins(
+    terminal: &mut dyn Terminal,
+    resources: &StockResources,
+    context: &DisplayContext<'_>,
+) -> Result<(), SessionError> {
+    terminal.begin_output();
+    write_key_line(
+        terminal,
+        "caller-bulletins-title",
+        &crate::LocalizationArgs::new(),
+    )?;
+    if resources
+        .display("BULLETIN")
+        .is_some_and(|resource| resource.source == DisplaySource::BoardOverride)
+    {
+        render_named_display(terminal, resources, "BULLETIN", context)?;
+    }
+    let available = (1..=99)
+        .filter(|number| {
+            resources
+                .display(&format!("BULLET{number}"))
+                .is_some_and(|resource| resource.source == DisplaySource::BoardOverride)
+        })
+        .collect::<Vec<_>>();
+    if available.is_empty() {
+        write_key_line(
+            terminal,
+            "caller-bulletins-unavailable",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    }
+    for number in &available {
+        write_key_line(
+            terminal,
+            "caller-bulletin-catalog-row",
+            &crate::LocalizationArgs::new().with("number", *number as u64),
+        )?;
+    }
+    write_key(
+        terminal,
+        "caller-bulletin-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(input) = read_utf8_input(terminal, 2)? else {
+        return Ok(());
+    };
+    let Ok(number) = input.parse::<u8>() else {
+        write_key_line(
+            terminal,
+            "caller-bulletin-invalid",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    };
+    if available.contains(&number) {
+        render_named_display(terminal, resources, &format!("BULLET{number}"), context)?;
+    } else {
+        write_key_line(
+            terminal,
+            "caller-bulletin-unavailable",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    Ok(())
+}
+
+fn show_newsletter(
+    terminal: &mut dyn Terminal,
+    database: &RuntimeDatabase,
+    resources: &StockResources,
+    context: &DisplayContext<'_>,
+    authenticated: &AuthenticatedCaller,
+) -> Result<(), SessionError> {
+    if resources
+        .display("SFNWSLTR")
+        .is_some_and(|resource| resource.source == DisplaySource::BoardOverride)
+    {
+        if database
+            .public_resource_state("newsletter")?
+            .is_some_and(|state| {
+                authenticated
+                    .previous_call_at
+                    .is_some_and(|previous| state.published_at > previous)
+            })
+        {
+            write_key_line(
+                terminal,
+                "caller-newsletter-updated",
+                &crate::LocalizationArgs::new(),
+            )?;
+        }
+        render_named_display(terminal, resources, "SFNWSLTR", context)
+    } else {
+        write_key_line(
+            terminal,
+            "caller-newsletter-unavailable",
+            &crate::LocalizationArgs::new(),
+        )
+        .map_err(Into::into)
+    }
+}
+
+fn show_system_information(
+    terminal: &mut dyn Terminal,
+    database: &RuntimeDatabase,
+    board: &BoardIdentity,
+    timezone: chrono_tz::Tz,
+) -> Result<(), SessionError> {
+    let (started, calls) = database.public_system_facts()?;
+    let start_date = chrono::DateTime::from_timestamp(started, 0)
+        .map(|value| value.with_timezone(&timezone).date_naive().to_string())
+        .unwrap_or_else(|| {
+            crate::text(
+                "caller-public-information-unavailable",
+                &crate::LocalizationArgs::new(),
+            )
+        });
+    terminal.begin_output();
+    write_key_line(
+        terminal,
+        "caller-system-information-title",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key_line(
+        terminal,
+        "caller-system-information-board",
+        &crate::LocalizationArgs::new().with("board", board.name()),
+    )?;
+    write_key_line(
+        terminal,
+        "caller-system-information-sysop",
+        &crate::LocalizationArgs::new().with("sysop", board.sysop_name()),
+    )?;
+    write_key_line(
+        terminal,
+        "caller-system-information-started",
+        &crate::LocalizationArgs::new().with("date", start_date),
+    )?;
+    write_key_line(
+        terminal,
+        "caller-system-information-calls",
+        &crate::LocalizationArgs::new().with("calls", calls),
+    )?;
+    Ok(())
+}
+
+fn read_yes_no_choice(terminal: &mut dyn Terminal) -> Result<Option<bool>, TerminalError> {
+    match terminal.read_line(8)? {
+        Some(value) => Ok(value
+            .iter()
+            .find(|byte| !byte.is_ascii_whitespace())
+            .and_then(|byte| match byte.to_ascii_uppercase() {
+                b'Y' => Some(true),
+                b'N' => Some(false),
+                _ => None,
+            })),
+        None => Ok(None),
+    }
+}
+
+fn read_utf8_input(
+    terminal: &mut dyn Terminal,
+    maximum: usize,
+) -> Result<Option<String>, SessionError> {
+    let bytes = match terminal.read_line(maximum) {
+        Ok(value) => value,
+        Err(TerminalError::InputTooLong { .. }) => {
+            write_key_line(
+                terminal,
+                "caller-public-information-input-invalid",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(None);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
+    match String::from_utf8(bytes) {
+        Ok(value) => Ok(Some(value.trim().to_owned())),
+        Err(_) => {
+            write_key_line(
+                terminal,
+                "caller-public-information-input-invalid",
+                &crate::LocalizationArgs::new(),
+            )?;
+            Ok(None)
+        }
+    }
+}
+
 fn show_about(
     terminal: &mut dyn Terminal,
     resources: &StockResources,
@@ -2020,7 +2529,17 @@ fn render_post_login_resources(
         resources,
         &authenticated.caller.id.get().to_string(),
         context,
-    )
+    )?;
+    if let Some(thought) = resources.thoughts.as_ref().and_then(|catalog| {
+        catalog.select(authenticated.caller.id.get() as u64 ^ authenticated.caller.call_count)
+    }) {
+        write_key_line(
+            terminal,
+            "caller-thought",
+            &crate::LocalizationArgs::new().with("thought", thought),
+        )?;
+    }
+    Ok(())
 }
 
 pub(crate) fn read_menu_command(
@@ -2539,6 +3058,7 @@ fn help_record_number(section: MenuSection, identifier: u8) -> Option<usize> {
         (MenuSection::Main, b'C') => Some(32),
         (MenuSection::Main, b'O') => Some(33),
         (MenuSection::Main, b'D') => Some(50),
+        (MenuSection::Main, b'V') => Some(51),
         (MenuSection::Message, b'J') => Some(34),
         (MenuSection::Message, b'Z') => Some(35),
         (MenuSection::Message, b'I') => Some(36),

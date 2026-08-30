@@ -226,3 +226,49 @@ message-editor-quote-too-long = Quoted range would exceed the message limit.
 message-personal-read-prompt = Read Conference/Message (for example 2/15, Enter = return): { " " }
 message-personal-reference-invalid = Invalid conference/message reference.
 message-personal-unavailable = That personal message is unavailable.
+
+# M043 privacy-bounded public information. These strings frame semantic data;
+# presentation profiles may style them without changing visibility policy.
+caller-directory-listed = Listed
+caller-directory-unlisted = Unlisted
+caller-directory-listing-status = Public caller directory: { $status }
+caller-directory-listing-change-prompt = Change your directory preference? (Y/N): { " " }
+caller-directory-listing-enable-prompt = List your public handle when the board directory is enabled? (Y/N): { " " }
+caller-directory-listing-saved = Your public-directory preference was saved.
+caller-public-information-conflict = That information changed in another session; current state was reloaded.
+caller-directory-disabled = The public caller directory is unavailable.
+caller-directory-title = --- SPITFIRE CALLER DIRECTORY ---
+caller-directory-row = Handle: { $handle }
+caller-directory-last-call = Last Call: { $date }
+caller-directory-location = Location: { $location }
+caller-directory-more-prompt = Display the next page? (Y/N): { " " }
+caller-directory-empty = No callers have chosen to appear in the directory.
+caller-locate-prompt = Partial Caller Handle (1-30 ASCII characters; Enter = return): { " " }
+caller-locate-invalid = Enter 1-30 ASCII characters from a public caller handle.
+caller-locate-confirm = Is { $handle } the caller you want? (Y/N): { " " }
+caller-locate-none = No visible caller matched that request.
+caller-public-information-unavailable = unavailable
+caller-public-information-input-invalid = That value is unavailable or outside the permitted bounds.
+caller-other-bbs-title = --- OTHER BBS INFORMATION ---
+caller-other-bbs-empty = No Other BBS entries are available.
+caller-other-bbs-row = { $name } | { $speed } | { $dial }
+caller-other-bbs-add-disabled = Caller additions to Other BBS information are disabled.
+caller-other-bbs-name-prompt = BBS Name (Enter = cancel): { " " }
+caller-other-bbs-speed-prompt = Speed (Enter = cancel): { " " }
+caller-other-bbs-dial-prompt = Dial String (Enter = cancel): { " " }
+caller-other-bbs-saved = The Other BBS entry was saved.
+caller-other-bbs-invalid = That Other BBS entry is invalid or already exists.
+caller-bulletins-title = --- SPITFIRE BULLETINS ---
+caller-bulletins-unavailable = No bulletins are available.
+caller-bulletin-catalog-row = Bulletin { $number }
+caller-bulletin-prompt = Bulletin Number (Enter = return): { " " }
+caller-bulletin-invalid = Enter an available bulletin number from 1 through 99.
+caller-bulletin-unavailable = That bulletin is unavailable.
+caller-newsletter-unavailable = The SPITFIRE newsletter is unavailable.
+caller-newsletter-updated = The SPITFIRE newsletter has changed since your previous call.
+caller-system-information-title = --- SPITFIRE SYSTEM INFORMATION ---
+caller-system-information-board = Board: { $board }
+caller-system-information-sysop = Sysop: { $sysop }
+caller-system-information-started = Board Started: { $date }
+caller-system-information-calls = Completed Calls: { $calls }
+caller-thought = Thought: { $thought }

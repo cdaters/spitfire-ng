@@ -207,8 +207,9 @@ advanced capability is not implemented.
 ### `.BBS`
 
 Non-ANSI ASCII/IBM-compatible display. Historical supplied files demonstrate
-that this class may contain single-byte CP437 above `0x7F`; it does not mean
-seven-bit bytes only.
+that this class may contain single-byte CP437 above `0x7F`; the original
+manual's “ASCII” label is the product's non-ANSI presentation class, not a
+claim that every byte is seven-bit ASCII.
 
 ### `.CLR`
 
@@ -218,6 +219,17 @@ ANSI/color terminal instruction stream with ASCII/CP437 glyph bytes.
 
 RIP ASCII command script. It is documented historically but not loaded or sent
 by the current SPITFIRE NG ANSI/text tier.
+
+Manual §5.4 distinguishes three availability classes. `[BCR]` resources may
+have BBS, CLR, and RIP forms; `[BC ]` resources may have BBS and CLR forms;
+some resources are tied to one extension. The documented BBS-only group is
+`THOUGHTS.BBS`, `SFEXTDN.BBS`, `SFEXTUP.BBS`, `SFFILES.BBS`, `SFPRELOG.BBS`,
+and `SF2SLOW.BBS`. `MAINCTRL.RIP`, `FILECTRL.RIP`, and `MSGCTRL.RIP` are
+RIP-only. These are compatibility identities, not permission to synthesize a
+missing form. In particular, `THOUGHTS.BBS` is an optional DISPLAY-path
+resource created by the historical `THOUGHTS.EXE` utility and displayed to
+callers when present; its record layout and selection algorithm are not
+documented by the available manual or utility corpus.
 
 ### Authoring byte contract
 
@@ -253,9 +265,9 @@ Current resource order is `SFPRELOG`, `WELCOME1`, authentication,
 caller-number display. Exact-security `MAIN<n>`, `MSG<n>`, `FILE<n>`, and
 `SOP<n>` files override generated security-filtered menu text. `SF1STM`,
 `SF1STF`, `SFMSG<n>`, `SFIL<n>`, `SFDOWN`, `SFUP`, page/chat resources, and
-`GOODBYE` cover the implemented section journey. RIP selection and the
-complete event/questionnaire/bulletin/caller-state inventory remain
-stock-advanced B-005/B-006 work.
+`GOODBYE` cover the implemented section journey; M043 adds numbered bulletins
+and `SFNWSLTR`. RIP selection and the complete event/questionnaire/caller-state
+inventory remain stock-advanced B-005/B-006 work.
 
 ### Deterministic caller-visible fallback matrix
 
@@ -275,6 +287,15 @@ navigation independently.
 
 ## 8. Display Macros
 
+Historical display files are executable presentation resources rather than
+merely static text or ANSI art. Manual §5.7 documents control bytes and
+equivalent `@...@` strings that insert current caller/system facts or change
+screen behavior such as paging, abortability, clear-screen, and bell. The
+manual applies these controls to BBS, CLR, and RIP forms where that resource
+format exists. Current SPITFIRE NG interprets only the documented table and
+its explicitly identified native additions; it does not infer new legacy
+syntax.
+
 The confirmed SF37 §5.7 control table is implemented in both control-byte and
 documented string form where a string form exists:
 
@@ -283,8 +304,8 @@ documented string form where a string form exists:
 | `^B` | `@PROMPTOFF@` | Suppress automatic paging prompts for this output unit |
 | `^C` | `@NOABORT@` | Disable caller abort for this output unit |
 | `^D` | `@FNAME@` | First word of the authenticated caller name |
-| `^E` | `@SUBDATE@` | Subscription date; explicit `N/A` until modeled |
-| `^F` | `@CITYSTATE@` | Explicitly not collected by the native caller model |
+| `^E` | `@SUBDATE@` | Explicit `N/A` in the current display context; lifecycle subscription state is not exposed here |
+| `^F` | `@CITYSTATE@` | The authenticated caller's own private city/region value, or `[NOT PROVIDED]` |
 | `^G` | `@BEEP@` | Terminal bell |
 | `^J` | `@UPLOADS@` | Successful upload count; DOS CRLF remains line structure |
 | `^K` | `@DOWNLOADS@` | Successful download count |
@@ -293,10 +314,10 @@ documented string form where a string form exists:
 | `^O` | `@ORGLOG@` | Original/first logon timestamp |
 | `^P` | `@PROMPT@` | Re-enable paging prompts for this output unit |
 | `^Q` | `@LOGTIME@` | Remaining session minutes |
-| `^R` | `@PHONENUM@` | Explicitly not collected |
+| `^R` | `@PHONENUM@` | The authenticated caller's own private phone value, or `[NOT PROVIDED]` |
 | `^S` | `@LASTCALL@` | Previous call timestamp |
 | `^T` | `@PASSWORD@` | Deliberately unavailable; never exposes a credential |
-| `^U` | `@BIRTHDATE@` | Explicitly not collected |
+| `^U` | `@BIRTHDATE@` | The authenticated caller's own private birthday value, or `[NOT PROVIDED]` |
 | `^V` | `@NAME@` | Authenticated caller display name |
 | `^W` | `@UPK@` | Successful upload KiB |
 | `^X` | `@DOWNK@` | Successful download KiB |

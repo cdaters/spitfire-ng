@@ -56,7 +56,9 @@ checkpoints; schema-12 caller lifecycle versions, authoritative base security,
 subscription expiration, reasoned security adjustments, purge protection,
 recoverable tombstones, and privacy-safe caller-access events; schema-13 login
 identifiers, public handles, private real names, and privacy-safe identity events;
-conferences,
+schema-14 public-directory policy, caller opt-outs and versions, ordered Other
+BBS state/contributors, public-resource generations, and privacy-safe public-
+information events; conferences,
 immutable message payload/fan-out identities,
 separately numbered delivery recipients/audiences, tombstones, visibility,
 receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
@@ -79,7 +81,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite read-only and require current schema 13, exact migration names,
+3. open SQLite read-only and require current schema 14, exact migration names,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
 4. use SQLite's backup API to create one consistent database copy, then apply
@@ -99,9 +101,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-13 snapshots.
+target. This build accepts exact schema-10 through schema-14 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional 10→11, 11→12, and/or 12→13 migrations. Validation rejects
+applies the transactional 10→11, 11→12, 12→13, and/or 13→14 migrations. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -159,8 +161,9 @@ persisted caller through the common session engine. Replacement tests prove
 that post-snapshot caller/resource state is removed only after validation.
 
 Additional tests cover SQLite snapshot consistency, schema-10/11 exact restore
-followed by normal migration, schema-13 identity and exact SSH-key/configuration
-preservation, older/newer refusal,
+followed by normal migration, schema-13 identity restore followed by writable
+schema-14 migration, exact SSH-key/configuration preservation, schema-14 public
+policy/opt-out/Other-BBS/event/resource-generation preservation, older/newer refusal,
 board-lock exclusion, missing catalog bytes, checksum corruption, manifest
 traversal, undeclared files, explicit replacement, rollback cleanup, and the
 Sysop CLI report. The combined workspace and existing transport,
@@ -201,3 +204,13 @@ Deliberate key rotation is an operator action after backup, not a restore side
 effect. Moving the old key and starting the enabled listener generates a new
 one; clients will correctly report a changed host fingerprint. See
 [Secure SSH Caller Transport](sfng-secure-ssh-transport.md).
+
+## Schema-14 public-information recovery boundary
+
+M043 schema 14 is current. Cold backup preserves directory policy, each
+caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
+contributors/versions, recognized resource generations/digests, semantic
+events, and authoritative bulletin/newsletter/native-thought bytes under the
+existing SYSTEM/DISPLAY recursion. Restore reproduces visibility and order.
+A schema-13 backup restores exactly and migrates with private defaults only on
+later normal writable startup. See [Public Information](sfng-public-information.md).

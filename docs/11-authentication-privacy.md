@@ -24,6 +24,14 @@ authoritative Argon2id domain. See
 [Secure SSH Caller Transport](sfng-secure-ssh-transport.md). MFA, public-key
 management, web login, and network adapters remain future work.
 
+M043 adds a separate public-information projection. Stable caller ID is used
+internally for ownership/revalidation, handle is the only caller-facing
+identity, and login identifier plus optional real name remain private. The
+board directory and every caller default unlisted; board policy can permit but
+cannot force disclosure. Disabled, Deleted, and opted-out callers appear
+absent to ordinary directory/locate commands. See
+[Public Information](sfng-public-information.md).
+
 ## 2. Caller Principle
 
 The historical concept of a Caller remains central.
@@ -383,19 +391,18 @@ The goal is reasonable protection, not pretending public BBS identities are secr
 
 ## 23. Caller Privacy Settings
 
-Possible privacy settings may include:
+Current schema 14 keeps private profile/contact data out of public caller
+projections and implements the minimum M043 policy: the board directory and
+every caller default unlisted; a caller may choose listed/unlisted; the public
+identity is handle; last-call is only a board-local date when enabled; and
+city/region is the only optional historical location projection. Login
+identifier, real name, email, phone, street/postal address, birthday,
+credentials, security/subscription/JOKER state, and audit details remain
+private.
 
-    Show location
-    Show email
-    Show last-call date
-    Show statistics
-    Allow private messages
-    Appear in caller list
-    Display real name
-
-The Sysop may establish defaults.
-
-Historical compatibility may require reasonable interpretation when importing older records.
+The preference has its own optimistic version, and every display revalidates
+current policy/lifecycle/opt-in before disclosure. See
+[Public Information](sfng-public-information.md).
 
 ## 24. Legacy Data Import
 

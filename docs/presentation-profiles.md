@@ -49,6 +49,15 @@ These invariants extend Decisions D-001, D-002, D-004, D-017, D-021, and the
 existing resource fallback contract in
 [Legacy Data and File Formats](06-legacy-file-formats.md).
 
+M043 implements the public-information content boundary without changing
+profile format/API 1. Modern and Minimal advance to 1.3.0 and Classic to 1.4.0
+for their independently authored Main-menu mappings. A profile may style
+directory, Other BBS, bulletin, newsletter, thought, and system-information
+chrome or empty states. It cannot own caller visibility, Other BBS data rows,
+system facts, or board news. The engine supplies a privacy-filtered semantic
+view while authoritative bulletin/newsletter/thought content remains a board-
+owned DISPLAY/SYSTEM resource. See [Public Information](sfng-public-information.md).
+
 ## Architectural boundary
 
 ```mermaid

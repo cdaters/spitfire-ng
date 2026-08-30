@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sf_core::{
-    Caller, CallerState, OperatorChat, PageRequest, SecurityLevel, SessionId, SysopAvailability,
+    Caller, CallerState, NewOtherBbsEntry, OperatorChat, OtherBbsEntry, OtherBbsId,
+    OtherBbsLifecycle, PageRequest, PublicDirectoryPolicy, SecurityLevel, SessionId,
+    SysopAvailability,
 };
 use tracing::info;
 
@@ -146,6 +148,65 @@ impl OperatorService {
             "operator changed caller identity"
         );
         Ok(caller)
+    }
+
+    pub fn public_information_policy(&self) -> Result<PublicDirectoryPolicy, ApplicationError> {
+        self.runtime.public_information_policy()
+    }
+
+    pub fn update_public_information_policy(
+        &self,
+        expected_version: u64,
+        enabled: bool,
+        show_last_call: bool,
+        show_location: bool,
+        caller_additions: bool,
+    ) -> Result<PublicDirectoryPolicy, ApplicationError> {
+        self.runtime.update_public_information_policy(
+            expected_version,
+            enabled,
+            show_last_call,
+            show_location,
+            caller_additions,
+        )
+    }
+
+    pub fn other_bbs_entries(&self) -> Result<Vec<OtherBbsEntry>, ApplicationError> {
+        self.runtime.other_bbs_entries()
+    }
+
+    pub fn add_other_bbs(
+        &self,
+        entry: NewOtherBbsEntry,
+    ) -> Result<OtherBbsEntry, ApplicationError> {
+        self.runtime.add_other_bbs(entry)
+    }
+
+    pub fn edit_other_bbs(
+        &self,
+        id: OtherBbsId,
+        version: u64,
+        entry: NewOtherBbsEntry,
+    ) -> Result<OtherBbsEntry, ApplicationError> {
+        self.runtime.edit_other_bbs(id, version, entry)
+    }
+
+    pub fn reorder_other_bbs(
+        &self,
+        id: OtherBbsId,
+        version: u64,
+        order: usize,
+    ) -> Result<OtherBbsEntry, ApplicationError> {
+        self.runtime.reorder_other_bbs(id, version, order)
+    }
+
+    pub fn set_other_bbs_lifecycle(
+        &self,
+        id: OtherBbsId,
+        version: u64,
+        lifecycle: OtherBbsLifecycle,
+    ) -> Result<OtherBbsEntry, ApplicationError> {
+        self.runtime.set_other_bbs_lifecycle(id, version, lifecycle)
     }
 }
 
@@ -293,11 +354,234 @@ pub fn run_operator_console(
                     "operator-caller-security-changed",
                 )?;
             }
+            "INFO-POLICY" => show_public_information_policy(service, output)?,
+            "INFO-POLICY-SET" => update_public_information_policy(service, rest, output)?,
+            "BBS-LIST" => show_other_bbs_entries(service, output)?,
+            "BBS-ADD" => {
+                let entry = parse_other_bbs_fields(rest)?;
+                write_other_bbs_mutation(output, service.add_other_bbs(entry))?;
+            }
+            "BBS-EDIT" => {
+                let (head, fields) =
+                    rest.split_once('|')
+                        .ok_or(ApplicationError::InvalidSetupValue(
+                            "use BBS-EDIT <id> <version>|<name>|<speed>|<dial>",
+                        ))?;
+                let (id, version) = parse_other_bbs_identity(head)?;
+                write_other_bbs_mutation(
+                    output,
+                    service.edit_other_bbs(id, version, parse_other_bbs_fields(fields)?),
+                )?;
+            }
+            "BBS-MOVE" => {
+                let values = rest.split_ascii_whitespace().collect::<Vec<_>>();
+                if values.len() != 3 {
+                    return Err(ApplicationError::InvalidSetupValue(
+                        "use BBS-MOVE <id> <version> <order>",
+                    ));
+                }
+                let id = OtherBbsId::new(values[0].parse().map_err(|_| {
+                    ApplicationError::InvalidSetupValue("Other BBS id must be numeric")
+                })?)?;
+                let version = values[1].parse().map_err(|_| {
+                    ApplicationError::InvalidSetupValue("Other BBS version must be numeric")
+                })?;
+                let order = values[2].parse().map_err(|_| {
+                    ApplicationError::InvalidSetupValue("Other BBS order must be numeric")
+                })?;
+                write_other_bbs_mutation(output, service.reorder_other_bbs(id, version, order))?;
+            }
+            "BBS-STATE" => {
+                let values = rest.split_ascii_whitespace().collect::<Vec<_>>();
+                if values.len() != 3 {
+                    return Err(ApplicationError::InvalidSetupValue(
+                        "use BBS-STATE <id> <version> <ACTIVE|DISABLED>",
+                    ));
+                }
+                let id = OtherBbsId::new(values[0].parse().map_err(|_| {
+                    ApplicationError::InvalidSetupValue("Other BBS id must be numeric")
+                })?)?;
+                let version = values[1].parse().map_err(|_| {
+                    ApplicationError::InvalidSetupValue("Other BBS version must be numeric")
+                })?;
+                let lifecycle = match values[2].to_ascii_uppercase().as_str() {
+                    "ACTIVE" => OtherBbsLifecycle::Active,
+                    "DISABLED" => OtherBbsLifecycle::Disabled,
+                    _ => {
+                        return Err(ApplicationError::InvalidSetupValue(
+                            "Other BBS lifecycle must be ACTIVE or DISABLED",
+                        ))
+                    }
+                };
+                write_other_bbs_mutation(
+                    output,
+                    service.set_other_bbs_lifecycle(id, version, lifecycle),
+                )?;
+            }
             "QUIT" | "EXIT" => return Ok(()),
             "" => {}
             _ => writeln!(output, "{}", op("operator-console-unknown-command"))
                 .map_err(ApplicationError::SetupIo)?,
         }
+    }
+}
+
+fn show_public_information_policy(
+    service: &OperatorService,
+    output: &mut dyn Write,
+) -> Result<(), ApplicationError> {
+    let policy = service.public_information_policy()?;
+    writeln!(
+        output,
+        "{}",
+        op_args(
+            "operator-public-information-policy",
+            sf_core::LocalizationArgs::new()
+                .with("enabled", policy.enabled.to_string())
+                .with("last_call", policy.show_last_call_date.to_string())
+                .with("location", policy.show_city_region.to_string())
+                .with(
+                    "caller_additions",
+                    policy.caller_bbs_additions_enabled.to_string()
+                )
+                .with("version", policy.state_version)
+        )
+    )
+    .map_err(ApplicationError::SetupIo)
+}
+
+fn update_public_information_policy(
+    service: &OperatorService,
+    rest: &str,
+    output: &mut dyn Write,
+) -> Result<(), ApplicationError> {
+    let values = rest.split_ascii_whitespace().collect::<Vec<_>>();
+    if values.len() != 5 {
+        return Err(ApplicationError::InvalidSetupValue("use INFO-POLICY-SET <version> <ON|OFF> <LAST|NO-LAST> <LOCATION|NO-LOCATION> <CALLER-ADD|NO-CALLER-ADD>"));
+    }
+    let version = values[0]
+        .parse()
+        .map_err(|_| ApplicationError::InvalidSetupValue("policy version must be numeric"))?;
+    let enabled = parse_policy_flag(values[1], "ON", "OFF")?;
+    let last = parse_policy_flag(values[2], "LAST", "NO-LAST")?;
+    let location = parse_policy_flag(values[3], "LOCATION", "NO-LOCATION")?;
+    let additions = parse_policy_flag(values[4], "CALLER-ADD", "NO-CALLER-ADD")?;
+    let policy =
+        service.update_public_information_policy(version, enabled, last, location, additions)?;
+    writeln!(
+        output,
+        "{}",
+        op_args(
+            "operator-public-information-policy-updated",
+            sf_core::LocalizationArgs::new().with("version", policy.state_version)
+        )
+    )
+    .map_err(ApplicationError::SetupIo)
+}
+
+fn parse_policy_flag(
+    value: &str,
+    yes: &'static str,
+    no: &'static str,
+) -> Result<bool, ApplicationError> {
+    if value.eq_ignore_ascii_case(yes) {
+        Ok(true)
+    } else if value.eq_ignore_ascii_case(no) {
+        Ok(false)
+    } else {
+        Err(ApplicationError::InvalidSetupValue(
+            "invalid public-information policy flag",
+        ))
+    }
+}
+
+fn show_other_bbs_entries(
+    service: &OperatorService,
+    output: &mut dyn Write,
+) -> Result<(), ApplicationError> {
+    for entry in service.other_bbs_entries()? {
+        writeln!(
+            output,
+            "{}",
+            op_args(
+                "operator-other-bbs-row",
+                sf_core::LocalizationArgs::new()
+                    .with("id", entry.id.get())
+                    .with("order", entry.order)
+                    .with("state", format!("{:?}", entry.lifecycle))
+                    .with("version", entry.state_version)
+                    .with("name", entry.name)
+                    .with("speed", entry.speed)
+                    .with("dial", entry.dial_string)
+                    .with(
+                        "contributor",
+                        entry
+                            .contributor_caller_id
+                            .map(|id| id.get().to_string())
+                            .unwrap_or_else(|| "operator".to_owned())
+                    )
+            )
+        )
+        .map_err(ApplicationError::SetupIo)?;
+    }
+    Ok(())
+}
+
+fn parse_other_bbs_fields(value: &str) -> Result<NewOtherBbsEntry, ApplicationError> {
+    let fields = value.split('|').map(str::trim).collect::<Vec<_>>();
+    if fields.len() != 3 {
+        return Err(ApplicationError::InvalidSetupValue(
+            "use <name>|<speed>|<dial>",
+        ));
+    }
+    Ok(NewOtherBbsEntry {
+        name: fields[0].to_owned(),
+        speed: fields[1].to_owned(),
+        dial_string: fields[2].to_owned(),
+    })
+}
+
+fn parse_other_bbs_identity(value: &str) -> Result<(OtherBbsId, u64), ApplicationError> {
+    let values = value.split_ascii_whitespace().collect::<Vec<_>>();
+    if values.len() != 2 {
+        return Err(ApplicationError::InvalidSetupValue(
+            "Other BBS id and version are required",
+        ));
+    }
+    Ok((
+        OtherBbsId::new(
+            values[0]
+                .parse()
+                .map_err(|_| ApplicationError::InvalidSetupValue("Other BBS id must be numeric"))?,
+        )?,
+        values[1].parse().map_err(|_| {
+            ApplicationError::InvalidSetupValue("Other BBS version must be numeric")
+        })?,
+    ))
+}
+
+fn write_other_bbs_mutation(
+    output: &mut dyn Write,
+    result: Result<OtherBbsEntry, ApplicationError>,
+) -> Result<(), ApplicationError> {
+    match result {
+        Ok(entry) => writeln!(
+            output,
+            "{}",
+            op_args(
+                "operator-other-bbs-updated",
+                sf_core::LocalizationArgs::new()
+                    .with("id", entry.id.get())
+                    .with("version", entry.state_version)
+            )
+        )
+        .map_err(ApplicationError::SetupIo),
+        Err(ApplicationError::Database(sf_core::DatabaseError::PublicInformation(
+            sf_core::PublicInformationError::OtherBbsConflict { .. }
+            | sf_core::PublicInformationError::PolicyConflict { .. },
+        ))) => writeln!(output, "{}", op("operator-public-information-conflict"))
+            .map_err(ApplicationError::SetupIo),
+        Err(error) => Err(error),
     }
 }
 
@@ -412,6 +696,8 @@ fn show_callers(service: &OperatorService, output: &mut dyn Write) -> Result<(),
                     .with("base_security", caller.base_security_level.get())
                     .with("state", format!("{:?}", caller.state))
                     .with("version", caller.state_version)
+                    .with("listed", caller.public_directory_listed.to_string())
+                    .with("publicity_version", caller.publicity_state_version)
                     .with("purge_protected", caller.purge_protected.to_string())
                     .with(
                         "subscription",

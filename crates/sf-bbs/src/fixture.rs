@@ -20,7 +20,7 @@ pub const FIXTURE_CONFIG_FILE: &str = "spitfire.toml";
 const DISPLAY_NOTICE_FILE: &str = "GENERATED-RESOURCES.txt";
 const PROJECT_ASSET_LICENSE: &[u8] = b"SPDX-License-Identifier: MIT OR Apache-2.0\n\nCopyright (C) 2026 Craig Daters and SPITFIRE NG contributors.\nThese project-authored resources are available under the SPITFIRE NG repository's LICENSE-MIT or LICENSE-APACHE terms, at your option.\nHistorical and third-party research material is excluded and retains its original copyright and license.\n";
 
-const MAIN_MENU: &[u8] = b"M,<M>.......... Message Section,,5,E\r\nC,<C>.......... Comment To Sysop,,5,J\r\nF,<F>............. File Section,,5,Q\r\nP,<P>............ Page The Sysop,,5,H\r\nY,<Y>.......... Your Statistics,,5,G\r\nR,<R>....... Your Caller Profile,,5,Y\r\nU,<U>.... Terminal Preferences,,5,R\r\nA,<A>........... About SPITFIRE NG,,5,I\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
+const MAIN_MENU: &[u8] = b"M,<M>.......... Message Section,,5,E\r\nC,<C>.......... Comment To Sysop,,5,J\r\nF,<F>............. File Section,,5,Q\r\nP,<P>............ Page The Sysop,,5,H\r\nY,<Y>.......... Your Statistics,,5,G\r\nR,<R>....... Your Caller Profile,,5,D\r\nU,<U>.... Terminal Preferences,,5,R\r\nV,<V>........... About SPITFIRE NG,,5,V\r\nB,<B>................ Bulletins,,5,Y\r\n#,<#>......... Caller Directory,,5,L\r\nL,<L>......... Locate A Caller,,5,I\r\nT,<T>...... System Information,,5,K\r\nN,<N>............... Newsletter,,5,X\r\nO,<O>..... Other BBS Information,,5,P\r\nA,<A>............ Add Other BBS,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
 const MESSAGE_MENU: &[u8] = b"C,<C>....... Change Conference,,5,Z\r\nR,<R>............. Read Messages,,5,I\r\nB,<B>........... Browse Messages,,5,J\r\nE,<E>......... Enter New Message,,5,L\r\nY,<Y>............. Your Messages,,5,G\r\nA,<A>.... Alter Conference Queue,,5,K\r\nS,<S>.. Specific Caller Messages,,5,S\r\nT,<T>............... Text Search,,5,X\r\nF,<F>.............. File Section,,5,D\r\nQ,<Q>......... Quit To Main Menu,,5,C\r\n@,<@>........... Sysop Utilities,,50,R\r\nX,<X>......... Xpert Mode Toggle,,5,B\r\nG,<G>......... Goodbye & Log Off,,5,A\r\n?,<?>........ HELP With Commands,,5,?\r\n";
 const FILE_MENU: &[u8] = b"C,<C>......... Change File Area,,5,Z\r\nL,<L>.. List Files In This Area,,5,X\r\nD,<D>.......... Download A File,,5,L\r\nU,<U>............ Upload A File,,5,I\r\nN,<N>................ New Files,,5,N\r\nT,<T>.. Text Search Description,,5,S\r\nF,<F>.............. Find A File,,5,P\r\nM,<M>.......... Message Section,,5,E\r\nQ,<Q>........ Quit To Main Menu,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
 
@@ -203,6 +203,7 @@ pub(crate) fn write_default_resources(
     fixture: bool,
 ) -> Result<(), ApplicationError> {
     let system = paths.get(LogicalPath::System);
+    let board_display = paths.get(LogicalPath::Display);
     sf_core::install_embedded_en_us(system)?;
     let profile = profile_root(paths, MODERN_PROFILE_ID);
     let display = profile.join("resources/display");
@@ -224,7 +225,7 @@ pub(crate) fn write_default_resources(
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Modern SPITFIRE NG 1.2.0\n\nThe default project-authored post-preview presentation. Version 1.2.0 adds the LOCKOUT, SUBWARN, and SFSUBCHG caller-access presentation boundaries while retaining the current message-system surfaces. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
+        b"# Modern SPITFIRE NG 1.3.0\n\nThe default project-authored presentation. Version 1.3.0 adds M043 public-information framing while board-owned information remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&system.join("SFMAIN.MNU"), MAIN_MENU)?;
@@ -262,7 +263,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "MAIN10.BBS",
-            b"\r\n>>>>>>>> MAIN MENU <<<<<<<<\r\n<M> Messages  <F> Files  <C> Comment to Sysop  <P> Page Sysop\r\n<Y> Statistics <R> Caller Profile <U> Terminal Preferences\r\n<A> About SPITFIRE NG <X> Xpert <G> Goodbye <?> Help\r\n".as_slice(),
+            b"\r\n>>>>>>>> MAIN MENU <<<<<<<<\r\n<M> Messages <F> Files <C> Comment <P> Page <Y> Statistics <R> Profile <U> Terminal\r\n<B> Bulletins <#> Directory <L> Locate <T> System <N> Newsletter <O> Other BBS <A> Add BBS\r\n<V> About <X> Xpert <G> Goodbye <?> Help\r\n".as_slice(),
         ),
         (
             "MSG10.BBS",
@@ -378,7 +379,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "MAIN10.CLR",
-            "@CLS@\x1B[1;36m>>>>>>>> MAIN MENU <<<<<<<<\x1B[0m\r\n<M> Messages  <F> Files  <C> Comment to Sysop  <P> Page Sysop\r\n<Y> Statistics <R> Caller Profile <U> Terminal Preferences\r\n<A> About SPITFIRE NG <X> Xpert <G> Goodbye <?> Help\r\n",
+            "@CLS@\x1B[1;36m>>>>>>>> MAIN MENU <<<<<<<<\x1B[0m\r\n<M> Messages <F> Files <C> Comment <P> Page <Y> Statistics <R> Profile <U> Terminal\r\n<B> Bulletins <#> Directory <L> Locate <T> System <N> Newsletter <O> Other BBS <A> Add BBS\r\n<V> About <X> Xpert <G> Goodbye <?> Help\r\n",
         ),
         (
             "MSG10.CLR",
@@ -406,6 +407,16 @@ pub(crate) fn write_default_resources(
         ),
     ] {
         write_new(&display.join(name), body.as_bytes())?;
+    }
+    // M043 board-owned publications live in the established DISPLAY root.
+    // These are project-authored starter bytes, not original SPITFIRE assets.
+    for (name, body) in [
+        ("BULLETIN.BBS", b"Available SPITFIRE bulletins:\r\n".as_slice()),
+        ("BULLET1.BBS", b"SPITFIRE NG public information is available from the Main Menu.\r\n".as_slice()),
+        ("SFNWSLTR.BBS", b"SPITFIRE NG Newsletter\r\nWelcome to the board's project-authored newsletter.\r\n".as_slice()),
+        ("THOUGHTS.NG", b"Privacy is part of a caller's identity.\nBoard information should be useful without exposing private data.\n".as_slice()),
+    ] {
+        write_new(&board_display.join(name), body)?;
     }
     write_modern_profile_descriptor(&profile)?;
     write_minimal_profile(paths, fixture)?;
@@ -436,7 +447,7 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Minimal Terminal 1.2.0\n\nThe project-authored text-first SPITFIRE NG presentation. Version 1.2.0 adds the LOCKOUT, SUBWARN, and SFSUBCHG caller-access presentation boundaries while retaining the current message-system surfaces. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
+        b"# Minimal Terminal 1.3.0\n\nThe project-authored text-first presentation. Version 1.3.0 adds M043 public-information framing while board-owned information remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&help_directory.join("SPITFIRE.HLP"), &minimal_help_bytes()?)?;
@@ -465,12 +476,12 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
         ),
         (
             "MAIN10.BBS",
-            b"\r\nSPITFIRE NG - MAIN MENU\r\nM - Messages\r\nF - Files\r\nC - Comment to Sysop\r\nP - Page Sysop\r\nY - Your statistics\r\nR - Caller profile\r\nU - Terminal preferences\r\nA - About SPITFIRE NG\r\nX - Toggle expert mode\r\nG - Goodbye\r\n? - Help\r\n"
+            b"\r\nSPITFIRE NG - MAIN MENU\r\nM Messages | F Files | C Comment | P Page\r\nY Statistics | R Profile | U Terminal\r\nB Bulletins | # Directory | L Locate\r\nT System | N Newsletter | O Other BBS\r\nA Add BBS | V About | X Xpert\r\nG Goodbye | ? Help\r\n"
                 .as_slice(),
         ),
         (
             "MAIN50.BBS",
-            b"\r\nSPITFIRE NG - MAIN MENU\r\nM - Messages\r\nF - Files\r\nC - Comment to Sysop\r\nP - Page Sysop\r\nY - Your statistics\r\nR - Caller profile\r\nU - Terminal preferences\r\nA - About SPITFIRE NG\r\n@ - Sysop utilities\r\nX - Toggle expert mode\r\nG - Goodbye\r\n? - Help\r\n"
+            b"\r\nSPITFIRE NG - MAIN MENU\r\nM Messages | F Files | C Comment | P Page\r\nY Statistics | R Profile | U Terminal\r\nB Bulletins | # Directory | L Locate\r\nT System | N Newsletter | O Other BBS\r\nA Add BBS | V About | @ Sysop | X Xpert\r\nG Goodbye | ? Help\r\n"
                 .as_slice(),
         ),
         (
@@ -610,7 +621,7 @@ fn write_classic_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Classic SPITFIRE-Inspired 1.3.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.3.0 adds the LOCKOUT, SUBWARN, and SFSUBCHG caller-access presentation boundaries while retaining the current message-system surfaces. Modern SPITFIRE NG authentication, authorization, privacy, storage, transport, and transfer behavior remain authoritative.\n",
+        b"# Classic SPITFIRE-Inspired 1.4.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.4.0 adds M043 public-information framing; modern SPITFIRE NG authorization, privacy, storage, and transport behavior remain authoritative.\n",
     )?;
     write_new(
         &licenses.join("ASSET-LICENSE.txt"),
@@ -778,7 +789,7 @@ fn classic_display_plan() -> &'static [(&'static str, &'static str, &'static [&'
                 "Copyright (C) 1987-2010 Mike Woltz",
                 "Buffalo Creek Software",
                 "",
-                "Classic SPITFIRE-Inspired presentation 1.3.0",
+                "Classic SPITFIRE-Inspired presentation 1.4.0",
                 "Not an official Buffalo Creek Software release or endorsement.",
             ],
             false,
@@ -977,21 +988,23 @@ enum ClassicMenuStyle {
     Sysop,
 }
 
-const CLASSIC_MAIN10: [&str; 6] = [
+const CLASSIC_MAIN10: [&str; 7] = [
     "<M>....... Message Section       <F>.......... File Section",
     "<C>...... Comment to Sysop       <P>......... Page the Sysop",
     "<Y>....... Your Statistics       <R>......... Caller Profile",
-    "<U>.. Terminal Preferences       <A>..... About SPITFIRE NG",
-    "<X>.......... Xpert Mode         <G>..... Goodbye & Log Off",
-    "<?>.. HELP With Commands",
+    "<U>.. Terminal Preferences       <V>..... About SPITFIRE NG",
+    "<B> Bulletins <#> Directory <L> Locate <T> System",
+    "<N> Newsletter <O> Other BBS <A> Add BBS",
+    "<X> Xpert <G> Goodbye <?> HELP",
 ];
-const CLASSIC_MAIN50: [&str; 6] = [
+const CLASSIC_MAIN50: [&str; 7] = [
     "<M>....... Message Section       <F>.......... File Section",
     "<C>...... Comment to Sysop       <P>......... Page the Sysop",
     "<Y>....... Your Statistics       <R>......... Caller Profile",
-    "<U>.. Terminal Preferences       <A>..... About SPITFIRE NG",
-    "<@>...... Sysop Utilities        <X>.......... Xpert Mode",
-    "<G>..... Goodbye & Log Off       <?>.. HELP With Commands",
+    "<U>.. Terminal Preferences       <V>..... About SPITFIRE NG",
+    "<B> Bulletins <#> Directory <L> Locate <T> System",
+    "<N> Newsletter <O> Other BBS <A> Add BBS",
+    "<@> Sysop <X> Xpert <G> Goodbye <?> HELP",
 ];
 const CLASSIC_MSG10: [&str; 7] = [
     "<C>... Change Conference         <R>......... Read Messages",

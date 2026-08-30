@@ -71,11 +71,19 @@ and then enters that engine; it does not implement separate BBS behavior.
 
 SQLite migration 1 contains schema history and singleton board identity;
 later transactional migrations add their owning caller, message, file,
-presentation, audit, access, and identity state. Current schema 13 separates
-login identifier, public handle, and private real name without changing stable
-caller ID or historical attribution. The exact caller model and modernization
-boundary are specified in
+presentation, audit, access, identity, and public-information state. Schema 13
+separates login identifier, public handle, and private real name without
+changing stable caller ID or historical attribution. Current schema 14 adds
+only versioned public-directory policy and caller choice, native ordered Other
+BBS rows, content-addressed public-resource state, and content-free semantic
+events. The exact caller model and modernization boundary are specified in
 [Native Caller and Authentication Model](sfng-caller-authentication.md).
+
+M043 implements caller-facing public information as a handle-only,
+privacy-filtered projection rather than caller/configuration serialization.
+Native Other BBS rows are board-local SQLite state; bulletins, newsletter, and
+thought catalogs remain board-owned DISPLAY resources presented through the
+existing resolver. See [Public Information](sfng-public-information.md).
 
 ## 3. Conceptual Architecture
 

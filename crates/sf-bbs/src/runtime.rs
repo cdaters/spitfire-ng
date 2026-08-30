@@ -132,6 +132,10 @@ impl BoardRuntime {
             let areas = seed_fixture_file_areas(&mut database, &file_storage)?;
             seed_starter_files(&mut database, &file_storage, &areas)?;
         }
+        let resource_observed_at = current_unix_seconds()?;
+        for (kind, digest) in crate::resources::public_resource_digests(&paths)? {
+            database.observe_public_resource(kind, &digest, resource_observed_at)?;
+        }
         let schema_version = database.schema_version()?;
         let credential_hasher = CredentialHasher::new(&validated.caller.password)?;
         let timezone = validated.timezone;
@@ -281,6 +285,110 @@ impl BoardRuntime {
     pub fn callers(&self) -> Result<Vec<Caller>, ApplicationError> {
         RuntimeDatabase::open(self.paths.database())?
             .all_callers()
+            .map_err(Into::into)
+    }
+
+    pub fn public_information_policy(
+        &self,
+    ) -> Result<sf_core::PublicDirectoryPolicy, ApplicationError> {
+        RuntimeDatabase::open(self.paths.database())?
+            .public_directory_policy()
+            .map_err(Into::into)
+    }
+
+    pub fn update_public_information_policy(
+        &self,
+        expected_version: u64,
+        enabled: bool,
+        show_last_call: bool,
+        show_location: bool,
+        caller_additions: bool,
+    ) -> Result<sf_core::PublicDirectoryPolicy, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        database
+            .update_public_directory_policy(
+                sf_core::PublicInformationActor::LocalOperator,
+                expected_version,
+                enabled,
+                show_last_call,
+                show_location,
+                caller_additions,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn other_bbs_entries(&self) -> Result<Vec<sf_core::OtherBbsEntry>, ApplicationError> {
+        RuntimeDatabase::open(self.paths.database())?
+            .other_bbs_entries(true)
+            .map_err(Into::into)
+    }
+
+    pub fn add_other_bbs(
+        &self,
+        entry: sf_core::NewOtherBbsEntry,
+    ) -> Result<sf_core::OtherBbsEntry, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        database
+            .add_other_bbs(
+                sf_core::PublicInformationActor::LocalOperator,
+                entry,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn edit_other_bbs(
+        &self,
+        id: sf_core::OtherBbsId,
+        expected_version: u64,
+        entry: sf_core::NewOtherBbsEntry,
+    ) -> Result<sf_core::OtherBbsEntry, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        database
+            .edit_other_bbs(
+                sf_core::PublicInformationActor::LocalOperator,
+                id,
+                expected_version,
+                entry,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn reorder_other_bbs(
+        &self,
+        id: sf_core::OtherBbsId,
+        expected_version: u64,
+        order: usize,
+    ) -> Result<sf_core::OtherBbsEntry, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        database
+            .reorder_other_bbs(
+                sf_core::PublicInformationActor::LocalOperator,
+                id,
+                expected_version,
+                order,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn set_other_bbs_lifecycle(
+        &self,
+        id: sf_core::OtherBbsId,
+        expected_version: u64,
+        lifecycle: sf_core::OtherBbsLifecycle,
+    ) -> Result<sf_core::OtherBbsEntry, ApplicationError> {
+        let mut database = RuntimeDatabase::open(self.paths.database())?;
+        database
+            .set_other_bbs_lifecycle(
+                sf_core::PublicInformationActor::LocalOperator,
+                id,
+                expected_version,
+                lifecycle,
+                current_unix_seconds()?,
+            )
             .map_err(Into::into)
     }
 
@@ -1176,6 +1284,45 @@ mod tests {
         assert_eq!(identity.real_name.as_deref(), Some("Avery Example"));
         drop(runtime);
 
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let mut public_database = RuntimeDatabase::open(paths.database()).unwrap();
+        public_database
+            .update_public_directory_policy(
+                sf_core::PublicInformationActor::LocalOperator,
+                1,
+                true,
+                true,
+                false,
+                false,
+                1_700_000_020,
+            )
+            .unwrap();
+        public_database
+            .update_caller_publicity(
+                sf_core::PublicInformationActor::Caller(identity.id),
+                identity.id,
+                identity.publicity_state_version,
+                true,
+                1_700_000_021,
+            )
+            .unwrap();
+        public_database
+            .add_other_bbs(
+                sf_core::PublicInformationActor::LocalOperator,
+                sf_core::NewOtherBbsEntry {
+                    name: "SSH Fixture BBS".to_owned(),
+                    speed: "SSH".to_owned(),
+                    dial_string: "ssh-fixture.example:2222".to_owned(),
+                },
+                1_700_000_022,
+            )
+            .unwrap();
+        drop(public_database);
+
         let address = available_address();
         let mut config = RuntimeConfig::load(&config_path).unwrap();
         config.transports = vec![listener_config(
@@ -1255,7 +1402,10 @@ mod tests {
                 .unwrap();
             channel.request_shell(true).await.unwrap();
             channel.window_change(120, 50, 0, 0).await.unwrap();
-            channel.data(b"M\r".as_slice()).await.unwrap();
+            channel
+                .data(b"#\rN\rL\rPixel\rY\rO\rA\rB\r1\rN\rT\rM\r".as_slice())
+                .await
+                .unwrap();
             tokio::time::sleep(Duration::from_millis(300)).await;
             let status = crate::board_status(&config_path).unwrap();
             assert!(
@@ -1286,10 +1436,24 @@ mod tests {
         assert!(contains(&transcript, b"MAIN MENU"));
         assert!(contains(&transcript, b"MESSAGE MENU"));
         assert!(contains(&transcript, b"FILE MENU"));
+        assert!(contains(&transcript, b"SPITFIRE CALLER DIRECTORY"));
+        assert!(contains(
+            &transcript,
+            b"Is PixelWizard the caller you want?"
+        ));
+        assert!(contains(&transcript, b"SSH Fixture BBS"));
+        assert!(contains(
+            &transcript,
+            b"Caller additions to Other BBS information are disabled."
+        ));
+        assert!(contains(&transcript, b"SPITFIRE BULLETINS"));
+        assert!(contains(&transcript, b"SPITFIRE NG Newsletter"));
+        assert!(contains(&transcript, b"SPITFIRE SYSTEM INFORMATION"));
         assert!(contains(&transcript, b"Thank you for calling"));
         assert!(!contains(&transcript, b"Caller name"));
         assert!(!contains(&transcript, password.as_bytes()));
         assert!(!contains(&transcript, b"Avery Example"));
+        assert!(!contains(&transcript, b"pixelwizard"));
         assert!(root.join("system/ssh/host-ed25519").is_file());
     }
 
@@ -1576,7 +1740,7 @@ mod tests {
         assert!(contains(&override_normal, b">>>>>>>> MAIN MENU <<<<<<<<"));
         assert!(contains(
             &override_normal,
-            b"<M> Messages  <F> Files  <C> Comment to Sysop"
+            b"<M> Messages <F> Files <C> Comment <P> Page"
         ));
         assert!(contains(&override_sysop, b">>>>>>>>>> MAIN MENU <<<<<<<<<"));
         assert!(contains(&override_sysop, b"<M>........... Message Section"));
@@ -2242,7 +2406,7 @@ mod tests {
             b"+1 602 555 0100".to_vec(),
             b"profile+edit@example.test".to_vec(),
             b"1990-01-02".to_vec(),
-            b"A".to_vec(),
+            b"V".to_vec(),
             b"G".to_vec(),
         ]);
         runtime.run_connection(&mut registration).unwrap();
@@ -2573,7 +2737,7 @@ mod tests {
                 b"N".to_vec(),
                 b"About Caller".to_vec(),
                 b"test-only about password".to_vec(),
-                b"A".to_vec(),
+                b"V".to_vec(),
                 b"".to_vec(),
                 b"".to_vec(),
                 b"G".to_vec(),
@@ -2639,7 +2803,7 @@ mod tests {
                 b"Sysop".to_vec(),
                 b"test-only minimal paging password".to_vec(),
                 b"".to_vec(),
-                b"A".to_vec(),
+                b"V".to_vec(),
                 b"".to_vec(),
                 b"".to_vec(),
                 b"".to_vec(),
@@ -2696,7 +2860,7 @@ mod tests {
                 b"N".to_vec(),
                 b"Sysop".to_vec(),
                 b"test-only classic paging password".to_vec(),
-                b"A".to_vec(),
+                b"V".to_vec(),
                 b"N".to_vec(),
                 b"".to_vec(),
                 b"G".to_vec(),
@@ -3471,6 +3635,13 @@ mod tests {
                 b"MESSAGE MENU".as_slice(),
                 b"Welcome to the fixture board".as_slice(),
                 b"FILE MENU".as_slice(),
+                b"SPITFIRE CALLER DIRECTORY".as_slice(),
+                b"Is Loopback Caller the caller you want?".as_slice(),
+                b"Loopback Fixture BBS".as_slice(),
+                b"Caller additions to Other BBS information are disabled.".as_slice(),
+                b"SPITFIRE BULLETINS".as_slice(),
+                b"SPITFIRE NG Newsletter".as_slice(),
+                b"SPITFIRE SYSTEM INFORMATION".as_slice(),
                 b"Thank you for calling".as_slice(),
             ] {
                 assert!(
@@ -3480,6 +3651,180 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn public_information_journey_never_releases_private_caller_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("public-information-privacy");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Legacy Public Name",
+            b"test-only public information password",
+            CallerState::Active,
+        );
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let identity = runtime
+            .set_caller_identity(
+                b"Legacy Public Name",
+                b"private-login-id",
+                b"PublicHandle",
+                Some("Sensitive Real Name".to_owned()),
+            )
+            .unwrap();
+        drop(runtime);
+        let config = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &config).unwrap();
+        let connection = rusqlite::Connection::open(paths.database()).unwrap();
+        connection.execute("UPDATE callers SET email='private@example.test',phone='555-0199',address_line_1='99 Private Road',birthday='1990-01-02',city='Public City',region='AZ',subscription_expires_on='2030-01-01' WHERE caller_id=?1", [identity.id.get()]).unwrap();
+        drop(connection);
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        database
+            .update_public_directory_policy(
+                sf_core::PublicInformationActor::LocalOperator,
+                1,
+                true,
+                true,
+                true,
+                false,
+                1_700_000_030,
+            )
+            .unwrap();
+        database
+            .update_caller_publicity(
+                sf_core::PublicInformationActor::Caller(identity.id),
+                identity.id,
+                identity.publicity_state_version,
+                true,
+                1_700_000_031,
+            )
+            .unwrap();
+        drop(database);
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let mut terminal = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"PublicHandle".to_vec(),
+            b"test-only public information password".to_vec(),
+            b"#".to_vec(),
+            b"N".to_vec(),
+            b"L".to_vec(),
+            b"handle".to_vec(),
+            b"Y".to_vec(),
+            b"T".to_vec(),
+            b"O".to_vec(),
+            b"B".to_vec(),
+            b"1".to_vec(),
+            b"N".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut terminal).unwrap();
+        let output = terminal.output();
+        assert!(contains(output, b"PublicHandle"));
+        assert!(contains(output, b"Public City, AZ"));
+        for private in [
+            b"private-login-id".as_slice(),
+            b"Sensitive Real Name".as_slice(),
+            b"private@example.test".as_slice(),
+            b"555-0199".as_slice(),
+            b"99 Private Road".as_slice(),
+            b"1990-01-02".as_slice(),
+            b"2030-01-01".as_slice(),
+        ] {
+            assert!(
+                !contains(output, private),
+                "private value leaked: {}",
+                String::from_utf8_lossy(private)
+            );
+        }
+        assert!(!contains(
+            output,
+            paths.database().display().to_string().as_bytes()
+        ));
+        assert!(!contains(output, b"host-ed25519"));
+    }
+
+    #[test]
+    fn newsletter_digest_change_notifies_a_returning_caller_and_survives_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("newsletter-notification");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Newsletter Caller",
+            b"test-only newsletter password",
+            CallerState::Active,
+        );
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let mut first = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Newsletter Caller".to_vec(),
+            b"test-only newsletter password".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut first).unwrap();
+        drop(runtime);
+        std::thread::sleep(Duration::from_secs(1));
+        fs::write(
+            root.join("display/SFNWSLTR.BBS"),
+            b"Updated synthetic newsletter\r\n",
+        )
+        .unwrap();
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let mut second = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Newsletter Caller".to_vec(),
+            b"test-only newsletter password".to_vec(),
+            b"N".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut second).unwrap();
+        assert!(contains(
+            second.output(),
+            b"newsletter has changed since your previous call"
+        ));
+        assert!(contains(second.output(), b"Updated synthetic newsletter"));
+    }
+
+    #[test]
+    fn missing_publication_resources_fail_safely_without_releasing_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("missing-publications");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Missing Resource Caller",
+            b"test-only missing resource password",
+            CallerState::Active,
+        );
+        for name in ["BULLETIN.BBS", "BULLET1.BBS", "SFNWSLTR.BBS", "THOUGHTS.NG"] {
+            fs::remove_file(root.join("display").join(name)).unwrap();
+        }
+        let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
+        let mut terminal = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Missing Resource Caller".to_vec(),
+            b"test-only missing resource password".to_vec(),
+            b"B".to_vec(),
+            b"N".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut terminal).unwrap();
+        assert!(contains(terminal.output(), b"No bulletins are available"));
+        assert!(contains(terminal.output(), b"newsletter is unavailable"));
+        assert!(!contains(
+            terminal.output(),
+            root.display().to_string().as_bytes()
+        ));
+        assert!(!contains(terminal.output(), b"SFNWSLTR.BBS"));
     }
 
     #[test]
@@ -4544,7 +4889,11 @@ mod tests {
         let mut raw_transcript = Vec::new();
         raw.read_to_end(&mut raw_transcript).unwrap();
         assert_eq!(handle.join().unwrap().completed_sessions, 1);
-        assert!(contains(&raw_transcript, b">>>>>>>> SYSOP MENU"));
+        assert!(
+            contains(&raw_transcript, b">>>>>>>> SYSOP MENU"),
+            "{}",
+            String::from_utf8_lossy(&raw_transcript)
+        );
         assert!(!contains(&raw_transcript, b"\x1b["));
         assert!(
             contains(&raw_transcript, b"MAIN MENU - Selection?"),
@@ -4640,6 +4989,35 @@ mod tests {
             CallerState::Active,
         );
         let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let mut public_database = RuntimeDatabase::open(paths.database()).unwrap();
+        public_database
+            .update_public_directory_policy(
+                sf_core::PublicInformationActor::LocalOperator,
+                1,
+                true,
+                true,
+                false,
+                false,
+                1_700_000_010,
+            )
+            .unwrap();
+        public_database
+            .add_other_bbs(
+                sf_core::PublicInformationActor::LocalOperator,
+                sf_core::NewOtherBbsEntry {
+                    name: "Loopback Fixture BBS".to_owned(),
+                    speed: "SSH".to_owned(),
+                    dial_string: "loopback.example:2222".to_owned(),
+                },
+                1_700_000_011,
+            )
+            .unwrap();
+        drop(public_database);
         let address = available_address();
         let mut config = RuntimeConfig::load(&config_path).unwrap();
         if let Some(presentation) = presentation {
@@ -4695,9 +5073,9 @@ mod tests {
             _ => {}
         }
         let input = if stock_post_login {
-            b"N\rLoopback Caller\rtest-only-loopback-password\rN\rM\rB\rF\rQ\rG\r".as_slice()
+            b"N\rLoopback Caller\rtest-only-loopback-password\rN\r#\rY\rY\rL\rloop\rY\rO\rA\rB\r1\rN\rT\rM\rB\rF\rQ\rG\r".as_slice()
         } else {
-            b"N\rLoopback Caller\rtest-only-loopback-password\rM\rB\rF\rQ\rG\r".as_slice()
+            b"N\rLoopback Caller\rtest-only-loopback-password\r#\rY\rY\rL\rloop\rY\rO\rA\rB\r1\rN\rT\rM\rB\rF\rQ\rG\r".as_slice()
         };
         stream.write_all(input).unwrap();
         let _ = stream.shutdown(Shutdown::Write);

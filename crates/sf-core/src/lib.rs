@@ -18,6 +18,7 @@ pub mod message;
 mod message_session;
 pub mod node;
 pub mod paths;
+pub mod public_information;
 pub mod resources;
 pub mod session;
 pub mod terminal;
@@ -77,6 +78,7 @@ pub use node::{
     NodePresentationContext, NodeRuntimeState, NodeSnapshot,
 };
 pub use paths::{LogicalPath, LogicalPaths, PathError};
+pub use public_information::*;
 pub use resources::{
     render_display, render_generated_menu, visible_menu_action_count, DisplayCallerContext,
     DisplayContext, DisplayFormat, DisplayResource, DisplaySource, HelpRecord, MenuDefinition,

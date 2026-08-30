@@ -142,6 +142,7 @@ pub fn board_status(config_path: &Path) -> Result<String, ApplicationError> {
     let identity = database
         .load_board_identity()?
         .ok_or(sf_core::DatabaseError::MissingBoardIdentity)?;
+    let public_information = database.public_directory_policy()?;
     let status_path = paths
         .get(sf_core::LogicalPath::Work)
         .join(RUNTIME_STATUS_FILE);
@@ -297,6 +298,22 @@ pub fn board_status(config_path: &Path) -> Result<String, ApplicationError> {
                     "ready"
                 },
             ),
+    ));
+    output.push('\n');
+    output.push_str(&text(
+        "operator-status-public-information",
+        sf_core::LocalizationArgs::new()
+            .with("enabled", public_information.enabled.to_string())
+            .with(
+                "last_call",
+                public_information.show_last_call_date.to_string(),
+            )
+            .with("location", public_information.show_city_region.to_string())
+            .with(
+                "caller_additions",
+                public_information.caller_bbs_additions_enabled.to_string(),
+            )
+            .with("version", public_information.state_version),
     ));
     output.push('\n');
     for issue in &profile.issues {
@@ -634,7 +651,8 @@ mod tests {
         let report = setup_board(&root, &plan, b"test-only status password").unwrap();
         let offline = board_status(&report.config_path).unwrap();
         assert!(offline.contains("Runtime: offline"));
-        assert!(offline.contains("Active: modern-ng 1.2.0"));
+        assert!(offline.contains("Active: modern-ng 1.3.0"));
+        assert!(offline.contains("Public information: directory=false"));
         assert!(offline.contains("Effective: active profile modern-ng"));
         assert!(offline.contains("Status: ready"));
         assert!(offline.contains("Menu presentation: display-overrides"));

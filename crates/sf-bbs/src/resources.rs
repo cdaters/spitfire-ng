@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 
 use sf_core::{
     DisplayFormat, DisplayResource, DisplaySource, HelpRecord, LogicalPath, LogicalPaths,
-    MenuDefinition, MenuItem, MenuSection, StockResources, TerminalInfo,
+    MenuDefinition, MenuItem, MenuSection, NativeThoughtCatalog, StockResources, TerminalInfo,
 };
 use sf_legacy::{HelpFile, MenuFile};
+use sha2::{Digest, Sha256};
 use tracing::warn;
 
 use crate::ApplicationError;
@@ -15,6 +16,42 @@ use crate::{PresentationResolver, ProfileFormat};
 const MAX_DISPLAY_BYTES: usize = 1024 * 1024;
 const MAX_DISPLAY_FILES: usize = 4096;
 pub(crate) const BUILTIN_SYSOP_MENU: &[u8] = b"Q,<Q>........ Quit To Main Menu,,50,C\r\nX,<X>........ Xpert Mode Toggle,,50,B\r\nG,<G>........ Goodbye & Log Off,,50,A\r\n";
+
+pub(crate) fn public_resource_digests(
+    paths: &LogicalPaths,
+) -> Result<Vec<(&'static str, String)>, ApplicationError> {
+    let display = paths.get(LogicalPath::Display);
+    let definitions = [
+        (
+            "bulletins",
+            (0..=99)
+                .map(|number| {
+                    if number == 0 {
+                        "BULLETIN.BBS".to_owned()
+                    } else {
+                        format!("BULLET{number}.BBS")
+                    }
+                })
+                .collect::<Vec<_>>(),
+        ),
+        ("newsletter", vec!["SFNWSLTR.BBS".to_owned()]),
+        ("thoughts", vec!["THOUGHTS.NG".to_owned()]),
+    ];
+    let mut output = Vec::new();
+    for (kind, names) in definitions {
+        let mut digest = Sha256::new();
+        for name in names {
+            if let Some(path) = find_case_insensitive(display, &name) {
+                let bytes = read_bounded(&path, MAX_DISPLAY_BYTES)?;
+                digest.update(name.as_bytes());
+                digest.update((bytes.len() as u64).to_le_bytes());
+                digest.update(bytes);
+            }
+        }
+        output.push((kind, format!("{:x}", digest.finalize())));
+    }
+    Ok(output)
+}
 
 pub fn load_stock_resources(
     paths: &LogicalPaths,
@@ -41,6 +78,20 @@ pub fn load_stock_resources(
     menus.insert(MenuSection::Sysop, sysop);
 
     let displays = presentation.displays(display, terminal);
+    let thoughts = find_case_insensitive(display, "THOUGHTS.NG").and_then(|path| {
+        match read_bounded(
+            &path,
+            sf_core::MAX_NATIVE_THOUGHTS * (sf_core::MAX_NATIVE_THOUGHT_BYTES + 1),
+        )
+        .and_then(|bytes| NativeThoughtCatalog::parse(&bytes).map_err(ApplicationError::from))
+        {
+            Ok(catalog) => Some(catalog),
+            Err(error) => {
+                warn!(path = %path.display(), error = %error, "project-native thought catalog is unavailable; continuing without a thought");
+                None
+            }
+        }
+    });
 
     Ok(StockResources {
         prelogin: display_or(&displays, "SFPRELOG", b"@CLS@SPITFIRE NG\r\n"),
@@ -88,6 +139,7 @@ pub fn load_stock_resources(
         menus,
         displays,
         help_records: help,
+        thoughts,
     })
 }
 
@@ -405,6 +457,18 @@ mod tests {
         );
         assert!(resources.menu_display(MenuSection::Main, 9).is_none());
         assert!(resources.help_record(21).is_some());
+        assert_eq!(
+            resources.display("BULLET1").unwrap().source,
+            DisplaySource::BoardOverride
+        );
+        assert_eq!(
+            resources.display("SFNWSLTR").unwrap().source,
+            DisplaySource::BoardOverride
+        );
+        assert_eq!(
+            sf_core::ThoughtCatalogReader::thoughts(resources.thoughts.as_ref().unwrap()).len(),
+            2
+        );
     }
 
     #[test]
@@ -428,6 +492,25 @@ mod tests {
             assert_eq!(sysop.items.len(), 3);
             assert_eq!(sysop.find(b'Q', 50).unwrap().identifier, b'C');
             assert!(sysop.find(b'Q', 49).is_none());
+        }
+    }
+
+    #[test]
+    fn malformed_or_oversized_native_thought_catalog_is_optional_and_bounded() {
+        for bytes in [
+            vec![0xff],
+            vec![b'x'; sf_core::MAX_NATIVE_THOUGHTS * (sf_core::MAX_NATIVE_THOUGHT_BYTES + 1) + 1],
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("fixture");
+            initialize_fixture_board(&root).unwrap();
+            std::fs::write(root.join("display/THOUGHTS.NG"), bytes).unwrap();
+            let validated = RuntimeConfig::synthetic_fixture().validate().unwrap();
+            let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+            let resources =
+                load_stock_resources(&paths, &TerminalInfo::in_memory(), &resolver(&paths))
+                    .unwrap();
+            assert!(resources.thoughts.is_none());
         }
     }
 

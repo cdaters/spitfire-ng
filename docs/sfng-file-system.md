@@ -77,6 +77,13 @@ download counts/bytes, supports file and kilobyte ratios through
 Historical file listings use `SFFILES.BBS`, whose file rows begin the filename
 at column 1, end size at column 21, end date at column 31, and begin the brief
 description at column 34. Description continuation lines are caller-visible.
+The manual classifies `SFFILES.BBS` as BBS/ASCII-only even for ANSI or RIP
+callers: SPITFIRE colorizes that listing dynamically, using the comma position
+in the formatted file size as part of the coloring rule. `SFFILESA` confirms
+that each file-area list carries filename, comma-grouped size, date, and up to
+ten 45-character description lines, with create/append, sort, size/date repair,
+and missing-file review workflows. These are historical requirements for the
+future enhanced file-display/legacy-listing gate, not behavior added by M043.
 Numbered CD-ROM listing files and extended directory resources such as
 `FA<n>.TXT` remain legacy adapter concerns. Companion tools can extract
 `FILE_ID.DIZ` descriptions from archives; neither import nor archive handling
@@ -330,7 +337,8 @@ path.
 - tagging, file requests, Sysop-only upload and validation queues;
 - full duplicate heuristics and optional content-hash policy;
 - `FILE_ID.DIZ` extraction and bounded archive/text inspection;
-- `SFFILES.BBS`/extended directory import and historical file-area records;
+- `SFFILES.BBS`/extended directory import, historical dynamic colorization,
+  comma-sensitive size recognition, and historical file-area records;
 - CD-ROM/read-only area behavior and legacy metadata import; and
 - privileged move/delete/shuffle/maintenance with audit history.
 

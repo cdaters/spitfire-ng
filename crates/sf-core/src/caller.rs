@@ -240,6 +240,10 @@ pub struct Caller {
     pub subscription_expires_on: Option<NaiveDate>,
     pub purge_protected: bool,
     pub lifecycle_prior_state: Option<CallerState>,
+    /// Caller-controlled participation in the board's public directory.
+    pub public_directory_listed: bool,
+    /// Optimistic concurrency version for public-directory preference changes.
+    pub publicity_state_version: u64,
     pub first_call_at: i64,
     pub last_call_at: Option<i64>,
     pub call_count: u64,
@@ -965,6 +969,8 @@ mod tests {
             subscription_expires_on: None,
             purge_protected: true,
             lifecycle_prior_state: None,
+            public_directory_listed: false,
+            publicity_state_version: 0,
             first_call_at: 1_735_689_600,
             last_call_at: Some(1_735_689_600),
             call_count: 12,

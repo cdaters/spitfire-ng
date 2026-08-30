@@ -157,6 +157,7 @@ operator-status-runtime = Runtime: { $state }
 operator-status-runtime-published = published/running or not cleanly stopped
 operator-status-runtime-offline = offline
 operator-status-presentation-title = Presentation:
+operator-status-public-information = Public information: directory={ $enabled } last-call={ $last_call } location={ $location } caller-additions={ $caller_additions } version={ $version }
 operator-status-presentation =   Mode: { $mode }
     Menu presentation: { $menu }
     Active: { $active }
@@ -175,7 +176,7 @@ operator-status-node-live = Node { $node } { $state } caller={ $caller } lifecyc
 operator-status-node-presentation =   terminal={ $terminal } ansi={ $ansi } encoding={ $encoding } size={ $columns }x{ $rows } page={ $page } locale={ $locale } profile={ $profile } menu-mode={ $menu_mode } context={ $context } renderer={ $renderer } security={ $security } sysop-threshold={ $threshold } actions={ $actions }
 operator-status-node-offline = Node { $node } { $state } { $description }
 operator-console-title = SPITFIRE NG OPERATOR CONSOLE — { $board }
-operator-console-commands = Commands: STATUS, PAGES, AVAILABLE ON|OFF, ANSWER <session>, DECLINE <session>, DISCONNECT <session>, CALLERS, IDENTITY <current name>|<login>|<handle>|<real name or blank>, PROFILE <name>, PROFILE-SET <field> <name>|<value>, ENABLE <name>, DISABLE <name>, DELETE <name>, RESTORE <name>, SECURITY <level> <name>, PURGE <ALLOW|PROTECT> <name>, SUBSCRIPTION <YYYY-MM-DD|PERMANENT> <name>, QUIT
+operator-console-commands = Commands: STATUS, PAGES, AVAILABLE ON|OFF, ANSWER <session>, DECLINE <session>, DISCONNECT <session>, CALLERS, IDENTITY, PROFILE, PROFILE-SET, ENABLE, DISABLE, DELETE, RESTORE, SECURITY, PURGE, SUBSCRIPTION, INFO-POLICY, INFO-POLICY-SET, BBS-LIST, BBS-ADD, BBS-EDIT, BBS-MOVE, BBS-STATE, QUIT
 operator-console-prompt = Operator> { " " }
 operator-console-availability-help = Use AVAILABLE ON or AVAILABLE OFF.
 operator-console-chat-active = Chat active for session { $session }. /Q ends chat.
@@ -185,7 +186,7 @@ operator-console-caller-line = Caller> { $line }
 operator-console-sysop-prompt = Sysop> { " " }
 operator-console-node-row = Node { $node }: { $state } session={ $session } caller={ $caller } transport={ $transport }
 operator-console-page-row = Session { $session } Node { $node } Caller { $caller }: { $state }
-operator-console-caller-row = #{ $id } login={ $login } handle={ $handle } security={ $security } base={ $base_security } state={ $state } version={ $version } purge-protected={ $purge_protected } subscription={ $subscription } calls={ $calls }
+operator-console-caller-row = #{ $id } login={ $login } handle={ $handle } security={ $security } base={ $base_security } state={ $state } version={ $version } listed={ $listed } publicity-version={ $publicity_version } purge-protected={ $purge_protected } subscription={ $subscription } calls={ $calls }
 operator-caller-lifecycle-active = Active
 operator-caller-lifecycle-disabled = Locked Out
 operator-caller-lifecycle-deleted = Deleted (recoverable)
@@ -211,3 +212,8 @@ operator-console-profile-phone = Phone
 operator-console-profile-email = Email
 operator-console-profile-birthday = Birth Date
 operator-console-not-provided = [not provided]
+operator-public-information-policy = Public directory enabled={ $enabled } last-call={ $last_call } location={ $location } caller-additions={ $caller_additions } version={ $version }
+operator-public-information-policy-updated = Public-information policy updated; version={ $version }.
+operator-public-information-conflict = Public information changed in another operator session. Reload and try again.
+operator-other-bbs-row = #{ $id } order={ $order } state={ $state } version={ $version } contributor={ $contributor } { $name } | { $speed } | { $dial }
+operator-other-bbs-updated = Other BBS entry #{ $id } updated; version={ $version }.

@@ -36,6 +36,10 @@ outcomes rather than internal checkpoint chronology.
   name denial, named-Sysop invariants, active-session invalidation,
   dispatch-time reauthorization, privacy-safe audit, stale-conflict handling,
   schema-12 persistence, and schema-10/schema-11/schema-12 recovery.
+- Added post-0.1.0 schema-14 privacy-bounded public information: a board-
+  disabled/caller-opt-in handle-only directory and locate, native ordered
+  Other BBS authority, numbered bulletins, newsletter, safe system facts, and
+  bounded project-native thoughts with privacy-safe audit and cold recovery.
 
 ### Modern transport interleave
 
@@ -72,19 +76,26 @@ tag `v0.1.0-development-preview`. The public-redownload checksum and bounded
 unsigned/unnotarized macOS first-run workflow have passed.
 
 Public source `main` now includes post-0.1.0 message-discovery, auditable
-message-mutation, auditable caller-access, schema-13 caller identity, and SSH
-caller-transport improvements. No new binary, tag, or release has been
-published; the downloadable binary remains the accepted 0.1.0 Development
-Preview and does not contain those later source changes.
+message-mutation, auditable caller-access, schema-13 caller identity, SSH
+caller-transport improvements, and schema-14 public-information features. No
+new binary, tag, or release has been published; the downloadable binary remains
+the accepted 0.1.0 Development Preview and does not contain those later source
+changes.
 
 ## Next dependency-ordered Category-B tranche
 
-M043 — Privacy-Bounded Public Information Interface / Resource Gate remains
-next, covering B-002 caller/Other-BBS public information and B-003 bulletins,
-newsletter, and derived system information. The current Category-B ledger
-remains 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 11 NOT STARTED. M042.5 was a
-modern transport interleave and did not reorder or redefine those dependencies.
-M043 implementation has not begun.
+M043 completes B-002 caller/Other-BBS public information and B-003 bulletins,
+newsletter, system information, and a bounded native thought catalog. The
+current Category-B ledger is 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 9 NOT
+STARTED. Exact `SFBBSLST.DAT` and `THOUGHTS.BBS` byte adapters remain distinct
+deferred compatibility gaps and are not claimed by the native models.
+
+The next dependency-ordered tranche is **Safe file inspection, request, and
+maintenance**: B-013 and B-015, then B-012. Its separately reviewed gate must
+settle bounded text/archive inspection, path confinement, transactional file
+move/delete and reconciliation, request/review privacy, duplicate heuristics,
+concurrency, migration/recovery if review state is persisted, and caller plus
+operator acceptance before implementation begins.
 
 Near-term release work includes:
 

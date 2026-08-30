@@ -10,12 +10,12 @@ use crate::{
     derive_login_identifier_base, parse_birth_date, AccessDenialReason, AuthenticatedCaller,
     Caller, CallerAccessDenial, CallerConfig, CallerError, CallerId, CallerPreferences,
     CallerProfile, CallerProfilePolicy, CallerState, CredentialError, CredentialHasher,
-    GraphicsPreference, PostalAddress, SecurityLevel, TimePolicy, TransferPreference,
-    CREDENTIAL_SCHEME, MAX_LOGIN_IDENTIFIER_BYTES,
+    GraphicsPreference, PostalAddress, PublicInformationError, SecurityLevel, TimePolicy,
+    TransferPreference, CREDENTIAL_SCHEME, MAX_LOGIN_IDENTIFIER_BYTES,
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 13;
+pub const SCHEMA_VERSION: u32 = 14;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -31,7 +31,8 @@ SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.rea
        c.transfer_protocol, c.address_line_1, c.address_line_2, c.city, c.region,
        c.postal_code, c.country, c.phone, c.email, c.birthday, c.is_new_caller,
        c.security_level, c.state_version, c.subscription_expires_on,
-       c.purge_protected, c.lifecycle_prior_state
+       c.purge_protected, c.lifecycle_prior_state,
+       c.public_directory_listed, c.publicity_state_version
   FROM callers AS c
 "#;
 
@@ -41,7 +42,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 13] = [
+const MIGRATIONS: [Migration; 14] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -643,6 +644,87 @@ const MIGRATIONS: [Migration; 13] = [
         END;
         "#,
     },
+    Migration {
+        version: 14,
+        name: "privacy_bounded_public_information",
+        sql: r#"
+        CREATE TABLE migration_14_validation AS
+        SELECT COUNT(*) AS caller_count,
+               COALESCE(SUM(caller_id),0) AS caller_id_sum,
+               (SELECT COUNT(*) FROM caller_credentials) AS credential_count,
+               (SELECT COUNT(*) FROM messages) AS message_count,
+               (SELECT COUNT(*) FROM files) AS file_count,
+               COALESCE(SUM(length(login_identifier)),0) AS login_bytes,
+               COALESCE(SUM(length(display_name)),0) AS handle_bytes,
+               COALESCE(SUM(length(COALESCE(real_name,''))),0) AS real_name_bytes,
+               COALESCE(SUM(state_version),0) AS caller_state_sum
+          FROM callers;
+
+        ALTER TABLE callers ADD COLUMN public_directory_listed INTEGER NOT NULL DEFAULT 0
+            CHECK (public_directory_listed IN (0,1));
+        ALTER TABLE callers ADD COLUMN publicity_state_version INTEGER NOT NULL DEFAULT 0
+            CHECK (publicity_state_version >= 0);
+
+        CREATE TABLE public_information_policy (
+            singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+            directory_enabled INTEGER NOT NULL DEFAULT 0 CHECK (directory_enabled IN (0,1)),
+            show_last_call_date INTEGER NOT NULL DEFAULT 0 CHECK (show_last_call_date IN (0,1)),
+            show_city_region INTEGER NOT NULL DEFAULT 0 CHECK (show_city_region IN (0,1)),
+            caller_bbs_additions_enabled INTEGER NOT NULL DEFAULT 0 CHECK (caller_bbs_additions_enabled IN (0,1)),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO public_information_policy (singleton) VALUES (1);
+
+        CREATE TABLE other_bbs_entries (
+            entry_id INTEGER PRIMARY KEY,
+            bbs_name TEXT NOT NULL CHECK (length(CAST(bbs_name AS BLOB)) BETWEEN 1 AND 60),
+            speed_label TEXT NOT NULL CHECK (length(CAST(speed_label AS BLOB)) BETWEEN 1 AND 32),
+            dial_string TEXT NOT NULL CHECK (length(CAST(dial_string AS BLOB)) BETWEEN 1 AND 64),
+            display_order INTEGER NOT NULL CHECK (display_order BETWEEN 1 AND 512),
+            lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active','disabled')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            contributor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX other_bbs_entries_order ON other_bbs_entries(display_order,entry_id);
+
+        CREATE TABLE public_information_resource_state (
+            resource_kind TEXT PRIMARY KEY CHECK (resource_kind IN ('bulletins','newsletter','thoughts')),
+            generation INTEGER NOT NULL CHECK (generation > 0),
+            sha256 TEXT NOT NULL CHECK (length(sha256)=64),
+            published_at INTEGER NOT NULL CHECK (published_at >= 0)
+        );
+
+        CREATE TABLE public_information_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            operation TEXT NOT NULL CHECK (operation IN (
+                'policy-changed','caller-listed','caller-unlisted',
+                'other-bbs-added','other-bbs-edited','other-bbs-reordered',
+                'other-bbs-disabled','other-bbs-restored','resource-published'
+            )),
+            actor_kind TEXT NOT NULL CHECK (actor_kind IN ('caller','threshold-sysop','local-operator','system-policy')),
+            actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            subject_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            other_bbs_entry_id INTEGER REFERENCES other_bbs_entries(entry_id) ON DELETE RESTRICT,
+            resource_kind TEXT CHECK (resource_kind IS NULL OR resource_kind IN ('bulletins','newsletter','thoughts')),
+            resource_digest TEXT CHECK (resource_digest IS NULL OR (
+                length(resource_digest)=64 AND resource_digest NOT GLOB '*[^0-9a-f]*'
+            )),
+            semantic_detail TEXT CHECK (semantic_detail IS NULL OR length(semantic_detail) BETWEEN 1 AND 128),
+            prior_state_version INTEGER CHECK (prior_state_version IS NULL OR prior_state_version >= 0),
+            new_state_version INTEGER CHECK (new_state_version IS NULL OR new_state_version >= 0)
+        );
+        CREATE INDEX public_information_events_subject ON public_information_events(subject_caller_id,event_id);
+        CREATE INDEX public_information_events_other_bbs ON public_information_events(other_bbs_entry_id,event_id);
+        CREATE TRIGGER public_information_events_no_update BEFORE UPDATE ON public_information_events
+        BEGIN SELECT RAISE(ABORT, 'public information events are append-only'); END;
+        CREATE TRIGGER public_information_events_no_delete BEFORE DELETE ON public_information_events
+        BEGIN SELECT RAISE(ABORT, 'public information events are append-only'); END;
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -813,6 +895,9 @@ impl RuntimeDatabase {
         }
         if required >= 13 {
             validate_schema_13_snapshot(&self.connection)?;
+        }
+        if required >= 14 {
+            validate_schema_14_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -1147,6 +1232,8 @@ impl RuntimeDatabase {
             Option<String>,
             bool,
             Option<String>,
+            bool,
+            i64,
         );
         let stored: Option<StoredCaller> = self
             .connection
@@ -1190,6 +1277,8 @@ impl RuntimeDatabase {
                     row.get(35)?,
                     row.get(36)?,
                     row.get(37)?,
+                    row.get(38)?,
+                    row.get(39)?,
                 ))
             })
             .optional()
@@ -1235,6 +1324,8 @@ impl RuntimeDatabase {
                     subscription_expires_on,
                     purge_protected,
                     lifecycle_prior_state,
+                    public_directory_listed,
+                    publicity_state_version,
                 )| {
                     Ok(Caller {
                         id: CallerId::new(caller_id).map_err(DatabaseError::InvalidStoredCaller)?,
@@ -1259,6 +1350,8 @@ impl RuntimeDatabase {
                             .map(CallerState::from_database_value)
                             .transpose()
                             .map_err(DatabaseError::InvalidStoredCaller)?,
+                        public_directory_listed,
+                        publicity_state_version: nonnegative_u64(publicity_state_version)?,
                         first_call_at,
                         last_call_at,
                         call_count: nonnegative_u64(call_count)?,
@@ -2030,6 +2123,12 @@ fn run_migration(
     if migration.version == 13 {
         migrate_caller_identity(transaction)?;
     }
+    if migration.version == 14 {
+        validate_public_information_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_14_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
@@ -2152,6 +2251,84 @@ fn validate_schema_13_snapshot(connection: &Connection) -> Result<(), DatabaseEr
                 "schema-13 caller real name is invalid".to_owned(),
             ));
         }
+    }
+    Ok(())
+}
+
+fn validate_public_information_migration(
+    transaction: &Transaction<'_>,
+) -> Result<(), DatabaseError> {
+    let expected: (i64,i64,i64,i64,i64,i64,i64,i64,i64) = transaction.query_row("SELECT caller_count,caller_id_sum,credential_count,message_count,file_count,login_bytes,handle_bytes,real_name_bytes,caller_state_sum FROM migration_14_validation", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).map_err(DatabaseError::Sqlite)?;
+    let actual: (i64,i64,i64,i64,i64,i64,i64,i64,i64) = transaction.query_row("SELECT COUNT(*),COALESCE(SUM(caller_id),0),(SELECT COUNT(*) FROM caller_credentials),(SELECT COUNT(*) FROM messages),(SELECT COUNT(*) FROM files),COALESCE(SUM(length(login_identifier)),0),COALESCE(SUM(length(display_name)),0),COALESCE(SUM(length(COALESCE(real_name,''))),0),COALESCE(SUM(state_version),0) FROM callers", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).map_err(DatabaseError::Sqlite)?;
+    if expected != actual {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-14 migration changed schema-13 caller, credential, message, or file authority"
+                .to_owned(),
+        ));
+    }
+    let invalid_defaults: i64 = transaction.query_row("SELECT COUNT(*) FROM callers WHERE public_directory_listed<>0 OR publicity_state_version<>0", [], |r| r.get(0)).map_err(DatabaseError::Sqlite)?;
+    let policy: (bool,bool,bool,bool,i64) = transaction.query_row("SELECT directory_enabled,show_last_call_date,show_city_region,caller_bbs_additions_enabled,state_version FROM public_information_policy WHERE singleton=1", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).map_err(DatabaseError::Sqlite)?;
+    let entries: i64 = transaction
+        .query_row("SELECT COUNT(*) FROM other_bbs_entries", [], |r| r.get(0))
+        .map_err(DatabaseError::Sqlite)?;
+    let resources: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM public_information_resource_state",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid_defaults != 0
+        || policy != (false, false, false, false, 1)
+        || entries != 0
+        || resources != 0
+    {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-14 privacy-safe defaults are invalid".to_owned(),
+        ));
+    }
+    validate_schema_14_snapshot(transaction)
+}
+
+fn validate_schema_14_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let policy_rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM public_information_policy WHERE singleton=1",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if policy_rows != 1 {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-14 public-information policy singleton is missing".to_owned(),
+        ));
+    }
+    let invalid_callers: i64 = connection.query_row("SELECT COUNT(*) FROM callers WHERE public_directory_listed NOT IN (0,1) OR publicity_state_version<0", [], |r| r.get(0)).map_err(DatabaseError::Sqlite)?;
+    if invalid_callers != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-14 caller publicity state is invalid".to_owned(),
+        ));
+    }
+    let (count,min_order,max_order,distinct_order): (i64,Option<i64>,Option<i64>,i64) = connection.query_row("SELECT COUNT(*),MIN(display_order),MAX(display_order),COUNT(DISTINCT display_order) FROM other_bbs_entries", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(DatabaseError::Sqlite)?;
+    if count > 512
+        || (count > 0
+            && (min_order != Some(1) || max_order != Some(count) || distinct_order != count))
+    {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-14 Other BBS ordering is not dense and unique".to_owned(),
+        ));
+    }
+    let invalid_events: i64 = connection.query_row("SELECT COUNT(*) FROM public_information_events WHERE (actor_kind IN ('caller','threshold-sysop'))<>(actor_caller_id IS NOT NULL) OR (operation IN ('caller-listed','caller-unlisted') AND subject_caller_id IS NULL) OR (operation LIKE 'other-bbs-%' AND other_bbs_entry_id IS NULL) OR (operation='resource-published' AND (resource_kind IS NULL OR resource_digest IS NULL)) OR (operation<>'resource-published' AND (resource_kind IS NOT NULL OR resource_digest IS NOT NULL))", [], |r| r.get(0)).map_err(DatabaseError::Sqlite)?;
+    if invalid_events != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-14 public-information audit semantics are invalid".to_owned(),
+        ));
+    }
+    let invalid_resources: i64 = connection.query_row("SELECT COUNT(*) FROM public_information_resource_state WHERE generation<=0 OR published_at<0 OR length(sha256)<>64 OR sha256 GLOB '*[^0-9a-f]*'", [], |r| r.get(0)).map_err(DatabaseError::Sqlite)?;
+    if invalid_resources != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-14 public-resource generation state is invalid".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -2364,6 +2541,8 @@ pub enum DatabaseError {
     #[error("caller access mutation is not authorized")]
     CallerAccessUnauthorized,
     #[error(transparent)]
+    PublicInformation(#[from] PublicInformationError),
+    #[error(transparent)]
     Credential(#[from] CredentialError),
     #[error("caller name is already registered: {0:?}")]
     DuplicateCaller(String),
@@ -2406,7 +2585,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 13,
+                applied: 14,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -2433,7 +2612,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         let table_count: i64 = database
@@ -2501,7 +2680,7 @@ mod tests {
             MigrationReport {
                 starting_version: 10,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         let preserved = database
@@ -2664,7 +2843,7 @@ mod tests {
             MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: 3,
             }
         );
         let caller = database
@@ -2773,8 +2952,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 12,
-                ending_version: 13,
-                applied: 1,
+                ending_version: SCHEMA_VERSION,
+                applied: 2,
             }
         );
         let first = database
@@ -2807,6 +2986,121 @@ mod tests {
                     .get::<_, i64>(0),)
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn schema_thirteen_to_fourteen_preserves_identity_and_defaults_private() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(13) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Migration Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at,state_version) VALUES(42,'pixelwizard','PixelWizard','PIXELWIZARD','Private Fixture Name',25,'active',0,1700000000,7)", []).unwrap();
+        connection.execute("INSERT INTO caller_credentials(caller_id,scheme,password_hash) VALUES(42,?1,'synthetic-hash')", [CREDENTIAL_SCHEME]).unwrap();
+        connection.execute("INSERT INTO message_conferences(conference_id,conference_number,name,description,access_mode,read_security,post_security,public_only,maximum_lines) VALUES(1,1,'Migration Messages','Preserved','at-least',0,0,0,50)", []).unwrap();
+        connection.execute("INSERT INTO message_payloads(payload_id,subject,body,content_kind) VALUES(8,x'507265736572766564',x'4D657373616765204279746573','standard')", []).unwrap();
+        connection.execute("INSERT INTO message_fanouts(fanout_id,payload_id,created_by_caller_id,created_at) VALUES(8,8,42,1700000001)", []).unwrap();
+        connection.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal) VALUES(8,8,1,1,42,'PixelWizard',1700000001,1700000001,'all-callers','public','active','single',0)", []).unwrap();
+        connection.execute("INSERT INTO file_areas(area_id,area_number,name,description,storage_key,access_mode,read_security,upload_security,maximum_upload_bytes) VALUES(1,1,'Migration Files','Preserved','migration-files','at-least',0,0,1048576)", []).unwrap();
+        connection.execute("INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name) VALUES(9,1,'PRESERVE.TXT','PRESERVE.TXT','Preserved file',4,?1,1700000002,42,'PixelWizard')", ["11".repeat(32)]).unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            MigrationReport {
+                starting_version: 13,
+                ending_version: 14,
+                applied: 1
+            }
+        );
+        let caller = database
+            .caller_by_id(CallerId::new(42).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(caller.login_identifier, "pixelwizard");
+        assert_eq!(caller.display_name, "PixelWizard");
+        assert_eq!(caller.real_name.as_deref(), Some("Private Fixture Name"));
+        assert_eq!(caller.state_version, 7);
+        let preserved_credential: (String, String) = database
+            .connection
+            .query_row(
+                "SELECT scheme,password_hash FROM caller_credentials WHERE caller_id=42",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            preserved_credential,
+            (CREDENTIAL_SCHEME.to_owned(), "synthetic-hash".to_owned())
+        );
+        let preserved_message: (Vec<u8>, Vec<u8>, i64) = database.connection.query_row("SELECT p.subject,p.body,m.author_caller_id FROM messages m JOIN message_fanouts f ON f.fanout_id=m.fanout_id JOIN message_payloads p ON p.payload_id=f.payload_id WHERE m.message_id=8", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(
+            preserved_message,
+            (b"Preserved".to_vec(), b"Message Bytes".to_vec(), 42)
+        );
+        let preserved_file: (String, String, i64) = database
+            .connection
+            .query_row(
+                "SELECT filename,sha256,uploader_caller_id FROM files WHERE file_id=9",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            preserved_file,
+            ("PRESERVE.TXT".to_owned(), "11".repeat(32), 42)
+        );
+        assert!(!caller.public_directory_listed);
+        assert_eq!(caller.publicity_state_version, 0);
+        assert!(!database.public_directory_policy().unwrap().enabled);
+        assert!(database.other_bbs_entries(true).unwrap().is_empty());
+        database.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
+    fn failed_schema_fourteen_validation_rolls_back_to_unchanged_schema_thirteen() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(13) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Rollback Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at) VALUES(7,'rollback','Rollback Caller','ROLLBACK CALLER','Private Rollback Name',10,'active',0,1700000000)", []).unwrap();
+        let broken_sql = MIGRATIONS[13].sql.replace(
+            "INSERT INTO public_information_policy (singleton) VALUES (1);",
+            "INSERT INTO public_information_policy (singleton, directory_enabled) VALUES (1, 1);",
+        );
+        let broken = Migration {
+            version: 14,
+            name: MIGRATIONS[13].name,
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        let error = apply_migration(&mut connection, &broken).unwrap_err();
+        assert!(matches!(error, DatabaseError::MigrationValidation(_)));
+        assert_eq!(schema_version_from(&connection).unwrap(), 13);
+        let publicity_column: i64 = connection.query_row("SELECT COUNT(*) FROM pragma_table_info('callers') WHERE name='public_directory_listed'", [], |row| row.get(0)).unwrap();
+        assert_eq!(publicity_column, 0);
+        let preserved: (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT login_identifier,display_name,real_name FROM callers WHERE caller_id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            preserved,
+            (
+                "rollback".to_owned(),
+                "Rollback Caller".to_owned(),
+                Some("Private Rollback Name".to_owned())
+            )
         );
     }
 
@@ -2965,7 +3259,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: 13,
             }
         );
         assert_eq!(
@@ -3001,7 +3295,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 12,
             }
         );
         let caller = database
@@ -3048,7 +3342,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         assert_eq!(
@@ -3088,7 +3382,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         let caller = database
@@ -3148,7 +3442,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         let caller = database
@@ -3188,7 +3482,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -3271,7 +3565,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         assert_eq!(
@@ -3371,7 +3665,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 6,
             }
         );
         let caller = database

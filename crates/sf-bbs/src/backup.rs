@@ -1182,6 +1182,15 @@ mod tests {
             .execute_batch(
                 r#"
                 PRAGMA foreign_keys = OFF;
+                DROP TRIGGER public_information_events_no_delete;
+                DROP TRIGGER public_information_events_no_update;
+                DROP TABLE public_information_events;
+                DROP TABLE public_information_resource_state;
+                DROP TABLE other_bbs_entries;
+                DROP TABLE public_information_policy;
+                ALTER TABLE callers DROP COLUMN publicity_state_version;
+                ALTER TABLE callers DROP COLUMN public_directory_listed;
+                DELETE FROM schema_migrations WHERE version = 14;
 
                 DROP TRIGGER callers_login_identifier_update;
                 DROP TRIGGER callers_login_identifier_insert;
@@ -1299,6 +1308,15 @@ mod tests {
             .execute_batch(
                 r#"
             PRAGMA foreign_keys = OFF;
+            DROP TRIGGER public_information_events_no_delete;
+            DROP TRIGGER public_information_events_no_update;
+            DROP TABLE public_information_events;
+            DROP TABLE public_information_resource_state;
+            DROP TABLE other_bbs_entries;
+            DROP TABLE public_information_policy;
+            ALTER TABLE callers DROP COLUMN publicity_state_version;
+            ALTER TABLE callers DROP COLUMN public_directory_listed;
+            DELETE FROM schema_migrations WHERE version = 14;
             DROP TRIGGER callers_login_identifier_update;
             DROP TRIGGER callers_login_identifier_insert;
             DROP TRIGGER caller_identity_events_no_delete;
@@ -1326,6 +1344,42 @@ mod tests {
         let mut manifest: BackupManifest =
             toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
         manifest.schema_version = 11;
+        let (size_bytes, sha256) = hash_file(&database_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == BackupEntryKind::Database)
+            .unwrap();
+        entry.size_bytes = size_bytes;
+        entry.sha256 = sha256;
+        fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
+    fn rewrite_backup_database_as_schema_13(backup: &Path) {
+        let database_path = backup.join(DATABASE_BACKUP_PATH);
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA foreign_keys = OFF;
+            DROP TRIGGER public_information_events_no_delete;
+            DROP TRIGGER public_information_events_no_update;
+            DROP TABLE public_information_events;
+            DROP TABLE public_information_resource_state;
+            DROP TABLE other_bbs_entries;
+            DROP TABLE public_information_policy;
+            ALTER TABLE callers DROP COLUMN publicity_state_version;
+            ALTER TABLE callers DROP COLUMN public_directory_listed;
+            DELETE FROM schema_migrations WHERE version = 14;
+            PRAGMA foreign_keys = ON;
+        "#,
+            )
+            .unwrap();
+        drop(connection);
+        let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+        let mut manifest: BackupManifest =
+            toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest.schema_version = 13;
         let (size_bytes, sha256) = hash_file(&database_path).unwrap();
         let entry = manifest
             .entries
@@ -1408,6 +1462,43 @@ mod tests {
                 1_777_000_102,
             )
             .unwrap();
+        let publicity = access_database
+            .update_caller_publicity(
+                sf_core::PublicInformationActor::Caller(access_caller.id),
+                access_caller.id,
+                access_caller.publicity_state_version,
+                true,
+                1_777_000_103,
+            )
+            .unwrap();
+        assert!(publicity.listed);
+        access_database
+            .update_public_directory_policy(
+                sf_core::PublicInformationActor::LocalOperator,
+                1,
+                true,
+                true,
+                false,
+                false,
+                1_777_000_104,
+            )
+            .unwrap();
+        let other_bbs = access_database
+            .add_other_bbs(
+                sf_core::PublicInformationActor::LocalOperator,
+                sf_core::NewOtherBbsEntry {
+                    name: "Backup Fixture BBS".to_owned(),
+                    speed: "SSH".to_owned(),
+                    dial_string: "backup.example:2222".to_owned(),
+                },
+                1_777_000_105,
+            )
+            .unwrap();
+        for (kind, digest) in crate::resources::public_resource_digests(&paths).unwrap() {
+            access_database
+                .observe_public_resource(kind, &digest, 1_777_000_106)
+                .unwrap();
+        }
         drop(access_database);
         let original_config = fs::read(&config_path).unwrap();
         fs::write(source.join("work/runtime-status.toml"), b"transient").unwrap();
@@ -1487,11 +1578,11 @@ mod tests {
             fs::read(source.join("system/language-packs/en-US/language.toml")).unwrap()
         );
         let restored_status = crate::board_status(&restore.config_path).unwrap();
-        assert!(restored_status.contains("Active: classic-spitfire 1.3.0"));
-        assert!(restored_status.contains("Base: modern-ng 1.2.0"));
+        assert!(restored_status.contains("Active: classic-spitfire 1.4.0"));
+        assert!(restored_status.contains("Base: modern-ng 1.3.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.4.0"));
+        assert!(restored_status.contains("Package: en-US 1.5.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
@@ -1499,6 +1590,21 @@ mod tests {
         assert_eq!(restored_caller.base_security_level.get(), 29);
         assert_eq!(restored_caller.login_identifier, "backup-auth");
         assert_eq!(restored_caller.display_name, "Backup Caller");
+        assert!(restored_caller.public_directory_listed);
+        assert!(database.public_directory_policy().unwrap().enabled);
+        let restored_other_bbs = database.other_bbs_entries(true).unwrap();
+        assert_eq!(restored_other_bbs.len(), 1);
+        assert_eq!(restored_other_bbs[0].id, other_bbs.id);
+        for kind in ["bulletins", "newsletter", "thoughts"] {
+            assert_eq!(
+                database
+                    .public_resource_state(kind)
+                    .unwrap()
+                    .unwrap()
+                    .generation,
+                1
+            );
+        }
         assert_eq!(
             restored_caller.real_name.as_deref(),
             Some("Backup Real Name")
@@ -1578,7 +1684,7 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 3);
+        assert_eq!(migration.applied, 4);
         migrated.validate_current_snapshot().unwrap();
     }
 
@@ -1604,7 +1710,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: 3,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -1615,10 +1721,44 @@ mod tests {
     }
 
     #[test]
+    fn schema_13_backup_restores_exactly_then_migrates_privately_to_schema_14() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-13-source");
+        let backup = temp.path().join("schema-13-snapshot");
+        backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
+        rewrite_backup_database_as_schema_13(&backup);
+        let restored = temp.path().join("schema-13-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 13);
+        let config = RuntimeConfig::load(&report.config_path).unwrap();
+        let paths = LogicalPaths::resolve(&restored, &config.validate().unwrap()).unwrap();
+        RuntimeDatabase::open_read_only(paths.database())
+            .unwrap()
+            .validate_snapshot_at_version(13)
+            .unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            sf_core::MigrationReport {
+                starting_version: 13,
+                ending_version: 14,
+                applied: 1
+            }
+        );
+        assert!(!database.public_directory_policy().unwrap().enabled);
+        assert!(database.other_bbs_entries(true).unwrap().is_empty());
+        for caller in database.all_callers().unwrap() {
+            assert!(!caller.public_directory_listed);
+            assert_eq!(caller.publicity_state_version, 0);
+        }
+        database.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
     fn restore_refuses_older_and_newer_schema_manifests_before_target_creation() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "version-source");
-        for (schema_version, directory) in [(9, "older"), (14, "newer")] {
+        for (schema_version, directory) in [(9, "older"), (SCHEMA_VERSION + 1, "newer")] {
             let backup = temp.path().join(format!("{directory}-snapshot"));
             backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
             let manifest_path = backup.join(BACKUP_MANIFEST_FILE);

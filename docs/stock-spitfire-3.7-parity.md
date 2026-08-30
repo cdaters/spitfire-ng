@@ -498,16 +498,16 @@ the remaining real-client variants stay explicit. See the
 These remain stock-parity obligations, but they follow the first integrated
 board rather than blocking its first useful run.
 
-Current source records 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 11 NOT
-STARTED Category-B rows. Conference queues, caller/text message discovery,
-auditable message mutation, named-Sysop read-only preview, and auditable caller
-access are verified advanced features.
+Current source records 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 9 NOT STARTED
+Category-B rows. Conference queues, caller/text message discovery, auditable
+message mutation, named-Sysop read-only preview, auditable caller access, and
+privacy-bounded public information are verified advanced features.
 
 | ID | Capability | Manual evidence | Status | Notes / acceptance direction |
 |---|---|---|---|---|
 | B-001 | Public/private-board admission, lockout, subscription expiry/warnings | SF37 §3.2–3.3, §5.4, §8.2 | VERIFIED | Public/private admission and Locked Out denial use the normal verifier and stock-style resource boundary. Schema 12 adds nullable full-year board-local expiry, warning-window `SUBWARN`, following-midnight effective-security adjustment/`SFSUBCHG`, renewal without destroying base security, and bounded complete-name/`@`-substring ASCII-insensitive JOKER denial. Named-Sysop immunity, privacy-safe audit, dispatch-time enforcement, and recovery are verified. |
-| B-002 | Full caller directory/partial-name locate and “Other BBS” directory | SF37 §9.2 | NOT STARTED | Privacy-aware configuration must govern personal fields. |
-| B-003 | Bulletins, newsletter, system information, random `THOUGHTS.BBS` | SF37 §5.4, §5.9, §9.2 | NOT STARTED | Retain resource-driven presentation. |
+| B-002 | Full caller directory/partial-name locate and “Other BBS” directory | SF37 §9.2 | VERIFIED | M043 schema 14 implements board-disabled/caller-opt-in handle-only directory and bounded partial locate with immediate visibility recheck; native ordered/versioned Other BBS state, lifecycle, contributor ownership, redacted audit, cold recovery, common transports, and Qodem/SyncTERM acceptance. Exact `SFBBSLST.DAT` import/export remains a separately tracked legacy-adapter gap and is not claimed. |
+| B-003 | Bulletins, newsletter, system information, random `THOUGHTS.BBS` | SF37 §5.4, §5.9, §9.2 | VERIFIED | M043 implements numbered board-owned bulletins, newsletter plus content-generation notice, fixed privacy-safe system facts, and a bounded deterministic project-native thought catalog through common resource/presentation/encoding/recovery paths. The manual establishes `THOUGHTS.BBS` as an optional ASCII/`.BBS`-only display resource; exact records and historical selection remain a separately tracked legacy-adapter gap. Current-source behavior is an explicit reviewed modernization. |
 | B-004 | New-user and up to 24 order questionnaires | SF37 §7 | NOT STARTED | Preserve question/branch semantics; do not preserve printer dependence or unsafe automatic privilege escalation without policy controls. |
 | B-005 | `.RIP` display selection and RIP-oriented command resources | SF37 §3.3, §5.4 | NOT STARTED | Historical terminal capability; implement after text/ANSI path is stable. |
 | B-006 | Comprehensive display-resource precedence | SF37 §5.4 | PARTIAL | The bounded BBS/CLR resolver, exact-security overrides, profiles, generated fallback, localization, and subscription-state resources exist. This row retains the full bulletin-, questionnaire-, door-, event-, maintenance-, and other advanced state-specific resource inventory plus RIP precedence. |
@@ -530,6 +530,19 @@ access are verified advanced features.
 | B-023 | CD-ROM/extended download-directory behavior | SF37 §4.2, §5.6 | NOT STARTED | Model read-only and extended areas without staging through DOS work-space constraints. |
 | B-024 | Built-in ASCII, XMODEM variants, YMODEM variants, ZMODEM, and Telink transfer protocols | SF37 §11.3–11.5 | PARTIAL | All nine stock internal choices are implemented. Actual SyncTERM verifies ASCII, XMODEM checksum/CRC/1K, YMODEM single/batch, YMODEM-g download, and ZMODEM single-file upload/download with exact SHA-256; controlled peers cover XMODEM-g, bidirectional YMODEM-g batch, ZMODEM batch, and Telink. A real ZMODEM multi-file client path, second external Telink/1K-XMODEM-g peer, and external YMODEM-g upload/batch remain before the whole family is VERIFIED. See `sfng-file-transfers.md`. |
 | B-025 | Configuration backup/recovery files and operator recovery workflow | SF37 §5.8, §12 | PARTIAL | The native cold full-board workflow now provides explicit validated backup/new restore/replacement and subsumes current configuration recovery. Automatic legacy `SFMCONF.$$$`, `SFFAREA.$$$`, and `SFUSERS.$??` compatibility plus transactional configuration history remain adapter/advanced work. |
+
+### M043 deferred legacy-adapter gaps
+
+B-002/B-003 verification covers the accepted semantic caller experience and
+explicit privacy modernization. It does not close two byte-level historical
+adapters: exact `SFBBSLST.DAT` import/export and exact `THOUGHTS.BBS` record/
+selection behavior. The manual documents `SFBBSLST.DAT` as WORK-owned name,
+BPS-rate, and phone-number data with caller append attribution in the caller
+log; it documents `THOUGHTS.BBS` as an optional DISPLAY-path resource produced
+by `THOUGHTS.EXE` and available only in the ASCII/`.BBS` form. Delimiters,
+record layouts, edge cases, and exact thought selection remain unproven. No
+native SQLite row or `THOUGHTS.NG` record is claimed to round-trip either
+original file.
 
 ## C — Optional / Companion / Network / Add-On
 

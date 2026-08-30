@@ -9,14 +9,14 @@ checks.
 
 The public `main` branch is now ahead of that binary release. Current source
 adds post-0.1.0 advanced message discovery, auditable message mutation, an
-auditable caller-access lifecycle, schema-13 caller identity, and secure SSH
-caller transport; the downloadable 0.1.0 archive is unchanged and does not
-contain those additions.
+auditable caller-access lifecycle, schema-13 caller identity, secure SSH caller
+transport, and schema-14 privacy-bounded public information; the downloadable
+0.1.0 archive is unchanged and does not contain those additions.
 
 ## Current source additions
 
-The Category-B ledger now records 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
-11 NOT STARTED rows.
+The Category-B ledger now records 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
+9 NOT STARTED rows.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -60,6 +60,20 @@ The Category-B ledger now records 6 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
   invalidation, privacy-safe diagnostics, and cold-backup continuity
 - No OS shell, Unix account login, SCP, SFTP, command execution, forwarding,
   remote filesystem, X11, agent, or subsystem access
+- Transactional schema-13→14 migration with private defaults, rollback, and
+  exact schema-13 restore followed by writable migration
+- Board-disabled and caller-opt-in public directory using only Active callers'
+  public handles, plus policy-controlled board-local last-call/location fields
+- Bounded handle-only partial locate with deterministic ordering, a 50-result
+  cap, sequential confirmation, and visibility recheck before disclosure
+- Native ordered/versioned Other BBS authority with stable IDs, lifecycle,
+  optional stable contributor identity, conflict-safe operator maintenance,
+  and caller additions disabled by default
+- Board-owned numbered bulletins, newsletter, safe system facts, and bounded
+  project-native `THOUGHTS.NG` through the shared resource, presentation,
+  localization, paging, and encoding boundaries
+- Privacy-safe semantic audit and cold recovery for directory policy,
+  publicity state, Other BBS rows, resource generations, and board resources
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -80,6 +94,9 @@ selection, visibility, or result presentation.
 - Auditable caller lifecycle, base/effective security, subscription policy,
   JOKER name denial, named-Sysop protection, and schema-12 recovery when built
   from current post-0.1.0 source
+- Privacy-bounded caller directory, locate, Other BBS, bulletins, newsletter,
+  system information, and native thoughts when built from current post-0.1.0
+  source
 - File areas, catalogs, search, uploads, downloads, and new-file checks
 - ASCII, XMODEM, YMODEM, and ZMODEM-family transfer support as documented
 - Multinode runtime and session isolation
@@ -148,7 +165,8 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary, then separately review the M043
-privacy-bounded B-002/B-003 interface/resource gate. Do not begin its
-implementation before that gate is accepted. Signing, additional binary
-platforms, and other features remain separately scoped work.
+Preserve the accepted 0.1.0 release boundary. The next dependency-ordered
+Category-B tranche is safe file inspection, request, and maintenance
+(B-013/B-015, then B-012); it requires a separately reviewed interface gate
+before implementation. Signing, additional binary platforms, and other
+features remain separately scoped work.

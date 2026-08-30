@@ -41,7 +41,9 @@ The snapshot contains:
   Copy/Forward lineage, mutation audit, caller lifecycle versions, base
   security, subscription state, reasoned security adjustments, purge
   protection, recoverable caller tombstones, caller-access audit, caller login
-  identifiers, public handles, private real names, and identity audit;
+  identifiers, public handles, private real names, identity audit,
+  public-directory policy, caller listing preferences and versions, ordered
+  Other BBS state, public-resource generations, and public-information audit;
 - complete SYSTEM (including presentation and language package descriptors,
   catalogs/assets, licenses, provenance, optional `JOKER.DAT`, and any generated
   SSH host key) plus DISPLAY override resources;
@@ -63,11 +65,11 @@ spitfire status /path/to/restored-board/spitfire.toml
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
 
-Current source restores exact schema-10 through schema-13 backups. A
+Current source restores exact schema-10 through schema-14 backups. A
 snapshot remains at its original schema during restore and migrates
 transactionally only on the first normal writable startup. Keep the old
 executable and pre-upgrade backup for rollback; there is no in-place downgrade
-from schema 13.
+from schema 14.
 
 ## Replace an existing board
 

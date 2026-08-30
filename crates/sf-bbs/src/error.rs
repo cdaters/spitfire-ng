@@ -87,6 +87,8 @@ pub enum ApplicationError {
     #[error(transparent)]
     Joker(#[from] sf_core::JokerError),
     #[error(transparent)]
+    PublicInformation(#[from] sf_core::PublicInformationError),
+    #[error(transparent)]
     Backup(#[from] crate::BoardBackupError),
     #[error(transparent)]
     Database(#[from] sf_core::DatabaseError),
