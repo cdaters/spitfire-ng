@@ -17,6 +17,8 @@ Enter Main `F`, or Message `F`:
 |---|---|
 | `C` | List accessible areas and change the current area. |
 | `L` | List files in the current area with size, board-local date, and description. |
+| `R` | Read a bounded text file safely; binary and terminal-control content is rejected. |
+| `V` | View bounded Stored/Deflated ZIP member metadata without extracting the archive; unsupported or inconsistent archives fail closed. |
 | `D` | Download one file or a comma-separated batch through a selected protocol. |
 | `U` | Upload through the selected protocol and catalog successful bytes. |
 | `N` | Find new files by checkpoint or entered date. |
@@ -44,9 +46,17 @@ upload path callers use:
 6. List the area and confirm filename, size, date, and description.
 
 Successful uploads are staged per session, independently sized/hashed,
-created without overwrite, cataloged transactionally, and counted once.
+name-reserved without overwrite, operation-journaled, cataloged, and counted once.
 Canceled, disconnected, invalid, duplicate, or failed uploads do not become
 available files.
+
+A description beginning with `/` invokes the historical Sysop-only signal.
+Current source stores the upload as `PendingReview`; it is hidden from ordinary
+listing, search, read/view, request, and download until an authorized operator
+accepts it through the typed maintenance domain. Operator TUI/CLI presentation
+for that domain is not part of this tranche. An active threshold Sysop may use
+the bounded archive/DIZ inspection service during review without publishing the
+item to callers.
 
 ## Search and new-file checkpoint
 
@@ -62,12 +72,19 @@ does not.
 
 ## Storage boundary
 
-SQLite stores file-area policy, catalog metadata, SHA-256, attribution,
-availability, and counters. File bytes remain under the configured external
+SQLite schema 15 stores file-area policy, stable identities, lifecycle and
+integrity, private requests/review, upload policy, versions, operation journal,
+legacy publication state, audit, SHA-256, attribution, and counters. File bytes remain under the configured external
 storage root. Every download reauthorizes the caller and revalidates the byte
 size/hash before transfer. Do not place a file into that directory manually;
 uncataloged bytes are neither caller-visible nor native-backup content.
 
-Archive inspection/import, `FILE_ID.DIZ`, ratios, batch-queue redesign,
-delete/relocate maintenance, and file networking are not part of the current
-operator surface. See [Native SPITFIRE NG File System](../sfng-file-system.md).
+The native maintenance domain now implements bounded FILE_ID.DIZ review,
+private requests, move/tombstone/reconcile, denial policy, and legacy-listing
+publication. A future sfconfig/sfmonitor/CLI must call these typed, versioned
+commands; there is intentionally no direct online SQLite or managed-root edit.
+Ratios, batch-queue redesign, file networking, persisted extended roots, and
+the broader enhanced file UI remain outside this tranche. See the
+[implementation report](../research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md)
+and [verification report](../research/m039-tranche-5-verification.md).
+See [Native SPITFIRE NG File System](../sfng-file-system.md).

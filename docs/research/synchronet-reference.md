@@ -2,9 +2,9 @@
 
 ## Purpose and Authority
 
-An ignored Synchronet source archive is available at
-`research/samples/synchronet/sbbs_src.tgz`. It is a secondary comparative
-engineering source for mature BBS design and implementation patterns.
+A separately held Synchronet source snapshot was reviewed as a secondary
+comparative engineering source for mature BBS design and implementation
+patterns. It is not distributed by this repository.
 
 It does **not** define SPITFIRE NG caller-visible behavior. The authority order
 is:
@@ -119,8 +119,7 @@ split-screen UI, external pager commands, control flags, or command keys.
 
 ## Binary-Transfer Increment Material Inspected
 
-The curated `research/samples/synchronet/README.md` launchpad, official
-[reference index](https://wiki.synchro.net/ref:index),
+The official [reference index](https://wiki.synchro.net/ref:index),
 [XMODEM](https://wiki.synchro.net/ref:xmodem),
 [YMODEM](https://wiki.synchro.net/ref:ymodem), and
 [ZMODEM](https://wiki.synchro.net/ref:zmodem) pages were reviewed. The

@@ -37,8 +37,10 @@ The latest downloadable binary remains 0.1.0. The `main` branch now contains
 post-0.1.0 source improvements, including advanced caller/text message
 discovery, auditable message mutation, an auditable caller-access lifecycle,
 schema-13 caller identity separation, secure SSH caller transport, and
-schema-14 privacy-bounded public information; those improvements are not
-present in the published 0.1.0 archive.
+schema-14 privacy-bounded public information. Current source also includes
+schema-15 safe file inspection, private file requests and review, and staged
+file maintenance. Those improvements are not present in the published 0.1.0
+archive.
 
 Available today:
 
@@ -65,10 +67,13 @@ Available today:
   CC delivery, authorized Delete/Undelete, audience transitions, and
   source-retaining Copy/Forward;
 - file areas, uploads, downloads, new-file checks, and supported transfer
-  protocols;
+  protocols plus—when built from current source—bounded text/ZIP inspection,
+  Preview inspection without transfer, private Offline/Missing requests,
+  PendingReview uploads, and versioned staged file maintenance;
 - multinode operation, operator status, cold backup, and restore, including
-  schema-14 public-information state, caller identity/access state, SSH
-  configuration, and SSH host-key continuity when built from current source;
+  schema-15 file state, schema-14 public-information state, caller
+  identity/access state, SSH configuration, and SSH host-key continuity when
+  built from current source;
 - an en-US localization baseline and versioned language-pack interface; and
 - a verified Moebius 1.0.29 workflow for authoring `.CLR` screens on macOS.
 
@@ -137,6 +142,9 @@ explains listener configuration, first calls, messages, files, and backups.
 - [Caller access lifecycle and security](docs/sfng-caller-access.md)
 - [Secure SSH caller transport](docs/sfng-secure-ssh-transport.md)
 - [Privacy-bounded public information](docs/sfng-public-information.md)
+- [Native file system and schema-15 authority](docs/sfng-file-system.md)
+- [Tranche 5 implementation](docs/research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md)
+- [Tranche 5 verification](docs/research/m039-tranche-5-verification.md)
 - [Roadmap](ROADMAP.md)
 
 ## Custom ANSI screens
@@ -169,8 +177,8 @@ The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
 advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
-also predates SSH, schemas 13–14, and the current-source public-information
-additions.
+also predates SSH, schemas 13–15, public-information additions, and Tranche 5
+file inspection/request/maintenance source.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

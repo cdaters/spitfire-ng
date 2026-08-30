@@ -11,6 +11,7 @@ pub mod config;
 pub mod credentials;
 pub mod database;
 pub mod file;
+pub mod file_maintenance;
 mod file_session;
 pub mod interaction;
 pub mod localization;
@@ -54,10 +55,12 @@ pub use database::{
 };
 pub use file::{
     normalize_filename, AsciiTransfer, FileAccess, FileAccessMode, FileActor, FileArea,
-    FileAreaDefinition, FileAreaId, FileBackend, FileEntry, FileError, FileId, FileSearch,
-    FileStatistics, FileStorage, FileTransfer, NewFileEntry, StagedUpload, TransferDirection,
-    TransferReport, MAX_FILE_AREAS, MAX_FILE_DESCRIPTION_BYTES, MAX_FILE_NAME_BYTES,
+    FileAreaDefinition, FileAreaId, FileBackend, FileEntry, FileError, FileId, FileIntegrity,
+    FileLifecycle, FileSearch, FileStatistics, FileStorage, FileTransfer, LogicalFileStorageRoot,
+    NewFileEntry, StagedUpload, StorageRootAccess, TransferDirection, TransferReport,
+    MAX_FILE_AREAS, MAX_FILE_DESCRIPTION_BYTES, MAX_FILE_DESCRIPTION_LINES, MAX_FILE_NAME_BYTES,
 };
+pub use file_maintenance::*;
 pub use interaction::{
     CallerChat, InteractionError, InteractionHub, OperatorChat, PageAnswer, PageRequest, PageState,
     PageTicket, SysopAvailability,

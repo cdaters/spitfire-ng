@@ -22,7 +22,7 @@ pub const LANGUAGE_MANIFEST: &str = "language.toml";
 pub const LANGUAGE_FORMAT_VERSION: u32 = 1;
 pub const CATALOG_API_VERSION: u32 = 1;
 pub const EMBEDDED_LOCALE: &str = "en-US";
-pub const EMBEDDED_PACKAGE_VERSION: &str = "1.5.0";
+pub const EMBEDDED_PACKAGE_VERSION: &str = "1.6.1";
 
 const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 const MAX_LANGUAGE_FILES: usize = 64;
@@ -1124,10 +1124,10 @@ mod tests {
         assert!(matches!(time, FormattedValue::Text(value) if value == "12/31/2024 5:00 PM MST"));
         let pseudo = Localizer::pseudo_for_tests().text(
             "caller-welcome",
-            &LocalizationArgs::new().with("caller", "Alex"),
+            &LocalizationArgs::new().with("caller", "Craig"),
         );
         assert!(pseudo.starts_with('⟦'));
-        assert!(pseudo.len() > "Welcome, Alex.".len());
+        assert!(pseudo.len() > "Welcome, Craig.".len());
         assert!(pseudo.contains('界'));
     }
 
@@ -1161,9 +1161,9 @@ mod tests {
         assert_eq!(
             degraded.localizer().text(
                 "caller-welcome",
-                &LocalizationArgs::new().with("caller", "Alex")
+                &LocalizationArgs::new().with("caller", "Craig")
             ),
-            "Welcome, Alex."
+            "Welcome, Craig."
         );
     }
 

@@ -262,8 +262,10 @@ remains understandable and editable without those tools. Static TOML,
 persistent SQLite state, and transient node status are deliberately separate;
 see [Setup and Configuration](sfng-setup-configuration.md).
 
-Caller defaults and message-conference operational configuration are now
-implemented. File-area settings will be added only with the file increment.
+Caller defaults, message-conference configuration, file-area policy, and
+transport settings are implemented. Schema-15 file maintenance keeps native
+catalog state in SQLite and bytes inside confined managed storage; callers and
+future operator clients receive logical identities rather than host paths.
 Unknown configuration keys and unsupported format versions fail closed.
 
 ## 9. Configuration Hierarchy

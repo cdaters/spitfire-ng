@@ -73,10 +73,13 @@ SQLite migration 1 contains schema history and singleton board identity;
 later transactional migrations add their owning caller, message, file,
 presentation, audit, access, identity, and public-information state. Schema 13
 separates login identifier, public handle, and private real name without
-changing stable caller ID or historical attribution. Current schema 14 adds
+changing stable caller ID or historical attribution. Schema 14 adds
 only versioned public-directory policy and caller choice, native ordered Other
 BBS rows, content-addressed public-resource state, and content-free semantic
-events. The exact caller model and modernization boundary are specified in
+events. Current schema 15 adds file lifecycle/integrity, requests/review,
+policy, optimistic versions, operation journal/leases, publications, and
+semantic file audit while retaining SQLite-plus-confined-bytes authority. The
+exact caller model and modernization boundary are specified in
 [Native Caller and Authentication Model](sfng-caller-authentication.md).
 
 M043 implements caller-facing public information as a handle-only,
@@ -204,7 +207,7 @@ Current adapter status (including Increment 2 authentication):
 | Unix stdio shell | Implemented on Unix-like hosts | Automated adapter checks and manual common-session traversal |
 | Direct serial | Implemented through a maintained serial API | Synthetic PTY tested; physical hardware unverified |
 | Inbound Hayes modem | Implemented as a serial controller for initialization, answer, connect, and carrier loss | Deterministic simulation tested; physical hardware unverified |
-| SSH | Implemented with `russh`, password-only caller authentication, PTY/resize, and a board-local Ed25519 key | Automated real-client protocol/no-shell/status tests plus macOS OpenSSH traversal; Qodem external SSH reached Main/Messages/Files; tested SyncTERM 1.9rc4 configuration did not complete the modern handshake |
+| SSH | Implemented with `russh`, password-only caller authentication, PTY/resize, and a board-local Ed25519 key | Automated real-client protocol/no-shell/status tests plus macOS OpenSSH traversal; Qodem external SSH reached Main/Messages/Files; SyncTERM 1.9rc4 handshake unsupported |
 
 Increment 4 replaces the initial Node 1 singleton with one configured,
 race-safe pool. Every adapter acquires the lowest numbered available enabled
@@ -508,13 +511,27 @@ It should not simply relay traffic to the public Telnet port.
 
 ## 20. Administrative Separation
 
-Caller access and server administration should be conceptually separate.
+Caller-facing Sysop authority and host/server administration are separate.
+Stable caller ID, named-Sysop protection, and threshold/effective security
+continue to govern BBS-domain actions, but no caller credential or numerical
+security level automatically authenticates a host operator.
 
-SPITFIRE security level 255 may still represent the traditional Sysop inside the BBS.
+The Development Preview currently runs foreground `run` or same-process
+`console`; `config`, cold backup, restore, and migration require stopped-board
+ownership. A future daemon-attached expert configuration client and live
+monitor must use authenticated, capability-scoped, local-only-by-default IPC.
+They may not open SQLite, rewrite TOML/resources, signal workers, or mutate
+runtime state behind the daemon. The daemon validates typed versioned commands,
+commits through the owning domain, applies or reports lifecycle requirements,
+and audits semantic outcomes.
 
-Server-level administrative operations may require additional authorization.
-
-This prevents a compromised caller credential from automatically granting control over the host system.
+Explicit offline administration remains available only after acquiring the
+exclusive board operation lock and must reuse the same domain/configuration
+services rather than duplicate business rules. Unix-domain sockets and
+Windows named pipes are the preferred platform-local endpoint families;
+loopback transport is a strongly authenticated fallback, never a public
+unauthenticated admin listener. These are accepted architecture constraints,
+not a claim that daemon admin IPC, `sfconfig`, or `sfmonitor` already exists.
 
 ## 21. Implementation Language
 

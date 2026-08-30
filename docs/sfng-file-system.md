@@ -5,12 +5,11 @@ native file-area subsystem introduced by Stock SPITFIRE 3.7 Core Parity
 Increment 5. Read it before changing file metadata, storage paths, file-area
 authorization, transfers, uploads, or transfer accounting.
 
-The caller-visible authority is Buffalo Creek Software's preserved SPITFIRE
-3.7 manual (`research/samples/shareware-software/sf37-2/spitfire.doc`). The
-manual is a read-only, ignored research input. The durable parity status is in
-[the stock checklist](stock-spitfire-3.7-parity.md). Synchronet was used only
-as a secondary engineering reference; see
-[the corpus note](research/synchronet-reference.md).
+The caller-visible authority is Buffalo Creek Software's SPITFIRE 3.7 manual.
+The public repository does not redistribute that historical corpus. Durable
+parity status is in [the stock checklist](stock-spitfire-3.7-parity.md).
+Synchronet was used only as a secondary engineering reference; see
+[the comparison note](research/synchronet-reference.md).
 
 ## Increment 5 Boundary
 
@@ -85,9 +84,10 @@ ten 45-character description lines, with create/append, sort, size/date repair,
 and missing-file review workflows. These are historical requirements for the
 future enhanced file-display/legacy-listing gate, not behavior added by M043.
 Numbered CD-ROM listing files and extended directory resources such as
-`FA<n>.TXT` remain legacy adapter concerns. Companion tools can extract
-`FILE_ID.DIZ` descriptions from archives; neither import nor archive handling
-is part of the native presentation closure.
+`FA<n>.TXT` remain legacy adapter concerns. Current schema-15 source implements
+bounded ZIP and FILE_ID.DIZ inspection, private requests/review, and journaled
+maintenance without treating legacy flat files as concurrent authority.
+Persisted extended-root policy and exact legacy imports remain later work.
 
 ## Domain Model
 
@@ -257,10 +257,11 @@ Successful commit is:
 7. delete the final byte file if database insertion fails; and
 8. remove staging after the catalog commit succeeds.
 
-Exact case-insensitive filename duplication within an area is rejected. The
-manual's broader same-basename/different-extension and digit-stripping checks,
-content-hash policy, Sysop review/approval, and virus-scanning hooks remain
-follow-up. No upload is placed directly into trusted final storage.
+Exact case-insensitive filename duplication within an area is rejected.
+Schema 15 supplies bounded same-basename/different-extension and optional
+digit-family warnings plus durable PendingReview Sysop approval. Content-hash
+duplicate policy and virus-scanning hooks remain follow-up. No upload is placed
+directly into trusted final storage.
 
 ## Setup and Administration
 
@@ -290,6 +291,39 @@ Expected missing, restricted, duplicate, malformed, canceled, disconnected,
 and content-mismatch conditions return useful errors rather than panicking.
 The node lease releases through the existing RAII path even when transfer or
 session I/O fails.
+
+## Implemented Tranche 5 Authority Boundary
+
+The schema-15 implementation for B-013/B-015 then B-012 keeps native SQLite catalog
+rows and confined managed bytes authoritative. Historical `SFFILES.BBS`,
+`SFFILES.<x>`, `SFILEREQ.LOG`, `SFNOUP.DAT`, `SFUPCASE.DAT`, and `FA<x>.TXT`
+are bounded import/export or publication adapters, never a second online
+authority.
+
+The implementation retains stable file IDs, adds versioned publication
+lifecycle and separate integrity state, and uses idempotent staged
+operations for add, move, remove, review, and listing publication. Filesystem
+and SQLite commits are explicitly reconciled across crashes. Read-only text
+and ZIP inspection is separately authorized, bounded, sanitized, and available
+to Preview-area callers without granting download. Durable private requests
+refer to stable caller/file IDs; PendingReview replaces the historical hidden
+slash-description upload convention. All online maintenance uses typed daemon
+commands suitable for the current CLI/tests and future operator clients.
+
+ZIP metadata inspection supports only the minimized build's Stored and
+Deflated methods. Unsupported compression, encryption, overlap, inconsistent
+standard central-directory counts, malformed metadata, and configured bounds
+fail closed. PendingReview remains caller-invisible; an active threshold Sysop
+may use the same bounded service to inspect an archive/DIZ before a versioned
+review decision. Publication/move stages synchronize file and containing-
+directory state where supported, and failed pre-rename SFFILES publication is
+restart-classified through its persisted staging path.
+
+These are current-source contracts. See the
+[implementation report](research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md)
+for schema 15, transaction phases, archive limits, authorization, recovery,
+automated evidence, and deferred original-runtime tests, and the
+[verification report](research/m039-tranche-5-verification.md) for row status.
 
 ## Verification Status
 
@@ -334,13 +368,13 @@ path.
   protocol drivers;
 - historical file/KB ratios, daily limits, transfer-time credit, and disk-free
   threshold behavior;
-- tagging, file requests, Sysop-only upload and validation queues;
-- full duplicate heuristics and optional content-hash policy;
-- `FILE_ID.DIZ` extraction and bounded archive/text inspection;
-- `SFFILES.BBS`/extended directory import, historical dynamic colorization,
+- tagging and optional content-hash duplicate policy;
+- exhaustive original-runtime duplicate-family edge behavior;
+- exact legacy `FILE_ID.DIZ` utility edge behavior;
+- `SFFILES.BBS` import/round trip, historical dynamic colorization,
   comma-sensitive size recognition, and historical file-area records;
-- CD-ROM/read-only area behavior and legacy metadata import; and
-- privileged move/delete/shuffle/maintenance with audit history.
+- persisted B-023 multi-root configuration, read-only transfer staging, and
+  legacy metadata import.
 
 These are preserved in the parity checklist as Category A gaps or Category B/C
 follow-up rather than being implied complete.
@@ -350,8 +384,10 @@ follow-up rather than being implied complete.
 Increment 5 proved a functioning native file library over the same caller and
 multinode session engine used by messages. Metadata began at SQLite schema 4;
 schema 6 adds transfer preference state; schema 9 adds only the caller's
-dedicated new-file checkpoint; the current schema 10 independently adds the
-privacy-bounded latest-access-denial context described in
+dedicated new-file checkpoint; the current schema 15 adds file lifecycle,
+integrity, requests/review, policy, versions, operation journal, publication,
+and semantic audit while retaining later caller-access, identity, and
+public-information state described in
 [Caller Authentication](sfng-caller-authentication.md); bytes
 are confined under logical `EXTERNAL`; in-progress uploads are confined under
 logical `WORK`; security is enforced below menus; and only successful verified
@@ -362,10 +398,11 @@ board-local file dates, and multiline descriptions; New Files supports
 specific/all area scope plus explicit-date/last-check selection without
 changing the transfer or storage model.
 
-Read this document, [the public status](../STATUS.md), and
+Read this document, [public status](../STATUS.md), and
 [the parity checklist](stock-spitfire-3.7-parity.md) first. Then inspect
 [`file.rs`](../crates/sf-core/src/file.rs),
 [`file_session.rs`](../crates/sf-core/src/file_session.rs), and the setup/admin
 integration, then read [SPITFIRE NG File Transfers](sfng-file-transfers.md)
-before changing wire protocols. The next stock-core increment is chosen from
-remaining Category-A rows, not assumed to be generic integration work.
+before changing wire protocols. B-013 is VERIFIED. B-015 and B-012 remain
+IMPLEMENTED pending the exact acceptance items recorded in the verification
+report.

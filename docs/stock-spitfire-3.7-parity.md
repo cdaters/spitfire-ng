@@ -6,11 +6,11 @@ the first major SPITFIRE NG development phase. It answers two questions:
 1. What could a Sysop and caller do with a normal stock SPITFIRE 3.7 board?
 2. How much of that operating model does SPITFIRE NG currently reproduce?
 
-The primary operational source is the preserved Buffalo Creek manual at
-`research/samples/shareware-software/sf37-2/spitfire.doc`. That input is
-read-only and intentionally excluded from Git. Binary details and findings not
-specified by the manual remain governed by dedicated public format
-specifications and the private preservation record.
+The primary operational source is the original Buffalo Creek SPITFIRE 3.7
+manual held outside this repository. That source is preservation evidence and
+is not redistributed here. Binary details and findings not specified by the
+manual remain governed by dedicated public format specifications and
+independently reviewed preservation evidence.
 
 This is a parity checklist, not a promise to reproduce DOS itself. Apply the
 project rule: preserve identity-defining behavior; modernize platform
@@ -498,16 +498,17 @@ the remaining real-client variants stay explicit. See the
 These remain stock-parity obligations, but they follow the first integrated
 board rather than blocking its first useful run.
 
-Current source records 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 9 NOT STARTED
+Current source records 9 VERIFIED, 2 IMPLEMENTED, 7 PARTIAL, and 7 NOT STARTED
 Category-B rows. Conference queues, caller/text message discovery, auditable
-message mutation, named-Sysop read-only preview, auditable caller access, and
-privacy-bounded public information are verified advanced features.
+message mutation, named-Sysop read-only preview, auditable caller access,
+privacy-bounded public information, and safe file inspection are verified
+advanced features.
 
 | ID | Capability | Manual evidence | Status | Notes / acceptance direction |
 |---|---|---|---|---|
 | B-001 | Public/private-board admission, lockout, subscription expiry/warnings | SF37 §3.2–3.3, §5.4, §8.2 | VERIFIED | Public/private admission and Locked Out denial use the normal verifier and stock-style resource boundary. Schema 12 adds nullable full-year board-local expiry, warning-window `SUBWARN`, following-midnight effective-security adjustment/`SFSUBCHG`, renewal without destroying base security, and bounded complete-name/`@`-substring ASCII-insensitive JOKER denial. Named-Sysop immunity, privacy-safe audit, dispatch-time enforcement, and recovery are verified. |
 | B-002 | Full caller directory/partial-name locate and “Other BBS” directory | SF37 §9.2 | VERIFIED | M043 schema 14 implements board-disabled/caller-opt-in handle-only directory and bounded partial locate with immediate visibility recheck; native ordered/versioned Other BBS state, lifecycle, contributor ownership, redacted audit, cold recovery, common transports, and Qodem/SyncTERM acceptance. Exact `SFBBSLST.DAT` import/export remains a separately tracked legacy-adapter gap and is not claimed. |
-| B-003 | Bulletins, newsletter, system information, random `THOUGHTS.BBS` | SF37 §5.4, §5.9, §9.2 | VERIFIED | M043 implements numbered board-owned bulletins, newsletter plus content-generation notice, fixed privacy-safe system facts, and a bounded deterministic project-native thought catalog through common resource/presentation/encoding/recovery paths. The manual establishes `THOUGHTS.BBS` as an optional ASCII/`.BBS`-only display resource; exact records and historical selection remain a separately tracked legacy-adapter gap. Current-source behavior is an explicit reviewed modernization. |
+| B-003 | Bulletins, newsletter, system information, random `THOUGHTS.BBS` | SF37 §5.4, §5.9, §9.2 | VERIFIED | M043 implements numbered board-owned bulletins, newsletter plus content-generation notice, fixed privacy-safe system facts, and a bounded deterministic project-native thought catalog through common resource/presentation/encoding/recovery paths. Historical documentation and byte evidence establish the BBS-only resource's 366-byte/six-string geometry and random selection; a legacy parser plus exact RNG/malformed/marker/high-bit runtime edges remain separate compatibility gaps. |
 | B-004 | New-user and up to 24 order questionnaires | SF37 §7 | NOT STARTED | Preserve question/branch semantics; do not preserve printer dependence or unsafe automatic privilege escalation without policy controls. |
 | B-005 | `.RIP` display selection and RIP-oriented command resources | SF37 §3.3, §5.4 | NOT STARTED | Historical terminal capability; implement after text/ANSI path is stable. |
 | B-006 | Comprehensive display-resource precedence | SF37 §5.4 | PARTIAL | The bounded BBS/CLR resolver, exact-security overrides, profiles, generated fallback, localization, and subscription-state resources exist. This row retains the full bulletin-, questionnaire-, door-, event-, maintenance-, and other advanced state-specific resource inventory plus RIP precedence. |
@@ -516,10 +517,10 @@ privacy-bounded public information are verified advanced features.
 | B-009 | Message threads, carbon copies, delete/undelete, move/copy/forward | SF37 §10.2, §13 | VERIFIED | Replies and exact-subject threads remain intact. Schema 11 implements separately numbered primary plus up to nine CC deliveries, per-delivery receipt/tombstone state, caller-policy sender/direct/CC deletion, threshold delete/contextual Undelete and public/private audience transition, and source-retaining same/cross-conference Copy. Forward is Copy with recipient change; no separate Move/Forward command or implicit source delete exists. State versions, explicit lineage, private append-only audit, transactional migration, recovery, three-client acceptance, and two-node stale-conflict handling are verified. |
 | B-010 | Sysop message preview without marking received | SF37 §10.2, §13 | VERIFIED | The configured named Sysop can preview private received mail without changing receipt or last-read state; threshold-only callers do not gain the named-Sysop path. |
 | B-011 | File tagging and batch queues | SF37 §11.2, §11.4–11.5 | NOT STARTED | Preserve queue workflow independently of specific serial protocols. |
-| B-012 | File requests, duplicate upload detection, Sysop-only uploads | SF37 §5.6, §11.2 | PARTIAL | Exact case-insensitive same-area filename duplicates are race-safely rejected. File requests, digit-stripped/base-name heuristics, and Sysop validation/review remain. |
-| B-013 | Read text files and inspect ZIP archives | SF37 §11.2 | NOT STARTED | Bounds-check archive metadata and content rendering. |
+| B-012 | File requests, duplicate upload detection, Sysop-only uploads | SF37 §5.6, §11.2 | IMPLEMENTED | Schema 15 adds private bounded Offline/Missing requests and versioned review; slash-marked uploads become non-public PendingReview; exact duplicates conflict under name reservation while same-base/digit-family results warn; native versioned SFNOUP and optional SFUPCASE-style normalization are audited. Live cancellation/review, concurrent warning recomputation, and complete legacy-policy edge matrices remain before VERIFIED. |
+| B-013 | Read text files and inspect ZIP archives | SF37 §11.2 | VERIFIED | Text inspection is confined, 256-KiB/2,000-line bounded, explicit ASCII/UTF-8/CP437, and rejects unsafe terminal controls. ZIP 8.6 metadata view never extracts and bounds archive/member/name/metadata/declared size/time while rejecting unsupported codecs, encryption, inconsistent directories, overlap, and unsafe paths. ZIP64, malformed/name/codec edges, special files, Preview authorization, all profiles, common transports, Qodem/SyncTERM/OpenSSH, and recovery pass. Exact legacy layout remains a separate presentation claim. |
 | B-014 | File ratios, daily limits, no-charge areas, preview areas, upload time credit | SF37 §3.2, §4.2, §11 | PARTIAL | Preview and no-charge area behavior are implemented. Ratios, daily transfer limits, and upload time credit remain; serial-speed estimates will not be authoritative. |
-| B-015 | File move/delete/listing maintenance | SF37 §11.2 | NOT STARTED | Privileged operations require confirmation, audit, and path confinement. |
+| B-015 | File move/delete/listing maintenance | SF37 §11.2 | IMPLEMENTED | Schema-15 typed commands use stable FileId, expected versions, leases/name reservations, persistent staged journals, digest verification, crash reconciliation, active-use drain, recoverable tombstones, maintenance-only reconciliation, privacy-safe audit, and documented-column SFFILES publication. Legacy SFFILES import, explicit cancellation, richer persisted recovery classes, true-EXDEV/read-only evidence, and live operator aftermath remain before VERIFIED. |
 | B-016 | Caller record add/edit/lockout/purge protection | SF37 §8.2, §12 | VERIFIED | Registration/self-service and private operator maintenance share schema-12 Active/Disabled/Deleted lifecycle. Mutations reauthorize current state, version conflicts prevent stale overwrite, Disabled invalidates sessions, Deleted is a recoverable tombstone, restore retains identity/data, and purge protection persists without hard purge. Base-security changes, named-Sysop invariants, append-only private audit, transactional migration, and exact recovery are verified. |
 | B-017 | Sysop logs, daily statistics, notifications, maintenance views | SF37 §8.2, §12 | PARTIAL | Privacy-safe structured runtime events, operator status, paging, and notifications exist. Stable historical-style daily aggregates, bounded maintenance views, retention/rotation, and safe exports remain. |
 | B-018 | Message/caller packing and purge policies | SF37 §4, §12 | NOT STARTED | Modern storage need not require physical packing, but must reproduce retention/deletion outcomes and provide legacy maintenance adapters. |
@@ -534,15 +535,16 @@ privacy-bounded public information are verified advanced features.
 ### M043 deferred legacy-adapter gaps
 
 B-002/B-003 verification covers the accepted semantic caller experience and
-explicit privacy modernization. It does not close two byte-level historical
-adapters: exact `SFBBSLST.DAT` import/export and exact `THOUGHTS.BBS` record/
-selection behavior. The manual documents `SFBBSLST.DAT` as WORK-owned name,
+explicit privacy modernization. It does not close two historical adapters:
+exact `SFBBSLST.DAT` import/export and a `THOUGHTS.BBS` parser/runtime. The
+manual documents `SFBBSLST.DAT` as WORK-owned name,
 BPS-rate, and phone-number data with caller append attribution in the caller
 log; it documents `THOUGHTS.BBS` as an optional DISPLAY-path resource produced
-by `THOUGHTS.EXE` and available only in the ASCII/`.BBS` form. Delimiters,
-record layouts, edge cases, and exact thought selection remain unproven. No
-native SQLite row or `THOUGHTS.NG` record is claimed to round-trip either
-original file.
+by `THOUGHTS.EXE` and available only in the ASCII/`.BBS` form. Later evidence
+establishes six Pascal `string[60]` fields per 366-byte record and documented
+random selection. Exact RNG and malformed/marker/zero-length/high-bit runtime
+edges remain unproven. No native SQLite row or `THOUGHTS.NG` record is claimed
+to round-trip either original file.
 
 ## C — Optional / Companion / Network / Add-On
 

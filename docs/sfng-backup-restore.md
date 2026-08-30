@@ -48,17 +48,19 @@ lowercase SHA-256.
 | Operational state | A transactionally consistent SQLite backup at exact current schema | Configured logical `WORK` database filename |
 | SYSTEM resources | Every regular file below logical `SYSTEM`, recursively, including presentation-profile descriptors, provenance, assets, JOKER policy, and SSH host key | Same relative path below restored `SYSTEM`; configured profiles and SSH key location are revalidated before acceptance |
 | DISPLAY resources | Every regular file below logical `DISPLAY`, recursively | Same relative path below restored `DISPLAY` |
-| Cataloged file bytes | Every available or disabled catalog row's independently verified bytes | `EXTERNAL/files/<storage-key>/<filename>` |
+| Cataloged file bytes | Every cataloged row's independently verified managed bytes, including retained recoverable tombstones | `EXTERNAL/files/<storage-key>/<filename>` |
 
 SQLite remains authoritative for board identity; callers and Argon2id
 credentials; private profiles and preferences; statistics and new-file
 checkpoints; schema-12 caller lifecycle versions, authoritative base security,
 subscription expiration, reasoned security adjustments, purge protection,
-recoverable tombstones, and privacy-safe caller-access events; schema-13 login
-identifiers, public handles, private real names, and privacy-safe identity events;
-schema-14 public-directory policy, caller opt-outs and versions, ordered Other
-BBS state/contributors, public-resource generations, and privacy-safe public-
-information events; conferences,
+recoverable tombstones, and privacy-safe caller-access events; conferences,
+schema-13 login identifiers, public handles, private real names, and privacy-
+safe identity events; schema-14 public-directory policy, caller opt-outs and
+versions, ordered Other BBS state/contributors, public-resource generations,
+and privacy-safe public-information events; schema-15 file lifecycle/integrity
+and versions, private requests/review, upload policy, normalized operation
+state, legacy-publication generations, and semantic file events;
 immutable message payload/fan-out identities,
 separately numbered delivery recipients/audiences, tombstones, visibility,
 receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
@@ -81,7 +83,8 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite read-only and require current schema 14, exact migration names,
+3. open SQLite read-only and require current schema 15, exact migration names,
+   and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
 4. use SQLite's backup API to create one consistent database copy, then apply
@@ -101,9 +104,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-14 snapshots.
+target. This build accepts exact schema-10 through schema-15 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional 10→11, 11→12, 12→13, and/or 13→14 migrations. Validation rejects
+applies the transactional migrations through schema 15. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -162,8 +165,10 @@ that post-snapshot caller/resource state is removed only after validation.
 
 Additional tests cover SQLite snapshot consistency, schema-10/11 exact restore
 followed by normal migration, schema-13 identity restore followed by writable
-schema-14 migration, exact SSH-key/configuration preservation, schema-14 public
-policy/opt-out/Other-BBS/event/resource-generation preservation, older/newer refusal,
+migration, exact SSH-key/configuration preservation, schema-14 public
+policy/opt-out/Other-BBS/event/resource-generation preservation, schema-15
+requests/policy/lifecycle/event preservation, schema-14 exact restore then
+writable migration, older/newer refusal,
 board-lock exclusion, missing catalog bytes, checksum corruption, manifest
 traversal, undeclared files, explicit replacement, rollback cleanup, and the
 Sysop CLI report. The combined workspace and existing transport,
@@ -174,9 +179,18 @@ See also [Setup and Configuration](sfng-setup-configuration.md),
 [Native File System](sfng-file-system.md), and the
 [Stock SPITFIRE 3.7 Parity Checklist](stock-spitfire-3.7-parity.md).
 
+## Schema-15 file-operation recovery boundary
+
+M039 Tranche 5 cold backup rejects every nonterminal file-operation journal
+row and active transfer/inspection use before snapshot. It preserves versioned file lifecycle/integrity,
+requests/review, denial policy, semantic audit, recoverable quarantine, and
+legacy listing generations/digests together with all authoritative managed
+bytes. In-flight stages are not copied or declared consistent. See the
+[Tranche 5 implementation report](research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md).
+
 ## Schema-12 caller-access recovery boundary
 
-Schema 12 extends the schema-10/11 restore implementation with
+M042 schema 12 extends the schema-10/11 restore implementation with
 exact preservation and validation of caller lifecycle versions, base security,
 subscription expiration, purge protection, reasoned security adjustments, and
 append-only caller access events. Its confined `SYSTEM/JOKER.DAT` policy is
@@ -189,16 +203,15 @@ failure must leave schema 11 unchanged; an older executable must refuse schema
 12. New-root/replacement restore must reject orphan adjustments, invalid dates,
 duplicate active adjustment kinds, broken audit links, named-Sysop invariant
 violations, policy corruption, and newer versions before publication. See
-[Caller Access Lifecycle and Security](sfng-caller-access.md) for the public
-caller-access model.
+[Caller Access Lifecycle and Security](sfng-caller-access.md).
 
 ## Schema-13 caller identity and SSH recovery boundary
 
-Schema 13 preserves stable caller ID and credentials while adding the stored
-login identifier, public display handle, optional private real name, and
-append-only privacy-safe identity events. Recursive SYSTEM backup includes the
-configured Ed25519 host private key exactly. A restored board therefore retains
-both caller authentication identity and SSH host fingerprint.
+M042.5 schema 13 preserves stable caller ID and credentials while adding the
+stored login identifier, public display handle, optional private real name,
+and append-only privacy-safe identity events. Recursive SYSTEM backup includes
+the configured Ed25519 host private key exactly. A restored board therefore
+retains both caller authentication identity and SSH host fingerprint.
 
 Deliberate key rotation is an operator action after backup, not a restore side
 effect. Moving the old key and starting the enabled listener generates a new
@@ -207,10 +220,12 @@ one; clients will correctly report a changed host fingerprint. See
 
 ## Schema-14 public-information recovery boundary
 
-M043 schema 14 is current. Cold backup preserves directory policy, each
+M043 schema-14 state remains preserved within current schema 15. Cold backup preserves directory policy, each
 caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
 contributors/versions, recognized resource generations/digests, semantic
 events, and authoritative bulletin/newsletter/native-thought bytes under the
 existing SYSTEM/DISPLAY recursion. Restore reproduces visibility and order.
 A schema-13 backup restores exactly and migrates with private defaults only on
-later normal writable startup. See [Public Information](sfng-public-information.md).
+later normal writable startup.
+
+See [Public Information](sfng-public-information.md).

@@ -11,12 +11,13 @@ The public `main` branch is now ahead of that binary release. Current source
 adds post-0.1.0 advanced message discovery, auditable message mutation, an
 auditable caller-access lifecycle, schema-13 caller identity, secure SSH caller
 transport, and schema-14 privacy-bounded public information; the downloadable
-0.1.0 archive is unchanged and does not contain those additions.
+0.1.0 archive is unchanged and does not contain those additions or schema-15
+Tranche 5 source.
 
 ## Current source additions
 
-The Category-B ledger now records 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
-9 NOT STARTED rows.
+The Category-B ledger now records 9 VERIFIED, 2 IMPLEMENTED, 7 PARTIAL, and
+7 NOT STARTED rows.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -74,6 +75,24 @@ The Category-B ledger now records 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and
   localization, paging, and encoding boundaries
 - Privacy-safe semantic audit and cold recovery for directory policy,
   publicity state, Other BBS rows, resource generations, and board resources
+- Transactional schema-14→15 migration preserving callers, messages, files,
+  transfers, SSH, and public-information authority without fabricated file
+  requests, review rows, or operation journals
+- Stable file IDs with separate Active/Offline/PendingReview/Disabled/
+  Tombstoned lifecycle and Unknown/Present/Missing/DigestMismatch integrity
+- Confined, bounded, sanitized text inspection and metadata-only Stored/
+  Deflated ZIP inspection with no extraction or execution
+- Bounded FILE_ID.DIZ discovery and explicit versioned review before any
+  authoritative description replacement
+- Preview-area inspection separated from upload/download authority
+- Private versioned Offline/Missing requests, PendingReview uploads, duplicate
+  warnings, native SFNOUP denial rules, and optional description normalization
+- Typed, versioned staged file maintenance with leases, name reservations,
+  semantic audit, crash reconciliation, recoverable tombstones, and legacy
+  SFFILES publication while SQLite plus confined managed bytes remain native
+  authority
+- Schema-15 cold backup and restore, including safe rejection of nonterminal
+  operations and exact schema-14 restore followed by writable migration
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -98,6 +117,9 @@ selection, visibility, or result presentation.
   system information, and native thoughts when built from current post-0.1.0
   source
 - File areas, catalogs, search, uploads, downloads, and new-file checks
+- Schema-15 bounded text/ZIP inspection, Preview inspection, private requests,
+  PendingReview, and staged maintenance when built from current post-0.1.0
+  source. B-013 is VERIFIED; B-015 and B-012 remain IMPLEMENTED.
 - ASCII, XMODEM, YMODEM, and ZMODEM-family transfer support as documented
 - Multinode runtime and session isolation
 - Operator configuration, status, and renderer diagnostics
@@ -144,7 +166,8 @@ until they are built and tested.
 - RIP graphics and RIP terminal behavior
 - Caller-selectable presentation profiles
 - Production non-English translations and caller locale selection
-- Remaining advanced Category-B commands and resources
+- Remaining advanced Category-B commands and resources, including Tranche 6
+  batch policy and extended storage
 - QWK/LAKOTA and other offline-mail ecosystems
 - SMB/DOVE-Net, FidoNet, and CircuitNet interoperability
 - Web administration
@@ -166,7 +189,6 @@ See [Support and Bug Reports](docs/operator/support.md),
 ## Next step
 
 Preserve the accepted 0.1.0 release boundary. The next dependency-ordered
-Category-B tranche is safe file inspection, request, and maintenance
-(B-013/B-015, then B-012); it requires a separately reviewed interface gate
-before implementation. Signing, additional binary platforms, and other
-features remain separately scoped work.
+Category-B work is a separate M039 Tranche 6 gate: B-024, then
+B-011/B-014/B-023. Tranche 6 has not begun. B-015 and B-012 remain
+IMPLEMENTED until their explicitly documented verification matrices close.

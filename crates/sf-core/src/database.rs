@@ -15,7 +15,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 14;
+pub const SCHEMA_VERSION: u32 = 15;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -42,7 +42,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 14] = [
+const MIGRATIONS: [Migration; 15] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -725,6 +725,225 @@ const MIGRATIONS: [Migration; 14] = [
         BEGIN SELECT RAISE(ABORT, 'public information events are append-only'); END;
         "#,
     },
+    Migration {
+        version: 15,
+        name: "safe_file_inspection_request_maintenance",
+        sql: r#"
+        CREATE TABLE migration_15_validation AS
+        SELECT COUNT(*) AS caller_count,
+               COALESCE(SUM(caller_id),0) AS caller_id_sum,
+               (SELECT COUNT(*) FROM caller_credentials) AS credential_count,
+               (SELECT COUNT(*) FROM messages) AS message_count,
+               (SELECT COUNT(*) FROM file_areas) AS area_count,
+               (SELECT COALESCE(SUM(area_id),0) FROM file_areas) AS area_id_sum,
+               (SELECT COUNT(*) FROM files) AS file_count,
+               (SELECT COALESCE(SUM(file_id),0) FROM files) AS file_id_sum,
+               (SELECT COALESCE(SUM(size_bytes),0) FROM files) AS file_size_sum,
+               (SELECT COALESCE(SUM(download_count),0) FROM files) AS download_count_sum,
+               (SELECT COUNT(*) FROM public_information_policy) AS public_policy_count,
+               (SELECT COUNT(*) FROM other_bbs_entries) AS other_bbs_count
+          FROM callers;
+
+        ALTER TABLE file_areas ADD COLUMN state_version INTEGER NOT NULL DEFAULT 1
+            CHECK (state_version > 0);
+
+        DROP INDEX files_area_listing;
+        DROP INDEX files_upload_time;
+        ALTER TABLE files RENAME TO files_schema_14;
+
+        CREATE TABLE files (
+            file_id INTEGER PRIMARY KEY,
+            area_id INTEGER NOT NULL REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            filename TEXT NOT NULL CHECK (length(filename) BETWEEN 1 AND 64),
+            normalized_filename TEXT NOT NULL CHECK (length(normalized_filename) BETWEEN 1 AND 64),
+            description TEXT NOT NULL CHECK (length(CAST(description AS BLOB)) BETWEEN 1 AND 4096),
+            size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+            sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+            uploaded_at INTEGER NOT NULL,
+            uploader_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            uploader_name TEXT NOT NULL CHECK (length(uploader_name) BETWEEN 1 AND 60),
+            download_count INTEGER NOT NULL DEFAULT 0 CHECK (download_count >= 0),
+            lifecycle TEXT NOT NULL DEFAULT 'active'
+                CHECK (lifecycle IN ('active','offline','pending-review','disabled','tombstoned')),
+            integrity_state TEXT NOT NULL DEFAULT 'unknown'
+                CHECK (integrity_state IN ('unknown','present','missing','digest-mismatch')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            description_source TEXT NOT NULL DEFAULT 'legacy-import'
+                CHECK (description_source IN ('caller','operator','file-id-diz','legacy-import','system')),
+            description_source_digest TEXT CHECK (description_source_digest IS NULL OR
+                (length(description_source_digest)=64 AND description_source_digest NOT GLOB '*[^0-9a-f]*')),
+            review_submitted_at INTEGER CHECK (review_submitted_at IS NULL OR review_submitted_at >= 0),
+            reviewed_by_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            reviewed_at INTEGER CHECK (reviewed_at IS NULL OR reviewed_at >= 0),
+            tombstoned_at INTEGER CHECK (tombstoned_at IS NULL OR tombstoned_at >= 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO files (
+            file_id, area_id, filename, normalized_filename, description,
+            size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name,
+            download_count, lifecycle, integrity_state, state_version,
+            description_source, created_at, updated_at
+        )
+        SELECT file_id, area_id, filename, normalized_filename, description,
+               size_bytes, lower(sha256), uploaded_at, uploader_caller_id,
+               uploader_name, download_count,
+               CASE state WHEN 'available' THEN 'active' ELSE 'disabled' END,
+               'unknown', 1, 'legacy-import', created_at, updated_at
+          FROM files_schema_14;
+        DROP TABLE files_schema_14;
+
+        CREATE UNIQUE INDEX files_area_filename_live
+            ON files(area_id, normalized_filename)
+            WHERE lifecycle <> 'tombstoned';
+        CREATE INDEX files_area_listing
+            ON files(area_id, normalized_filename, lifecycle, integrity_state);
+        CREATE INDEX files_upload_time
+            ON files(uploaded_at, area_id, lifecycle);
+
+        CREATE TABLE file_policy (
+            singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+            comprehensive_upload_search INTEGER NOT NULL DEFAULT 0
+                CHECK (comprehensive_upload_search IN (0,1)),
+            description_normalization TEXT NOT NULL DEFAULT 'preserve'
+                CHECK (description_normalization IN ('preserve','historical-uppercase')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO file_policy(singleton) VALUES(1);
+
+        CREATE TABLE file_upload_denials (
+            rule_id INTEGER PRIMARY KEY,
+            pattern TEXT NOT NULL CHECK (length(CAST(pattern AS BLOB)) BETWEEN 1 AND 64),
+            normalized_pattern TEXT NOT NULL UNIQUE
+                CHECK (length(normalized_pattern) BETWEEN 1 AND 64),
+            lifecycle TEXT NOT NULL DEFAULT 'active'
+                CHECK (lifecycle IN ('active','disabled')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE file_uppercase_terms (
+            term_id INTEGER PRIMARY KEY,
+            term TEXT NOT NULL CHECK (length(CAST(term AS BLOB)) BETWEEN 1 AND 32),
+            normalized_term TEXT NOT NULL UNIQUE
+                CHECK (length(normalized_term) BETWEEN 1 AND 32),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0)
+        );
+
+        CREATE TABLE file_requests (
+            request_id INTEGER PRIMARY KEY,
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE RESTRICT,
+            requesting_caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_board_day TEXT NOT NULL CHECK (length(created_board_day)=10),
+            reason TEXT NOT NULL CHECK (reason IN ('offline','missing')),
+            reason_detail TEXT CHECK (reason_detail IS NULL OR
+                length(CAST(reason_detail AS BLOB)) BETWEEN 1 AND 255),
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','fulfilled','rejected','cancelled','stale')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            resolved_at TEXT,
+            resolved_by_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX file_requests_one_pending
+            ON file_requests(file_id, requesting_caller_id) WHERE status='pending';
+        CREATE INDEX file_requests_status ON file_requests(status, request_id);
+
+        CREATE TABLE file_operations (
+            operation_id TEXT PRIMARY KEY CHECK (length(operation_id) BETWEEN 1 AND 96),
+            kind TEXT NOT NULL CHECK (kind IN
+                ('add','upload','import','move','remove','review-accept','review-reject',
+                 'reconcile','publish-listing')),
+            file_id INTEGER REFERENCES files(file_id) ON DELETE RESTRICT,
+            source_area_id INTEGER REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            destination_area_id INTEGER REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            expected_file_version INTEGER CHECK (expected_file_version IS NULL OR expected_file_version > 0),
+            expected_area_version INTEGER CHECK (expected_area_version IS NULL OR expected_area_version > 0),
+            phase TEXT NOT NULL CHECK (phase IN
+                ('planned','staged','catalog-prepared','bytes-published','catalog-committed',
+                 'committed','rolled-back','orphaned','needs-review')),
+            staging_path TEXT CHECK (staging_path IS NULL OR length(staging_path) BETWEEN 1 AND 255),
+            digest TEXT CHECK (digest IS NULL OR
+                (length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*')),
+            actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            error_code TEXT CHECK (error_code IS NULL OR length(error_code) BETWEEN 1 AND 64),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT
+        );
+        CREATE INDEX file_operations_phase ON file_operations(phase, operation_id);
+
+        CREATE TABLE file_operation_leases (
+            lease_id INTEGER PRIMARY KEY,
+            operation_id TEXT NOT NULL REFERENCES file_operations(operation_id) ON DELETE CASCADE,
+            lease_kind TEXT NOT NULL CHECK (lease_kind IN ('file','area','name')),
+            file_id INTEGER REFERENCES files(file_id) ON DELETE RESTRICT,
+            area_id INTEGER REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            normalized_filename TEXT,
+            expires_at TEXT NOT NULL,
+            CHECK ((lease_kind='file')=(file_id IS NOT NULL)),
+            CHECK ((lease_kind IN ('area','name'))=(area_id IS NOT NULL)),
+            CHECK ((lease_kind='name')=(normalized_filename IS NOT NULL))
+        );
+        CREATE UNIQUE INDEX file_operation_file_lease
+            ON file_operation_leases(file_id) WHERE lease_kind='file';
+        CREATE UNIQUE INDEX file_operation_name_lease
+            ON file_operation_leases(area_id, normalized_filename) WHERE lease_kind='name';
+        CREATE UNIQUE INDEX file_operation_area_lease
+            ON file_operation_leases(area_id) WHERE lease_kind='area';
+
+        CREATE TABLE file_active_uses (
+            use_id TEXT PRIMARY KEY CHECK (length(use_id) BETWEEN 1 AND 96),
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE RESTRICT,
+            session_id INTEGER NOT NULL CHECK (session_id > 0),
+            use_kind TEXT NOT NULL CHECK (use_kind IN ('inspect','download')),
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX file_active_uses_file ON file_active_uses(file_id,expires_at);
+
+        CREATE TABLE file_legacy_publications (
+            area_id INTEGER PRIMARY KEY REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            generation INTEGER NOT NULL CHECK (generation > 0),
+            sha256 TEXT NOT NULL CHECK (length(sha256)=64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            published_at INTEGER NOT NULL CHECK (published_at >= 0)
+        );
+
+        CREATE TABLE file_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            operation TEXT NOT NULL CHECK (operation IN
+                ('file-added','file-imported','metadata-edited','file-moved',
+                 'file-tombstoned','request-created','request-cancelled',
+                 'request-resolved','review-accepted','review-rejected',
+                 'integrity-updated','reconciled','listing-published',
+                 'denial-policy-changed','description-policy-changed',
+                 'lifecycle-changed','file-id-diz-applied')),
+            actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            file_id INTEGER REFERENCES files(file_id) ON DELETE RESTRICT,
+            area_id INTEGER REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            request_id INTEGER REFERENCES file_requests(request_id) ON DELETE RESTRICT,
+            operation_id TEXT REFERENCES file_operations(operation_id) ON DELETE RESTRICT,
+            prior_version INTEGER CHECK (prior_version IS NULL OR prior_version >= 0),
+            next_version INTEGER CHECK (next_version IS NULL OR next_version >= 0),
+            digest TEXT CHECK (digest IS NULL OR
+                (length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*')),
+            detail TEXT CHECK (detail IS NULL OR
+                length(CAST(detail AS BLOB)) BETWEEN 1 AND 96)
+        );
+        CREATE INDEX file_events_file ON file_events(file_id,event_id);
+        CREATE INDEX file_events_request ON file_events(request_id,event_id);
+        CREATE TRIGGER file_events_no_update BEFORE UPDATE ON file_events
+        BEGIN SELECT RAISE(ABORT, 'file events are append-only'); END;
+        CREATE TRIGGER file_events_no_delete BEFORE DELETE ON file_events
+        BEGIN SELECT RAISE(ABORT, 'file events are append-only'); END;
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -898,6 +1117,9 @@ impl RuntimeDatabase {
         }
         if required >= 14 {
             validate_schema_14_snapshot(&self.connection)?;
+        }
+        if required >= 15 {
+            validate_schema_15_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -2129,6 +2351,12 @@ fn run_migration(
             .execute("DROP TABLE migration_14_validation", [])
             .map_err(DatabaseError::Sqlite)?;
     }
+    if migration.version == 15 {
+        validate_file_maintenance_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_15_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
@@ -2328,6 +2556,114 @@ fn validate_schema_14_snapshot(connection: &Connection) -> Result<(), DatabaseEr
     if invalid_resources != 0 {
         return Err(DatabaseError::IntegrityCheck(
             "schema-14 public-resource generation state is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_file_maintenance_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) =
+        transaction
+            .query_row(
+                "SELECT caller_count,caller_id_sum,credential_count,message_count,area_count,area_id_sum,file_count,file_id_sum,file_size_sum,download_count_sum,public_policy_count,other_bbs_count FROM migration_15_validation",
+                [],
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?)),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+    let actual: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) =
+        transaction
+            .query_row(
+                "SELECT COUNT(*),COALESCE(SUM(caller_id),0),(SELECT COUNT(*) FROM caller_credentials),(SELECT COUNT(*) FROM messages),(SELECT COUNT(*) FROM file_areas),(SELECT COALESCE(SUM(area_id),0) FROM file_areas),(SELECT COUNT(*) FROM files),(SELECT COALESCE(SUM(file_id),0) FROM files),(SELECT COALESCE(SUM(size_bytes),0) FROM files),(SELECT COALESCE(SUM(download_count),0) FROM files),(SELECT COUNT(*) FROM public_information_policy),(SELECT COUNT(*) FROM other_bbs_entries) FROM callers",
+                [],
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?)),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+    if expected != actual {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-15 migration changed schema-14 caller, credential, message, public-information, area, or file authority".to_owned(),
+        ));
+    }
+    let migrated_files: i64 = transaction
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE state_version<>1 OR integrity_state<>'unknown' OR description_source<>'legacy-import' OR lifecycle NOT IN ('active','disabled') OR review_submitted_at IS NOT NULL OR reviewed_at IS NOT NULL OR tombstoned_at IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let fabricated: i64 = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM file_requests)+(SELECT COUNT(*) FROM file_operations)+(SELECT COUNT(*) FROM file_operation_leases)+(SELECT COUNT(*) FROM file_active_uses)+(SELECT COUNT(*) FROM file_upload_denials)+(SELECT COUNT(*) FROM file_uppercase_terms)+(SELECT COUNT(*) FROM file_legacy_publications)+(SELECT COUNT(*) FROM file_events)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let policy: (bool, String, i64) = transaction
+        .query_row(
+            "SELECT comprehensive_upload_search,description_normalization,state_version FROM file_policy WHERE singleton=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if migrated_files != 0 || fabricated != 0 || policy != (false, "preserve".to_owned(), 1) {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-15 file-domain defaults are invalid".to_owned(),
+        ));
+    }
+    validate_schema_15_snapshot(transaction)
+}
+
+fn validate_schema_15_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let policy_rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_policy WHERE singleton=1 AND state_version>0",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_areas: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_areas WHERE state_version<=0",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_files: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM files WHERE state_version<=0 OR lifecycle NOT IN ('active','offline','pending-review','disabled','tombstoned') OR integrity_state NOT IN ('unknown','present','missing','digest-mismatch') OR (lifecycle='pending-review')<>(review_submitted_at IS NOT NULL AND reviewed_at IS NULL) OR (lifecycle='tombstoned')<>(tombstoned_at IS NOT NULL)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_requests: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_requests WHERE state_version<=0 OR (status='pending')<>(resolved_at IS NULL AND resolved_by_caller_id IS NULL)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_operations: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_operations WHERE updated_at<created_at OR (phase IN ('committed','rolled-back')) AND error_code IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_events: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_events WHERE request_id IS NOT NULL AND file_id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if policy_rows != 1
+        || invalid_areas != 0
+        || invalid_files != 0
+        || invalid_requests != 0
+        || invalid_operations != 0
+        || invalid_events != 0
+    {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-15 file-domain state is invalid".to_owned(),
         ));
     }
     Ok(())
@@ -2585,7 +2921,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 14,
+                applied: 15,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -2612,7 +2948,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 6,
             }
         );
         let table_count: i64 = database
@@ -2680,7 +3016,7 @@ mod tests {
             MigrationReport {
                 starting_version: 10,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         let preserved = database
@@ -2843,7 +3179,7 @@ mod tests {
             MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         let caller = database
@@ -2953,7 +3289,7 @@ mod tests {
             MigrationReport {
                 starting_version: 12,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: 3,
             }
         );
         let first = database
@@ -3014,8 +3350,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 13,
-                ending_version: 14,
-                applied: 1
+                ending_version: 15,
+                applied: 2
             }
         );
         let caller = database
@@ -3099,6 +3435,114 @@ mod tests {
             (
                 "rollback".to_owned(),
                 "Rollback Caller".to_owned(),
+                Some("Private Rollback Name".to_owned())
+            )
+        );
+    }
+
+    #[test]
+    fn schema_fourteen_to_fifteen_preserves_authority_and_creates_no_work() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(14) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Schema Fifteen Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at,state_version) VALUES(42,'filecaller','FileCaller','FILECALLER','Private Fixture Name',25,'active',0,1700000000,7)", []).unwrap();
+        connection.execute("INSERT INTO caller_credentials(caller_id,scheme,password_hash) VALUES(42,?1,'synthetic-hash')", [CREDENTIAL_SCHEME]).unwrap();
+        connection.execute("INSERT INTO file_areas(area_id,area_number,name,description,storage_key,access_mode,read_security,upload_security,maximum_upload_bytes) VALUES(8,1,'Migration Files','Preserved','migration-files','at-least',0,0,1048576)", []).unwrap();
+        connection.execute("INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,state) VALUES(9,8,'PRESERVE.TXT','PRESERVE.TXT','Preserved file',4,?1,1700000002,42,'FileCaller',3,'available')", ["11".repeat(32)]).unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            MigrationReport {
+                starting_version: 14,
+                ending_version: 15,
+                applied: 1,
+            }
+        );
+        let preserved: (i64, String, String, i64, String, String, i64) = database.connection.query_row(
+            "SELECT area_id,filename,sha256,download_count,lifecycle,integrity_state,state_version FROM files WHERE file_id=9",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?)),
+        ).unwrap();
+        assert_eq!(
+            preserved,
+            (
+                8,
+                "PRESERVE.TXT".to_owned(),
+                "11".repeat(32),
+                3,
+                "active".to_owned(),
+                "unknown".to_owned(),
+                1
+            )
+        );
+        let fabricated: i64 = database.connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM file_requests)+(SELECT COUNT(*) FROM file_operations)+(SELECT COUNT(*) FROM file_events)",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(fabricated, 0);
+        assert_eq!(
+            database
+                .caller_by_id(CallerId::new(42).unwrap())
+                .unwrap()
+                .unwrap()
+                .real_name
+                .as_deref(),
+            Some("Private Fixture Name")
+        );
+        database.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
+    fn failed_schema_fifteen_validation_rolls_back_to_unchanged_schema_fourteen() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(14) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Rollback Fifteen','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at) VALUES(7,'rollback-file','Rollback File','ROLLBACK FILE','Private Rollback Name',10,'active',0,1700000000)", []).unwrap();
+        let broken_sql = MIGRATIONS[14].sql.replace(
+            "INSERT INTO file_policy(singleton) VALUES(1);",
+            "INSERT INTO file_policy(singleton,comprehensive_upload_search) VALUES(1,1);",
+        );
+        let broken = Migration {
+            version: 15,
+            name: MIGRATIONS[14].name,
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        let error = apply_migration(&mut connection, &broken).unwrap_err();
+        assert!(matches!(error, DatabaseError::MigrationValidation(_)));
+        assert_eq!(schema_version_from(&connection).unwrap(), 14);
+        let lifecycle_column: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('files') WHERE name='lifecycle'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(lifecycle_column, 0);
+        let preserved: (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT login_identifier,display_name,real_name FROM callers WHERE caller_id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            preserved,
+            (
+                "rollback-file".to_owned(),
+                "Rollback File".to_owned(),
                 Some("Private Rollback Name".to_owned())
             )
         );
@@ -3259,7 +3703,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 13,
+                applied: 14,
             }
         );
         assert_eq!(
@@ -3295,7 +3739,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: 13,
             }
         );
         let caller = database
@@ -3342,7 +3786,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 12,
             }
         );
         assert_eq!(
@@ -3382,7 +3826,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         let caller = database
@@ -3442,7 +3886,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         let caller = database
@@ -3482,7 +3926,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -3565,7 +4009,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         assert_eq!(
@@ -3665,7 +4109,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         let caller = database
@@ -3750,7 +4194,7 @@ mod tests {
         let encoded = hasher.hash(password).unwrap();
         let caller = database
             .create_caller(
-                b"Alex   Test",
+                b"Craig   Test",
                 &encoded,
                 SecurityLevel::new(10).unwrap(),
                 CallerState::Active,
@@ -3758,20 +4202,20 @@ mod tests {
                 100,
             )
             .unwrap();
-        assert_eq!(caller.display_name, "Alex Test");
+        assert_eq!(caller.display_name, "Craig Test");
         assert!(matches!(
-            database.authenticate(b"alex test", password, &hasher).unwrap(),
+            database.authenticate(b"craig test", password, &hasher).unwrap(),
             AuthenticationResult::Valid(found) if found.id == caller.id
         ));
         assert_eq!(
             database
-                .authenticate(b"ALEX TEST", b"wrong", &hasher)
+                .authenticate(b"CRAIG TEST", b"wrong", &hasher)
                 .unwrap(),
             AuthenticationResult::Invalid
         );
         assert!(matches!(
             database.create_caller(
-                b"ALEX TEST",
+                b"CRAIG TEST",
                 &encoded,
                 SecurityLevel::new(10).unwrap(),
                 CallerState::Active,
@@ -3829,14 +4273,14 @@ mod tests {
                 caller.state_version,
                 b"pixelwizard",
                 b"PixelWizard",
-                Some("Avery Identity Fixture".to_owned()),
+                Some("Craig Identity Fixture".to_owned()),
                 &config,
                 200,
             )
             .unwrap();
         assert_eq!(updated.login_identifier, "pixelwizard");
         assert_eq!(updated.display_name, "PixelWizard");
-        assert_eq!(updated.real_name.as_deref(), Some("Avery Identity Fixture"));
+        assert_eq!(updated.real_name.as_deref(), Some("Craig Identity Fixture"));
         assert_eq!(updated.state_version, caller.state_version + 1);
         assert!(matches!(
             database.authenticate_login_identifier(

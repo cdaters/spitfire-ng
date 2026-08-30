@@ -391,14 +391,14 @@ The goal is reasonable protection, not pretending public BBS identities are secr
 
 ## 23. Caller Privacy Settings
 
-Current schema 14 keeps private profile/contact data out of public caller
+Schema 14 and current schema 15 keep private profile/contact data out of public caller
 projections and implements the minimum M043 policy: the board directory and
-every caller default unlisted; a caller may choose listed/unlisted; the public
-identity is handle; last-call is only a board-local date when enabled; and
-city/region is the only optional historical location projection. Login
-identifier, real name, email, phone, street/postal address, birthday,
-credentials, security/subscription/JOKER state, and audit details remain
-private.
+every caller default unlisted; a caller may
+choose listed/unlisted; the public identity is handle; last-call is only a
+board-local date when enabled; and city/region is the only optional historical
+location projection. Login identifier, real name, email, phone, street/postal
+address, birthday, credentials, security/subscription/JOKER state, and audit
+details remain private.
 
 The preference has its own optimistic version, and every display revalidates
 current policy/lifecycle/opt-in before disclosure. See
@@ -544,3 +544,21 @@ SPITFIRE callers should feel like callers, not corporate directory objects.
 Modern authentication exists to protect their accounts and information.
 
 It should not turn logging onto a hobby BBS into applying for a security clearance.
+
+## 35. File inspection, request, and maintenance privacy
+
+The M039 Tranche 5 schema-15 implementation keeps file content and maintenance state
+inside purpose-specific projections. Caller listing/inspection may expose
+safe catalog metadata and policy-approved public attribution, but never host
+paths, staging tokens, private uploader identity, request histories, review
+notes, or audit internals. Preview-area access grants inspection without
+granting transfer.
+
+Requests use stable caller/file IDs internally and are visible only to their
+caller and authorized operators. Pending-review uploads are absent from every
+ordinary listing/search/inspect/download path. Semantic audit records stable
+IDs, versions, digests where useful, action, and result—not text/archive/DIZ
+contents, paths, login identifiers, real names, contacts, credentials, or
+secrets. Every privileged command reauthorizes at dispatch. See the
+[Native File System](sfng-file-system.md) and
+[Tranche 5 implementation report](research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md).

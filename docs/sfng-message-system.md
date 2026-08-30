@@ -15,9 +15,9 @@ Design](07-message-system.md). Exact historical file findings remain in
 
 ## Original SPITFIRE Behavior Established
 
-The primary operational source is the preserved, ignored
-`research/samples/shareware-software/sf37-2/spitfire.doc`, especially its
-conference configuration and Message Menu sections.
+The primary operational source is the original SPITFIRE 3.7 manual held
+outside this public repository, especially its conference configuration and
+Message Menu sections.
 
 Confirmed stock behavior relevant to this increment includes:
 

@@ -1,11 +1,11 @@
 # Classic SPITFIRE-Inspired Presentation
 
-Classic SPITFIRE-Inspired 1.3.0 is an independently authored presentation
+Classic SPITFIRE-Inspired 1.5.0 is an independently authored presentation
 package installed by normal SPITFIRE NG setup. It recreates the compact,
 80-column CP437/ANSI character of the historical caller experience without
 shipping original Buffalo Creek DISPLAY, HLP, MNU, or RIP bytes.
 
-Version 1.3.0 is installed by current post-0.1.0 source. The latest downloadable
+Version 1.5.0 is installed by current post-0.1.0 source. The latest downloadable
 0.1.0 Development Preview binary retains its accepted earlier package and is
 unchanged.
 
@@ -29,8 +29,8 @@ the historically inspired live message/caller/new-file sequence before Main.
 Save the static configuration and confirm `spitfire status` reports:
 
 ```text
-Active: classic-spitfire 1.3.0
-Base: modern-ng 1.2.0
+Active: classic-spitfire 1.5.0
+Base: modern-ng 1.4.0
 Menu presentation: display-overrides
 Status: ready
 Post-login journey: stock
@@ -77,9 +77,10 @@ universal historical value. The historical manual says the distribution
 included `SOP999`, while the inspected archive contains `SOP100`; this remains
 an unresolved source discrepancy, not a setup rule.
 
-Version 1.3.0 retains the caller Main, Sysop Main, Messages, Files, and Sysop
-visual treatments introduced by earlier releases and adds project-authored
-LOCKOUT, SUBWARN, and SFSUBCHG caller-access boundaries. Those resources
+Version 1.5.0 retains the caller Main, Sysop Main, Messages, Files, and Sysop
+visual treatments introduced by earlier releases, the project-authored
+LOCKOUT/SUBWARN/SFSUBCHG caller-access boundaries, and adds the Tranche 5
+R/V safe-inspection mappings. Those resources
 preserve the presentation role of the stock names without copying historical
 bytes. The package continues to use historically evidenced visual treatments
 instead of applying one frame to every section. Welcome and Goodbye are more

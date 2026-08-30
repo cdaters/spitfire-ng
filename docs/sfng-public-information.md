@@ -64,10 +64,12 @@ duplicate handling, append ordering, or the exact caller-log representation.
 The original manual separately documents `THOUGHTS.BBS` as an optional
 DISPLAY-path file produced by `THOUGHTS.EXE` and shown to callers when present.
 It explicitly belongs to SPITFIRE's BBS/ASCII-only display class: no CLR or RIP
-counterpart is defined. The available corpus does not define its header or
-record layout, delimiters, limits, malformed-input behavior, or selection
-algorithm. `THOUGHTS.NG` therefore supplies bounded current-source semantics
-without claiming byte compatibility.
+counterpart is defined. Historical documentation and byte evidence establish
+six Pascal `string[60]` fields per 366-byte record, distinct marker/zero-length
+states, and documented random selection. Exact RNG and malformed/marker/high-
+bit runtime edges remain unresolved. `THOUGHTS.NG` continues to supply bounded
+current-source semantics without claiming byte compatibility; no legacy parser
+is implemented.
 
 Bulletin/newsletter BBS/CLR files retain existing board DISPLAY authority,
 path confinement, one-MiB bound, paging, profile selection, and CP437/terminal

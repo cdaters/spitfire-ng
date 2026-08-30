@@ -38,17 +38,18 @@ The snapshot contains:
 - exact static configuration;
 - consistent SQLite operational state, including message payload/delivery
   identities, recipient/audience relations, tombstones, receipts,
-  Copy/Forward lineage, mutation audit, caller lifecycle versions, base
-  security, subscription state, reasoned security adjustments, purge
-  protection, recoverable caller tombstones, caller-access audit, caller login
-  identifiers, public handles, private real names, identity audit,
-  public-directory policy, caller listing preferences and versions, ordered
+  Copy/Forward lineage, mutation audit, caller login identifiers, handles,
+  private real names, lifecycle/subscription/security state, and identity/access
+  audit; public-directory policy, caller listing preferences/versions, ordered
   Other BBS state, public-resource generations, and public-information audit;
+  schema-15 file lifecycle/integrity, requests/review, upload policy,
+  normalized operation state, publications, and semantic file audit;
 - complete SYSTEM (including presentation and language package descriptors,
-  catalogs/assets, licenses, provenance, optional `JOKER.DAT`, and any generated
-  SSH host key) plus DISPLAY override resources;
+  catalogs/assets, licenses, provenance, JOKER policy, and any generated SSH
+  host key) plus DISPLAY override resources;
   and
-- every available or disabled cataloged file's bytes.
+- every cataloged file's retained managed bytes, including recoverable
+  tombstones.
 
 It excludes runtime status, incomplete upload staging, logs, uncataloged
 bytes, source code, research samples, and emulator images.
@@ -65,11 +66,11 @@ spitfire status /path/to/restored-board/spitfire.toml
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
 
-Current source restores exact schema-10 through schema-14 backups. A
-snapshot remains at its original schema during restore and migrates
+Current source restores exact supported schema-10 through schema-15 backups.
+An older snapshot remains at its exact schema during restore and migrates
 transactionally only on the first normal writable startup. Keep the old
-executable and pre-upgrade backup for rollback; there is no in-place downgrade
-from schema 14.
+executable and pre-upgrade backup for rollback; there is no in-place schema
+downgrade.
 
 ## Replace an existing board
 
@@ -90,8 +91,8 @@ directory causes refusal instead of guessing which board is authoritative.
 A native backup is sensitive. SQLite contains password hashes, caller contact
 profiles, private messages, receipts, statistics, and operational history.
 SYSTEM may contain the SSH private host key. Possession of that key can
-impersonate the restored board's SSH host identity, so protect it like the
-database.
+impersonate the restored board's SSH host identity, so it requires the same
+protection as the database.
 Protect the whole directory with appropriate host permissions and copy it as
 one unit. Do not edit the manifest or contents; any inventory/byte change is
 detected.

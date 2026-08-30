@@ -9,8 +9,8 @@ use crate::{
     AuthenticatedCaller, CallerConfig, DisplayContext, FileAccess, FileActor, FileArea,
     FileBackend, FileError, FileSearch, FileStorage, FileTransfer, MenuSection, ProtocolFile,
     RuntimeDatabase, SecurityLevel, Session, SessionError, SessionId, SessionStatusObserver,
-    StockResources, StockSessionContext, Terminal, TerminalError, TransferDirection,
-    TransferPreference, TransferProtocol,
+    StockResources, StockSessionContext, Terminal, TerminalError, TextEncodingPolicy,
+    TransferDirection, TransferPreference, TransferProtocol,
 };
 
 const MAX_AREA_NUMBER_INPUT: usize = 10;
@@ -135,6 +135,8 @@ pub(crate) fn run_file_menu(
                 }
             }
             b'X' => list_area_files(terminal, backend, actor, &current, stock.timezone)?,
+            b'J' => inspect_text_file(terminal, backend, storage, actor, &current, session.id())?,
+            b'G' => inspect_zip_file(terminal, backend, storage, actor, &current, session.id())?,
             b'P' => search_by_filename(terminal, backend, actor, stock.timezone)?,
             b'S' => search_descriptions(terminal, backend, actor, stock.timezone)?,
             b'N' => list_new_files(
@@ -154,7 +156,10 @@ pub(crate) fn run_file_menu(
                     status,
                     actor,
                     &current,
+                    access,
                     authenticated.caller.preferences.transfer_protocol,
+                    stock.timezone,
+                    session.id(),
                 )?;
             }
             b'I' => {
@@ -606,7 +611,15 @@ fn render_file_entry(
     timezone: Tz,
     width: usize,
 ) -> Result<(), SessionError> {
-    let size = format_number(file.size_bytes);
+    let size = if file.lifecycle == crate::FileLifecycle::Offline
+        || matches!(
+            file.integrity,
+            crate::FileIntegrity::Missing | crate::FileIntegrity::DigestMismatch
+        ) {
+        "OFFLINE".to_owned()
+    } else {
+        format_number(file.size_bytes)
+    };
     let date = format_file_date(file.uploaded_at, timezone);
     let prefix = if file.filename.len() <= 12 && size.len() <= 9 {
         format!("{:<12}{:>9}  {date}  ", file.filename, size)
@@ -693,15 +706,208 @@ fn wrap_description(description: &str, width: usize) -> Vec<String> {
     rendered
 }
 
+fn inspect_text_file(
+    terminal: &mut dyn Terminal,
+    backend: &mut RuntimeDatabase,
+    storage: &FileStorage,
+    actor: FileActor,
+    area: &FileArea,
+    session_id: SessionId,
+) -> Result<(), SessionError> {
+    write_key(
+        terminal,
+        "file-read-text-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(input) = terminal.read_line(64)? else {
+        return Ok(());
+    };
+    let filename = String::from_utf8_lossy(&input).trim().to_owned();
+    if filename.is_empty() {
+        return Ok(());
+    }
+    let file = match backend.file(actor, area.id, &filename, false) {
+        Ok(file) => file,
+        Err(FileError::FileNotFound(_)) => {
+            write_key_line(
+                terminal,
+                "file-read-text-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let use_token = match backend.begin_file_inspection_use(actor, file.id, session_id) {
+        Ok(token) => token,
+        Err(_) => {
+            write_key_line(
+                terminal,
+                "file-read-text-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+    };
+    let inspected = backend.inspect_text_file(storage, actor, file.id, TextEncodingPolicy::Auto);
+    let _ = backend.finish_file_use(use_token);
+    let inspection = match inspected {
+        Ok(inspection) => inspection,
+        Err(_) => {
+            write_key_line(
+                terminal,
+                "file-read-text-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+    };
+    write_key_line(
+        terminal,
+        "file-read-text-title",
+        &crate::LocalizationArgs::new().with("filename", file.filename.as_str()),
+    )?;
+    for (index, line) in inspection.lines.into_iter().enumerate() {
+        if index.is_multiple_of(20) && backend.reauthorize_file_inspection(actor, file.id).is_err()
+        {
+            write_key_line(
+                terminal,
+                "file-read-text-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            break;
+        }
+        write_line(terminal, &line)?;
+    }
+    if inspection.truncated {
+        write_key_line(
+            terminal,
+            "file-read-text-truncated",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    acknowledge_file_results(terminal)
+}
+
+fn inspect_zip_file(
+    terminal: &mut dyn Terminal,
+    backend: &mut RuntimeDatabase,
+    storage: &FileStorage,
+    actor: FileActor,
+    area: &FileArea,
+    session_id: SessionId,
+) -> Result<(), SessionError> {
+    write_key(
+        terminal,
+        "file-view-archive-prompt",
+        &crate::LocalizationArgs::new(),
+    )?;
+    let Some(input) = terminal.read_line(64)? else {
+        return Ok(());
+    };
+    let filename = String::from_utf8_lossy(&input).trim().to_owned();
+    if filename.is_empty() {
+        return Ok(());
+    }
+    let file = match backend.file(actor, area.id, &filename, false) {
+        Ok(file) => file,
+        Err(FileError::FileNotFound(_)) => {
+            write_key_line(
+                terminal,
+                "file-view-archive-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let use_token = match backend.begin_file_inspection_use(actor, file.id, session_id) {
+        Ok(token) => token,
+        Err(_) => {
+            write_key_line(
+                terminal,
+                "file-view-archive-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+    };
+    let inspected = backend.inspect_zip_file(storage, actor, file.id);
+    let _ = backend.finish_file_use(use_token);
+    let inspection = match inspected {
+        Ok(inspection) => inspection,
+        Err(_) => {
+            write_key_line(
+                terminal,
+                "file-view-archive-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+    };
+    write_key_line(
+        terminal,
+        "file-view-archive-title",
+        &crate::LocalizationArgs::new().with("filename", file.filename.as_str()),
+    )?;
+    if inspection.members.is_empty() {
+        write_key_line(
+            terminal,
+            "file-view-archive-empty",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    for (index, member) in inspection.members.into_iter().enumerate() {
+        if index.is_multiple_of(20) && backend.reauthorize_file_inspection(actor, file.id).is_err()
+        {
+            write_key_line(
+                terminal,
+                "file-view-archive-rejected",
+                &crate::LocalizationArgs::new(),
+            )?;
+            break;
+        }
+        write_key_line(
+            terminal,
+            "file-view-archive-member",
+            &crate::LocalizationArgs::new()
+                .with("filename", member.filename.as_str())
+                .with("size", member.uncompressed_bytes),
+        )?;
+        if member.unsafe_path {
+            write_key_line(
+                terminal,
+                "file-view-archive-unsafe-name",
+                &crate::LocalizationArgs::new(),
+            )?;
+        }
+    }
+    acknowledge_file_results(terminal)
+}
+
+// The transport-independent session boundary carries each authority and
+// accounting dependency explicitly so none can be inferred from UI state.
+#[allow(clippy::too_many_arguments)]
 fn download_file(
     terminal: &mut dyn Terminal,
-    backend: &mut dyn FileBackend,
+    backend: &mut RuntimeDatabase,
     storage: &FileStorage,
     status: &dyn SessionStatusObserver,
     actor: FileActor,
     area: &FileArea,
+    access: FileAccess,
     preference: TransferPreference,
+    timezone: Tz,
+    session_id: SessionId,
 ) -> Result<(), SessionError> {
+    if access != FileAccess::Full {
+        write_key_line(
+            terminal,
+            "file-preview-download-denied",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    }
     write_key(
         terminal,
         "file-download-prompt",
@@ -741,6 +947,38 @@ fn download_file(
                     "file-download-unavailable",
                     &crate::LocalizationArgs::new(),
                 )?;
+                let unavailable = backend
+                    .files(actor, area.id)?
+                    .into_iter()
+                    .find(|file| file.filename.eq_ignore_ascii_case(&filename));
+                if let Some(file) = unavailable {
+                    write_key(
+                        terminal,
+                        "file-request-question",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    if terminal
+                        .read_line(1)?
+                        .is_some_and(|answer| answer.eq_ignore_ascii_case(b"Y"))
+                    {
+                        let board_day =
+                            Utc::now().with_timezone(&timezone).date_naive().to_string();
+                        match backend
+                            .create_file_request_on_board_day(actor, file.id, None, &board_day)
+                        {
+                            Ok(_) => write_key_line(
+                                terminal,
+                                "file-request-created",
+                                &crate::LocalizationArgs::new(),
+                            )?,
+                            Err(_) => write_key_line(
+                                terminal,
+                                "file-request-unavailable",
+                                &crate::LocalizationArgs::new(),
+                            )?,
+                        }
+                    }
+                }
                 return Ok(());
             }
             Err(error) => return Err(error.into()),
@@ -754,57 +992,82 @@ fn download_file(
         )?;
         return Ok(());
     }
-    if protocol == SelectedProtocol::Ascii {
-        return download_ascii(terminal, backend, storage, status, actor, area, &files[0]);
-    }
-    let Some(binary) = protocol.binary() else {
-        return Ok(());
-    };
-    let mut payloads = Vec::with_capacity(files.len());
+    let mut uses = Vec::with_capacity(files.len());
     for file in &files {
-        let mut input = storage.open_download(area, file)?;
-        let mut bytes = Vec::new();
-        input
-            .read_to_end(&mut bytes)
-            .map_err(FileError::TransferIo)?;
-        payloads.push(ProtocolFile {
-            name: file.filename.clone(),
-            bytes,
-            modified_unix: u64::try_from(file.uploaded_at).ok(),
-        });
-    }
-    write_line(
-        terminal,
-        &format!("Beginning {} download.", binary.stock_name()),
-    )?;
-    status.transfer_started(TransferDirection::Download, &files[0].filename)?;
-    let result = send_binary_files(terminal, binary, &payloads);
-    status.transfer_finished()?;
-    match result {
-        Ok(()) => {
-            for file in &files {
-                backend.record_download(actor, file.id)?;
+        match backend.begin_file_download_use(actor, file.id, session_id) {
+            Ok(token) => uses.push(token),
+            Err(_) => {
+                for token in uses {
+                    let _ = backend.finish_file_use(token);
+                }
+                write_key_line(
+                    terminal,
+                    "file-download-unavailable",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                return Ok(());
             }
-            write_line(
-                terminal,
-                "Binary download complete; returning to SPITFIRE Files.",
-            )?;
-            info!(
-                caller_id = actor.caller_id().get(),
-                protocol = binary.stock_name(),
-                files = files.len(),
-                "caller completed binary file download"
-            );
-        }
-        Err(error) => {
-            warn!(caller_id = actor.caller_id().get(), protocol = binary.stock_name(), error = %error, "binary file download failed");
-            write_line(
-                terminal,
-                "Transfer failed or was canceled; statistics were not changed.",
-            )?;
         }
     }
-    Ok(())
+    let transfer_result = (|| -> Result<(), SessionError> {
+        if protocol == SelectedProtocol::Ascii {
+            return download_ascii(terminal, backend, storage, status, actor, area, &files[0]);
+        }
+        let Some(binary) = protocol.binary() else {
+            return Ok(());
+        };
+        let mut payloads = Vec::with_capacity(files.len());
+        for file in &files {
+            let mut input = storage.open_download(area, file)?;
+            let mut bytes = Vec::new();
+            input
+                .read_to_end(&mut bytes)
+                .map_err(FileError::TransferIo)?;
+            payloads.push(ProtocolFile {
+                name: file.filename.clone(),
+                bytes,
+                modified_unix: u64::try_from(file.uploaded_at).ok(),
+            });
+        }
+        write_line(
+            terminal,
+            &format!("Beginning {} download.", binary.stock_name()),
+        )?;
+        status.transfer_started(TransferDirection::Download, &files[0].filename)?;
+        let result = send_binary_files(terminal, binary, &payloads);
+        status.transfer_finished()?;
+        match result {
+            Ok(()) => {
+                for file in &files {
+                    backend.record_download(actor, file.id)?;
+                }
+                write_line(
+                    terminal,
+                    "Binary download complete; returning to SPITFIRE Files.",
+                )?;
+                info!(
+                    caller_id = actor.caller_id().get(),
+                    protocol = binary.stock_name(),
+                    files = files.len(),
+                    "caller completed binary file download"
+                );
+            }
+            Err(error) => {
+                warn!(caller_id = actor.caller_id().get(), protocol = binary.stock_name(), error = %error, "binary file download failed");
+                write_line(
+                    terminal,
+                    "Transfer failed or was canceled; statistics were not changed.",
+                )?;
+            }
+        }
+        Ok(())
+    })();
+    for token in uses {
+        if let Err(error) = backend.finish_file_use(token) {
+            warn!(error = %error, "file-use lease cleanup failed");
+        }
+    }
+    transfer_result
 }
 
 fn download_ascii(
@@ -870,7 +1133,7 @@ fn download_ascii(
 #[allow(clippy::too_many_arguments)]
 fn upload_file(
     terminal: &mut dyn Terminal,
-    backend: &mut dyn FileBackend,
+    backend: &mut RuntimeDatabase,
     storage: &FileStorage,
     status: &dyn SessionStatusObserver,
     session_id: SessionId,
@@ -880,9 +1143,10 @@ fn upload_file(
     preference: TransferPreference,
 ) -> Result<(), SessionError> {
     if access != FileAccess::Full {
-        write_line(
+        write_key_line(
             terminal,
-            "This is a preview area; uploads are not permitted.",
+            "file-preview-upload-denied",
+            &crate::LocalizationArgs::new(),
         )?;
         return Ok(());
     }
@@ -903,6 +1167,36 @@ fn upload_file(
         return Ok(());
     }
     let filename = String::from_utf8_lossy(&input).trim().to_owned();
+    match backend.upload_duplicate_warnings(actor, area.id, &filename) {
+        Ok(warnings) if !warnings.is_empty() => {
+            write_key(
+                terminal,
+                "file-upload-duplicate-warning",
+                &crate::LocalizationArgs::new(),
+            )?;
+            if !terminal
+                .read_line(1)?
+                .is_some_and(|answer| answer.eq_ignore_ascii_case(b"Y"))
+            {
+                write_key_line(
+                    terminal,
+                    "file-upload-canceled",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                return Ok(());
+            }
+        }
+        Ok(_) => {}
+        Err(crate::FileMaintenanceError::File(FileError::DuplicateFilename(_))) => {
+            write_key_line(
+                terminal,
+                "file-upload-duplicate-conflict",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(FileError::Maintenance(error.to_string()).into()),
+    }
     write_key(
         terminal,
         "file-upload-description-prompt",
@@ -1003,6 +1297,13 @@ fn upload_file(
                         file.filename, file.size_bytes, file.sha256
                     ),
                 )?;
+                if file.lifecycle == crate::FileLifecycle::PendingReview {
+                    write_key_line(
+                        terminal,
+                        "file-upload-pending-review",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                }
             }
             Err(FileError::DuplicateFilename(_)) => {
                 write_line(
@@ -1017,6 +1318,11 @@ fn upload_file(
                     &crate::LocalizationArgs::new(),
                 )?;
             }
+            Err(FileError::UploadDeniedByPolicy) => write_key_line(
+                terminal,
+                "file-upload-policy-denied",
+                &crate::LocalizationArgs::new(),
+            )?,
             Err(error) => return Err(error.into()),
         }
     }
@@ -1036,7 +1342,7 @@ fn upload_file(
 #[allow(clippy::too_many_arguments)]
 fn upload_ascii(
     terminal: &mut dyn Terminal,
-    backend: &mut dyn FileBackend,
+    backend: &mut RuntimeDatabase,
     storage: &FileStorage,
     status: &dyn SessionStatusObserver,
     session_id: SessionId,
@@ -1080,6 +1386,13 @@ fn upload_ascii(
                         file.filename, file.size_bytes, file.sha256
                     ),
                 )?;
+                if file.lifecycle == crate::FileLifecycle::PendingReview {
+                    write_key_line(
+                        terminal,
+                        "file-upload-pending-review",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                }
                 info!(
                     caller_id = actor.caller_id().get(),
                     filename = file.filename,
@@ -1100,6 +1413,11 @@ fn upload_ascii(
                     &crate::LocalizationArgs::new(),
                 )?;
             }
+            Err(FileError::UploadDeniedByPolicy) => write_key_line(
+                terminal,
+                "file-upload-policy-denied",
+                &crate::LocalizationArgs::new(),
+            )?,
             Err(error) => return Err(error.into()),
         },
         Ok(_) => {
@@ -1259,7 +1577,11 @@ mod tests {
             uploader_caller_id: None,
             uploader_name: "SPITFIRE NG".to_owned(),
             download_count: 7,
-            available: true,
+            lifecycle: crate::FileLifecycle::Active,
+            integrity: crate::FileIntegrity::Present,
+            state_version: 1,
+            description_source: "system".to_owned(),
+            description_source_digest: None,
         };
         let mut terminal = InMemoryTerminal::default();
         assert!(
@@ -1298,7 +1620,11 @@ mod tests {
             uploader_caller_id: None,
             uploader_name: "SPITFIRE NG".to_owned(),
             download_count: 0,
-            available: true,
+            lifecycle: crate::FileLifecycle::Active,
+            integrity: crate::FileIntegrity::Present,
+            state_version: 1,
+            description_source: "system".to_owned(),
+            description_source_digest: None,
         };
         let mut inner = InMemoryTerminal::with_lines([b"Q".to_vec()]);
         {

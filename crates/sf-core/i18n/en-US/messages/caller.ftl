@@ -90,8 +90,27 @@ file-new-date-prompt = New Files Since <L>ast Check or Date (MM-DD-YY; Q = quit)
 file-download-prompt = File to download (comma-separate a batch): { " " }
 file-download-no-batch = That protocol does not support batch downloads.
 file-download-unavailable = A requested file is unavailable for download.
+file-preview-download-denied = This is a preview area; downloads are not permitted.
+file-preview-upload-denied = This is a preview area; uploads are not permitted.
 file-download-ascii-single = ASCII transfers one text file at a time.
 file-download-complete = ASCII download complete.
+file-read-text-prompt = Text file to inspect: { " " }
+file-read-text-title = --- SAFE TEXT PREVIEW: { $filename } ---
+file-read-text-truncated = Preview stopped at the configured line limit.
+file-read-text-rejected = That file cannot be shown as bounded, terminal-safe text.
+file-view-archive-prompt = ZIP archive to inspect: { " " }
+file-view-archive-title = --- ZIP ARCHIVE: { $filename } ---
+file-view-archive-member = { $filename }  { $size } byte(s)
+file-view-archive-unsafe-name = [unsafe archive path rendered literally]
+file-view-archive-empty = This ZIP archive contains no members.
+file-view-archive-rejected = That ZIP archive cannot be inspected safely.
+file-request-question = This file is offline or missing. Send a private request to the Sysop? (Y/N): { " " }
+file-request-created = Your private file request was recorded.
+file-request-unavailable = This file cannot be requested.
+file-upload-policy-denied = That filename is denied by board upload policy.
+file-upload-pending-review = Upload received for private Sysop review; it is not publicly available.
+file-upload-duplicate-warning = A related filename already exists. Continue upload? (Y/N): { " " }
+file-upload-duplicate-conflict = That exact filename already exists and cannot be uploaded.
 file-upload-name-prompt = Filename to upload (/A = abort; batch protocols use remote names): { " " }
 file-upload-description-prompt = File description (/A = abort): { " " }
 file-upload-canceled = Upload canceled.

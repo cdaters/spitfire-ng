@@ -118,6 +118,9 @@ pub fn backup_board(
         }
         .into());
     }
+    if database.schema_version()? >= 15 && !database.file_operations_ready_for_cold_backup()? {
+        return Err(BoardBackupError::UnnormalizedFileOperations.into());
+    }
 
     let parent = destination.parent().expect("validated destination parent");
     let temporary = tempfile::Builder::new()
@@ -953,6 +956,8 @@ pub enum BoardBackupError {
     },
     #[error("backup destination already exists: {0}")]
     DestinationExists(PathBuf),
+    #[error("cold backup requires all file-maintenance operations to be committed or rolled back")]
+    UnnormalizedFileOperations,
     #[error("restore target already exists; pass --replace only after verifying the target: {0}")]
     RestoreTargetExists(PathBuf),
     #[error("--replace requires an existing board target: {0}")]
@@ -1175,9 +1180,58 @@ mod tests {
         RuntimeDatabase::open_read_only(paths.database()).unwrap()
     }
 
+    fn downgrade_schema_15_to_14(connection: &rusqlite::Connection) {
+        connection.execute_batch(r#"
+            PRAGMA foreign_keys = OFF;
+            DROP TRIGGER file_events_no_delete;
+            DROP TRIGGER file_events_no_update;
+            DROP TABLE file_active_uses;
+            DROP TABLE file_operation_leases;
+            DROP TABLE file_events;
+            DROP TABLE file_legacy_publications;
+            DROP TABLE file_operations;
+            DROP TABLE file_requests;
+            DROP TABLE file_uppercase_terms;
+            DROP TABLE file_upload_denials;
+            DROP TABLE file_policy;
+            DROP INDEX files_area_filename_live;
+            DROP INDEX files_area_listing;
+            DROP INDEX files_upload_time;
+            ALTER TABLE files RENAME TO files_schema_15;
+            CREATE TABLE files (
+                file_id INTEGER PRIMARY KEY,
+                area_id INTEGER NOT NULL REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+                filename TEXT NOT NULL CHECK (length(filename) BETWEEN 1 AND 64),
+                normalized_filename TEXT NOT NULL CHECK (length(normalized_filename) BETWEEN 1 AND 64),
+                description TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 4096),
+                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+                uploaded_at INTEGER NOT NULL,
+                uploader_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                uploader_name TEXT NOT NULL CHECK (length(uploader_name) BETWEEN 1 AND 60),
+                download_count INTEGER NOT NULL DEFAULT 0 CHECK (download_count >= 0),
+                state TEXT NOT NULL DEFAULT 'available' CHECK (state IN ('available', 'disabled')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (area_id, normalized_filename)
+            );
+            INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,state,created_at,updated_at)
+            SELECT file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,
+                   CASE lifecycle WHEN 'active' THEN 'available' ELSE 'disabled' END,
+                   created_at,updated_at FROM files_schema_15;
+            DROP TABLE files_schema_15;
+            CREATE INDEX files_area_listing ON files(area_id, normalized_filename, state);
+            CREATE INDEX files_upload_time ON files(uploaded_at, area_id, state);
+            ALTER TABLE file_areas DROP COLUMN state_version;
+            DELETE FROM schema_migrations WHERE version=15;
+            PRAGMA foreign_keys = ON;
+        "#).unwrap();
+    }
+
     fn rewrite_backup_database_as_schema_10(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_15_to_14(&connection);
         connection
             .execute_batch(
                 r#"
@@ -1304,6 +1358,7 @@ mod tests {
     fn rewrite_backup_database_as_schema_11(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_15_to_14(&connection);
         connection
             .execute_batch(
                 r#"
@@ -1358,6 +1413,7 @@ mod tests {
     fn rewrite_backup_database_as_schema_13(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_15_to_14(&connection);
         connection
             .execute_batch(
                 r#"
@@ -1380,6 +1436,26 @@ mod tests {
         let mut manifest: BackupManifest =
             toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
         manifest.schema_version = 13;
+        let (size_bytes, sha256) = hash_file(&database_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == BackupEntryKind::Database)
+            .unwrap();
+        entry.size_bytes = size_bytes;
+        entry.sha256 = sha256;
+        fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
+    fn rewrite_backup_database_as_schema_14(backup: &Path) {
+        let database_path = backup.join(DATABASE_BACKUP_PATH);
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_15_to_14(&connection);
+        drop(connection);
+        let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+        let mut manifest: BackupManifest =
+            toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest.schema_version = 14;
         let (size_bytes, sha256) = hash_file(&database_path).unwrap();
         let entry = manifest
             .entries
@@ -1578,11 +1654,11 @@ mod tests {
             fs::read(source.join("system/language-packs/en-US/language.toml")).unwrap()
         );
         let restored_status = crate::board_status(&restore.config_path).unwrap();
-        assert!(restored_status.contains("Active: classic-spitfire 1.4.0"));
-        assert!(restored_status.contains("Base: modern-ng 1.3.0"));
+        assert!(restored_status.contains("Active: classic-spitfire 1.5.0"));
+        assert!(restored_status.contains("Base: modern-ng 1.4.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.5.0"));
+        assert!(restored_status.contains("Package: en-US 1.6.1"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
@@ -1664,6 +1740,144 @@ mod tests {
     }
 
     #[test]
+    fn schema_15_backup_preserves_file_requests_policies_and_lifecycle() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-15-file-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let config = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&source, &config).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let caller = database.caller_by_name(b"Backup Caller").unwrap().unwrap();
+        let actor = sf_core::FileActor::new(
+            caller.id,
+            SecurityLevel::new(config.caller.sysop_security).unwrap(),
+        );
+        let (_, file) = database.all_cataloged_files().unwrap().remove(0);
+        let offline = database
+            .set_file_lifecycle(
+                sf_core::FileAdminActor::LocalOperator,
+                file.id,
+                file.state_version,
+                sf_core::FileLifecycle::Offline,
+            )
+            .unwrap();
+        let request = database
+            .create_file_request_on_board_day(actor, offline.id, None, "2026-08-29")
+            .unwrap();
+        database
+            .replace_upload_denials(
+                sf_core::FileAdminActor::LocalOperator,
+                1,
+                &["PRIVATE*.ZIP".to_owned()],
+            )
+            .unwrap();
+        drop(database);
+
+        let backup = temp.path().join("schema-15-file-backup");
+        backup_board(&config_path, &backup).unwrap();
+        let restored = temp.path().join("schema-15-file-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 15);
+        let restored_config = RuntimeConfig::load(&report.config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let restored_paths = LogicalPaths::resolve(&restored, &restored_config).unwrap();
+        let restored_database = RuntimeDatabase::open(restored_paths.database()).unwrap();
+        let restored_requests = restored_database
+            .pending_file_requests(sf_core::FileAdminActor::LocalOperator)
+            .unwrap();
+        assert_eq!(restored_requests.len(), 1);
+        assert_eq!(restored_requests[0].request_id, request.request_id);
+        assert_eq!(restored_requests[0].file_id, offline.id);
+        assert!(restored_database
+            .upload_is_denied(actor, "PRIVATE-DATA.ZIP")
+            .unwrap());
+        let restored_file = restored_database
+            .all_cataloged_files()
+            .unwrap()
+            .into_iter()
+            .find(|(_, entry)| entry.id == offline.id)
+            .unwrap()
+            .1;
+        assert_eq!(restored_file.lifecycle, sf_core::FileLifecycle::Offline);
+    }
+
+    #[test]
+    fn schema_15_backup_rejects_staged_file_operations_until_recovery_normalizes_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-15-staged-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let config = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&source, &config).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let storage = FileStorage::new(&paths).unwrap();
+        let (source_area, file) = database.all_cataloged_files().unwrap().remove(0);
+        let destination = database
+            .create_file_area(&sf_core::FileAreaDefinition {
+                number: 9,
+                name: "Backup Recovery Destination".to_owned(),
+                description: "Synthetic staged-operation backup fixture".to_owned(),
+                storage_key: "backup-recovery-destination".to_owned(),
+                access_mode: sf_core::FileAccessMode::AtLeast,
+                read_security: SecurityLevel::new(1).unwrap(),
+                upload_security: SecurityLevel::new(1).unwrap(),
+                preview: false,
+                no_charge: false,
+                maximum_upload_bytes: 1024 * 1024,
+                privileged_security_levels: Vec::new(),
+            })
+            .unwrap();
+        storage.ensure_area(&destination).unwrap();
+        assert!(matches!(
+            database.move_file_with_failure(
+                &storage,
+                sf_core::FileAdminActor::LocalOperator,
+                file.id,
+                file.state_version,
+                destination.id,
+                destination.state_version,
+                Some(sf_core::FailureInjectionPoint::AfterStage)
+            ),
+            Err(sf_core::FileMaintenanceError::InjectedFailure)
+        ));
+        drop(database);
+
+        let rejected = temp.path().join("schema-15-staged-rejected");
+        assert!(matches!(
+            backup_board(&config_path, &rejected),
+            Err(ApplicationError::Backup(
+                BoardBackupError::UnnormalizedFileOperations
+            ))
+        ));
+        assert!(!rejected.exists());
+
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        assert_eq!(database.recover_file_operations(&storage).unwrap(), 1);
+        assert_eq!(
+            database
+                .all_cataloged_files()
+                .unwrap()
+                .into_iter()
+                .find(|(_, entry)| entry.id == file.id)
+                .unwrap()
+                .1
+                .area_id,
+            source_area.id
+        );
+        drop(database);
+        let normalized = temp.path().join("schema-15-staged-normalized");
+        backup_board(&config_path, &normalized).unwrap();
+        assert!(normalized.is_dir());
+    }
+
+    #[test]
     fn schema_10_backup_restores_exactly_and_migrates_only_on_writable_startup() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "schema-10-source");
@@ -1684,7 +1898,7 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 4);
+        assert_eq!(migration.applied, 5);
         migrated.validate_current_snapshot().unwrap();
     }
 
@@ -1710,7 +1924,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -1741,8 +1955,8 @@ mod tests {
             database.migrate().unwrap(),
             sf_core::MigrationReport {
                 starting_version: 13,
-                ending_version: 14,
-                applied: 1
+                ending_version: 15,
+                applied: 2
             }
         );
         assert!(!database.public_directory_policy().unwrap().enabled);
@@ -1752,6 +1966,38 @@ mod tests {
             assert_eq!(caller.publicity_state_version, 0);
         }
         database.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
+    fn schema_14_backup_restores_exactly_then_migrates_to_schema_15() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-14-source");
+        let backup = temp.path().join("schema-14-snapshot");
+        backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
+        rewrite_backup_database_as_schema_14(&backup);
+        let restored = temp.path().join("schema-14-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 14);
+        let config = RuntimeConfig::load(&report.config_path).unwrap();
+        let paths = LogicalPaths::resolve(&restored, &config.validate().unwrap()).unwrap();
+        RuntimeDatabase::open_read_only(paths.database())
+            .unwrap()
+            .validate_snapshot_at_version(14)
+            .unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            sf_core::MigrationReport {
+                starting_version: 14,
+                ending_version: 15,
+                applied: 1,
+            }
+        );
+        database.validate_current_snapshot().unwrap();
+        assert!(database
+            .pending_file_requests(sf_core::FileAdminActor::LocalOperator)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

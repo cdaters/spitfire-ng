@@ -228,8 +228,12 @@ and `SF2SLOW.BBS`. `MAINCTRL.RIP`, `FILECTRL.RIP`, and `MSGCTRL.RIP` are
 RIP-only. These are compatibility identities, not permission to synthesize a
 missing form. In particular, `THOUGHTS.BBS` is an optional DISPLAY-path
 resource created by the historical `THOUGHTS.EXE` utility and displayed to
-callers when present; its record layout and selection algorithm are not
-documented by the available manual or utility corpus.
+callers when present. Historical documentation and byte evidence establish six
+Pascal `string[60]` fields per 366-byte record, with the record count derived
+from file size. The utility documents random selection and distinct `;` blank-
+line and `\` no-line markers. Exact RNG, marker edge, zero-length, high-bit,
+and malformed-input runtime behavior remains unresolved. See
+[Historical THOUGHTS.BBS Format](research/historical-thoughts-bbs-format.md).
 
 ### Authoring byte contract
 

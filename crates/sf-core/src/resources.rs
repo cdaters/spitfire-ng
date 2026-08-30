@@ -85,6 +85,8 @@ impl MenuSection {
                     | b'N'
                     | b'L'
                     | b'I'
+                    | b'J'
+                    | b'G'
                     | b'E'
                     | b'C'
                     | b'F'
@@ -352,6 +354,8 @@ fn menu_action_key(section: MenuSection, command: u8, identifier: u8) -> Option<
         (MenuSection::Message, b'D') => "menu-action-message-files",
         (MenuSection::File, b'Z') => "menu-action-file-change",
         (MenuSection::File, b'X') => "menu-action-file-list",
+        (MenuSection::File, b'J') => "menu-action-file-read-text",
+        (MenuSection::File, b'G') => "menu-action-file-view-archive",
         (MenuSection::File, b'L') => "menu-action-file-download",
         (MenuSection::File, b'I') => "menu-action-file-upload",
         (MenuSection::File, b'N') => "menu-action-file-new",
@@ -861,6 +865,8 @@ mod tests {
             MenuSection::File => &[
                 (b'C', b'Z'),
                 (b'L', b'X'),
+                (b'R', b'J'),
+                (b'V', b'G'),
                 (b'D', b'L'),
                 (b'U', b'I'),
                 (b'N', b'N'),
@@ -985,7 +991,7 @@ mod tests {
         for (section, security, visible) in [
             (MenuSection::Main, 10, 11usize),
             (MenuSection::Message, 10, 13),
-            (MenuSection::File, 10, 12),
+            (MenuSection::File, 10, 14),
             (MenuSection::Sysop, 50, 3),
         ] {
             let menu = section_menu(section);
@@ -1191,7 +1197,7 @@ mod tests {
             node: NodeId::new(3).unwrap(),
             timezone: chrono_tz::UTC,
             caller: Some(DisplayCallerContext {
-                full_name: "Alex Caller".to_owned(),
+                full_name: "Craig Daters".to_owned(),
                 security_level: 10,
                 first_call_at: 0,
                 last_call_at: Some(86_400),
@@ -1213,7 +1219,7 @@ mod tests {
         render_display(&mut terminal, &resource, &context).unwrap();
         let output = terminal.output_text().unwrap();
         assert!(output.starts_with(
-            "Alex|Alex Caller|2|4|3|5|10|45|1970-01-01 00:00 UTC|1970-01-02 00:00 UTC"
+            "Craig|Craig Daters|2|4|3|5|10|45|1970-01-01 00:00 UTC|1970-01-02 00:00 UTC"
         ));
         assert!(output.contains("|Phoenix, Arizona|+1 555 0100|1980-03-04|"));
         assert!(output.ends_with("|N/A|@UNKNOWN@"));

@@ -22,7 +22,7 @@ const PROJECT_ASSET_LICENSE: &[u8] = b"SPDX-License-Identifier: MIT OR Apache-2.
 
 const MAIN_MENU: &[u8] = b"M,<M>.......... Message Section,,5,E\r\nC,<C>.......... Comment To Sysop,,5,J\r\nF,<F>............. File Section,,5,Q\r\nP,<P>............ Page The Sysop,,5,H\r\nY,<Y>.......... Your Statistics,,5,G\r\nR,<R>....... Your Caller Profile,,5,D\r\nU,<U>.... Terminal Preferences,,5,R\r\nV,<V>........... About SPITFIRE NG,,5,V\r\nB,<B>................ Bulletins,,5,Y\r\n#,<#>......... Caller Directory,,5,L\r\nL,<L>......... Locate A Caller,,5,I\r\nT,<T>...... System Information,,5,K\r\nN,<N>............... Newsletter,,5,X\r\nO,<O>..... Other BBS Information,,5,P\r\nA,<A>............ Add Other BBS,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
 const MESSAGE_MENU: &[u8] = b"C,<C>....... Change Conference,,5,Z\r\nR,<R>............. Read Messages,,5,I\r\nB,<B>........... Browse Messages,,5,J\r\nE,<E>......... Enter New Message,,5,L\r\nY,<Y>............. Your Messages,,5,G\r\nA,<A>.... Alter Conference Queue,,5,K\r\nS,<S>.. Specific Caller Messages,,5,S\r\nT,<T>............... Text Search,,5,X\r\nF,<F>.............. File Section,,5,D\r\nQ,<Q>......... Quit To Main Menu,,5,C\r\n@,<@>........... Sysop Utilities,,50,R\r\nX,<X>......... Xpert Mode Toggle,,5,B\r\nG,<G>......... Goodbye & Log Off,,5,A\r\n?,<?>........ HELP With Commands,,5,?\r\n";
-const FILE_MENU: &[u8] = b"C,<C>......... Change File Area,,5,Z\r\nL,<L>.. List Files In This Area,,5,X\r\nD,<D>.......... Download A File,,5,L\r\nU,<U>............ Upload A File,,5,I\r\nN,<N>................ New Files,,5,N\r\nT,<T>.. Text Search Description,,5,S\r\nF,<F>.............. Find A File,,5,P\r\nM,<M>.......... Message Section,,5,E\r\nQ,<Q>........ Quit To Main Menu,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
+const FILE_MENU: &[u8] = b"C,<C>......... Change File Area,,5,Z\r\nL,<L>.. List Files In This Area,,5,X\r\nR,<R>......... Read A Text File,,5,J\r\nV,<V>....... View A File Archive,,5,G\r\nD,<D>.......... Download A File,,5,L\r\nU,<U>............ Upload A File,,5,I\r\nN,<N>................ New Files,,5,N\r\nT,<T>.. Text Search Description,,5,S\r\nF,<F>.............. Find A File,,5,P\r\nM,<M>.......... Message Section,,5,E\r\nQ,<Q>........ Quit To Main Menu,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FixtureReport {
@@ -225,7 +225,7 @@ pub(crate) fn write_default_resources(
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Modern SPITFIRE NG 1.3.0\n\nThe default project-authored presentation. Version 1.3.0 adds M043 public-information framing while board-owned information remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
+        b"# Modern SPITFIRE NG 1.4.0\n\nThe default project-authored presentation. Version 1.4.0 adds bounded text/archive inspection and private file-request framing while board-owned file authority remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&system.join("SFMAIN.MNU"), MAIN_MENU)?;
@@ -271,7 +271,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "FILE10.BBS",
-            b"\r\n>>>>>>>> FILE MENU <<<<<<<<<\r\n<C> Change Area  <L> List  <F> Find  <T> Search  <N> New\r\n<D> Download     <U> Upload <M> Messages <Q> Main <?> Help\r\n".as_slice(),
+            b"\r\n>>>>>>>> FILE MENU <<<<<<<<<\r\n<C> Change Area  <L> List  <F> Find  <T> Search  <N> New\r\n<R> Read Text    <V> View ZIP <D> Download <U> Upload\r\n<M> Messages     <Q> Main <?> Help\r\n".as_slice(),
         ),
         (
             "SOP50.BBS",
@@ -387,7 +387,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "FILE10.CLR",
-            "@CLS@\x1B[1;36m>>>>>>>> FILE MENU <<<<<<<<<\x1B[0m\r\n<C> Change Area  <L> List  <F> Find  <T> Search  <N> New\r\n<D> Download     <U> Upload <M> Messages <Q> Main <?> Help\r\n",
+            "@CLS@\x1B[1;36m>>>>>>>> FILE MENU <<<<<<<<<\x1B[0m\r\n<C> Change Area  <L> List  <F> Find  <T> Search  <N> New\r\n<R> Read Text    <V> View ZIP <D> Download <U> Upload\r\n<M> Messages     <Q> Main <?> Help\r\n",
         ),
         (
             "SOP50.CLR",
@@ -447,7 +447,7 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Minimal Terminal 1.3.0\n\nThe project-authored text-first presentation. Version 1.3.0 adds M043 public-information framing while board-owned information remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
+        b"# Minimal Terminal 1.4.0\n\nThe project-authored text-first presentation. Version 1.4.0 adds bounded text/archive inspection and private file-request framing while board-owned file authority remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&help_directory.join("SPITFIRE.HLP"), &minimal_help_bytes()?)?;
@@ -621,7 +621,7 @@ fn write_classic_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Classic SPITFIRE-Inspired 1.4.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.4.0 adds M043 public-information framing; modern SPITFIRE NG authorization, privacy, storage, and transport behavior remain authoritative.\n",
+        b"# Classic SPITFIRE-Inspired 1.5.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.5.0 adds bounded text/archive inspection and private file-request framing; modern SPITFIRE NG authorization, privacy, storage, and transport behavior remain authoritative.\n",
     )?;
     write_new(
         &licenses.join("ASSET-LICENSE.txt"),
@@ -789,7 +789,7 @@ fn classic_display_plan() -> &'static [(&'static str, &'static str, &'static [&'
                 "Copyright (C) 1987-2010 Mike Woltz",
                 "Buffalo Creek Software",
                 "",
-                "Classic SPITFIRE-Inspired presentation 1.4.0",
+                "Classic SPITFIRE-Inspired presentation 1.5.0",
                 "Not an official Buffalo Creek Software release or endorsement.",
             ],
             false,
@@ -1024,16 +1024,18 @@ const CLASSIC_MSG50: [&str; 7] = [
     "<@>...... Sysop Utilities        <X>.......... Xpert Mode",
     "<G>..... Goodbye & Log Off       <?>.. HELP With Commands",
 ];
-const CLASSIC_FILE10: [&str; 6] = [
+const CLASSIC_FILE10: [&str; 7] = [
     "<C>..... Change File Area        <L>............ List Files",
+    "<R>..... Read A Text File        <V>... View File Archive",
     "<D>..... Download a File         <U>........ Upload a File",
     "<N>............ New Files        <T>.. Search Descriptions",
     "<F>.......... Find a File        <M>....... Message Section",
     "<Q>.... Quit to Main Menu        <X>.......... Xpert Mode",
     "<G>..... Goodbye & Log Off       <?>.. HELP With Commands",
 ];
-const CLASSIC_FILE50: [&str; 7] = [
+const CLASSIC_FILE50: [&str; 8] = [
     "<C>..... Change File Area        <L>............ List Files",
+    "<R>..... Read A Text File        <V>... View File Archive",
     "<D>..... Download a File         <U>........ Upload a File",
     "<N>............ New Files        <T>.. Search Descriptions",
     "<F>.......... Find a File        <M>....... Message Section",
@@ -1609,6 +1611,11 @@ fn classic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             "Download one catalog file with your selected protocol.",
         ),
         (
+            11,
+            "Read a Text File",
+            "Safely previews a bounded text file.",
+        ),
+        (
             12,
             "Message Section",
             "Move from the File Menu to the Message Menu.",
@@ -1617,6 +1624,11 @@ fn classic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             13,
             "Quit to Main",
             "Return from the File Menu to the Main Menu.",
+        ),
+        (
+            14,
+            "View a File Archive",
+            "Lists bounded ZIP archive metadata without extraction.",
         ),
         (
             15,
@@ -1760,6 +1772,11 @@ fn synthetic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             "Downloads an authorized catalog file.",
         ),
         (
+            11,
+            "Read A Text File",
+            "Safely previews a bounded text file.",
+        ),
+        (
             12,
             "Message Section",
             "Moves from the File Menu to Messages.",
@@ -1768,6 +1785,11 @@ fn synthetic_help_bytes() -> Result<Vec<u8>, ApplicationError> {
             13,
             "Quit To Main Menu",
             "Returns from the File Menu to Main.",
+        ),
+        (
+            14,
+            "View A File Archive",
+            "Lists bounded ZIP archive metadata without extraction.",
         ),
         (
             15,

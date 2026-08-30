@@ -15,6 +15,7 @@ use crate::{
 pub const MAX_FILE_AREAS: u16 = u16::MAX;
 pub const MAX_FILE_NAME_BYTES: usize = 64;
 pub const MAX_FILE_DESCRIPTION_BYTES: usize = 4096;
+pub const MAX_FILE_DESCRIPTION_LINES: usize = 20;
 pub const MAX_DESCRIPTION_SEARCH_WORDS: usize = 6;
 const COPY_BUFFER_BYTES: usize = 16 * 1024;
 
@@ -86,6 +87,80 @@ pub enum FileAccess {
     Preview,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StorageRootAccess {
+    ManagedReadWrite,
+    ReadOnlySecondary,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LogicalFileStorageRoot {
+    pub logical_key: String,
+    pub order: u16,
+    pub access: StorageRootAccess,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileLifecycle {
+    Active,
+    Offline,
+    PendingReview,
+    Disabled,
+    Tombstoned,
+}
+
+impl FileLifecycle {
+    pub(crate) const fn as_database_value(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Offline => "offline",
+            Self::PendingReview => "pending-review",
+            Self::Disabled => "disabled",
+            Self::Tombstoned => "tombstoned",
+        }
+    }
+
+    fn from_database_value(value: &str) -> Result<Self, FileError> {
+        match value {
+            "active" => Ok(Self::Active),
+            "offline" => Ok(Self::Offline),
+            "pending-review" => Ok(Self::PendingReview),
+            "disabled" => Ok(Self::Disabled),
+            "tombstoned" => Ok(Self::Tombstoned),
+            _ => Err(FileError::InvalidStoredLifecycle(value.to_owned())),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileIntegrity {
+    Unknown,
+    Present,
+    Missing,
+    DigestMismatch,
+}
+
+impl FileIntegrity {
+    pub(crate) const fn as_database_value(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Present => "present",
+            Self::Missing => "missing",
+            Self::DigestMismatch => "digest-mismatch",
+        }
+    }
+
+    fn from_database_value(value: &str) -> Result<Self, FileError> {
+        match value {
+            "unknown" => Ok(Self::Unknown),
+            "present" => Ok(Self::Present),
+            "missing" => Ok(Self::Missing),
+            "digest-mismatch" => Ok(Self::DigestMismatch),
+            _ => Err(FileError::InvalidStoredIntegrity(value.to_owned())),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileArea {
     pub id: FileAreaId,
@@ -101,6 +176,7 @@ pub struct FileArea {
     pub maximum_upload_bytes: u64,
     pub privileged_security_levels: Vec<SecurityLevel>,
     pub active: bool,
+    pub state_version: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -125,7 +201,11 @@ impl FileAreaDefinition {
 }
 
 impl FileArea {
-    fn access(&self, caller: &Caller, sysop_security: SecurityLevel) -> Option<FileAccess> {
+    pub(crate) fn access(
+        &self,
+        caller: &Caller,
+        sysop_security: SecurityLevel,
+    ) -> Option<FileAccess> {
         let privileged = caller.security_level.is_sysop(sysop_security)
             || self
                 .privileged_security_levels
@@ -143,7 +223,7 @@ impl FileArea {
         }
     }
 
-    fn allows_upload(&self, caller: &Caller, sysop_security: SecurityLevel) -> bool {
+    pub(crate) fn allows_upload(&self, caller: &Caller, sysop_security: SecurityLevel) -> bool {
         caller.security_level.is_sysop(sysop_security)
             || self
                 .privileged_security_levels
@@ -166,7 +246,11 @@ pub struct FileEntry {
     pub uploader_caller_id: Option<CallerId>,
     pub uploader_name: String,
     pub download_count: u64,
-    pub available: bool,
+    pub lifecycle: FileLifecycle,
+    pub integrity: FileIntegrity,
+    pub state_version: u64,
+    pub description_source: String,
+    pub description_source_digest: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -179,6 +263,7 @@ pub struct NewFileEntry {
     pub uploaded_at: i64,
     pub uploader_caller_id: Option<CallerId>,
     pub uploader_name: String,
+    pub lifecycle: FileLifecycle,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -204,6 +289,10 @@ impl FileActor {
 
     pub const fn caller_id(self) -> CallerId {
         self.caller_id
+    }
+
+    pub(crate) const fn sysop_security(self) -> SecurityLevel {
+        self.sysop_security
     }
 }
 
@@ -362,6 +451,7 @@ impl RuntimeDatabase {
                 UPDATE file_areas SET name = ?2, description = ?3,
                     access_mode = ?5, read_security = ?6, upload_security = ?7,
                     preview = ?8, no_charge = ?9, maximum_upload_bytes = ?10,
+                    state_version = state_version + 1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE area_number = ?1
                 "#,
@@ -393,7 +483,7 @@ impl RuntimeDatabase {
         let changed = self
             .connection
             .execute(
-                "UPDATE file_areas SET active = ?2, updated_at = CURRENT_TIMESTAMP WHERE area_number = ?1",
+                "UPDATE file_areas SET active = ?2, state_version = state_version + 1, updated_at = CURRENT_TIMESTAMP WHERE area_number = ?1",
                 params![area_number, enabled],
             )
             .map_err(FileError::Sqlite)?;
@@ -404,14 +494,15 @@ impl RuntimeDatabase {
     }
 
     pub fn all_file_areas(&self) -> Result<Vec<FileArea>, FileError> {
-        let mut statement = self
-            .connection
-            .prepare(
-                "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active FROM file_areas ORDER BY area_number",
-            )
-            .map_err(FileError::Sqlite)?;
+        let schema = self.schema_version()?;
+        let sql = if schema >= 15 {
+            "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active, state_version FROM file_areas ORDER BY area_number"
+        } else {
+            "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active FROM file_areas ORDER BY area_number"
+        };
+        let mut statement = self.connection.prepare(sql).map_err(FileError::Sqlite)?;
         let rows = statement
-            .query_map([], stored_area)
+            .query_map([], |row| stored_area_at_schema(row, schema))
             .map_err(FileError::Sqlite)?;
         let mut areas = Vec::new();
         for row in rows {
@@ -425,13 +516,22 @@ impl RuntimeDatabase {
     /// Returns every catalog row, including disabled entries, in stable
     /// area/filename order for board-level preservation workflows.
     pub fn all_cataloged_files(&self) -> Result<Vec<(FileArea, FileEntry)>, FileError> {
+        let schema = self.schema_version()?;
         let mut catalog = Vec::new();
         for area in self.all_file_areas()? {
-            let files = query_files(
-                &self.connection,
-                "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, state FROM files WHERE area_id = ?1 ORDER BY normalized_filename, file_id",
-                params![area.id.get()],
-            )?;
+            let files = if schema >= 15 {
+                query_files(
+                    &self.connection,
+                    "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, lifecycle, integrity_state, state_version, description_source, description_source_digest FROM files WHERE area_id = ?1 ORDER BY normalized_filename, file_id",
+                    params![area.id.get()],
+                )?
+            } else {
+                query_files_legacy(
+                    &self.connection,
+                    "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, state FROM files WHERE area_id = ?1 ORDER BY normalized_filename, file_id",
+                    params![area.id.get()],
+                )?
+            };
             catalog.extend(files.into_iter().map(|file| (area.clone(), file)));
         }
         Ok(catalog)
@@ -441,12 +541,21 @@ impl RuntimeDatabase {
         let count: i64 = self
             .connection
             .query_row(
-                "SELECT COUNT(*) FROM files WHERE area_id = ?1 AND state = 'available'",
+                "SELECT COUNT(*) FROM files WHERE area_id = ?1 AND lifecycle = 'active'",
                 params![area.get()],
                 |row| row.get(0),
             )
             .map_err(FileError::Sqlite)?;
         stored_u64(count)
+    }
+
+    pub fn file_operations_ready_for_cold_backup(&self) -> Result<bool, FileError> {
+        let count: i64 = self.connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM file_operations WHERE phase NOT IN ('committed','rolled-back')) + (SELECT COUNT(*) FROM file_active_uses WHERE expires_at>CURRENT_TIMESTAMP)",
+            [],
+            |row| row.get(0),
+        ).map_err(FileError::Sqlite)?;
+        Ok(count == 0)
     }
 
     pub fn insert_file_entry(&mut self, entry: &NewFileEntry) -> Result<FileEntry, FileError> {
@@ -458,8 +567,10 @@ impl RuntimeDatabase {
                 r#"
                 INSERT INTO files (
                     area_id, filename, normalized_filename, description, size_bytes,
-                    sha256, uploaded_at, uploader_caller_id, uploader_name
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    sha256, uploaded_at, uploader_caller_id, uploader_name,
+                    description_source, lifecycle, review_submitted_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                    CASE WHEN ?11='pending-review' THEN CURRENT_TIMESTAMP ELSE NULL END)
                 "#,
                 params![
                     entry.area_id.get(),
@@ -471,10 +582,22 @@ impl RuntimeDatabase {
                     entry.uploaded_at,
                     entry.uploader_caller_id.map(CallerId::get),
                     entry.uploader_name,
+                    if entry.uploader_caller_id.is_some() {
+                        "caller"
+                    } else {
+                        "system"
+                    },
+                    entry.lifecycle.as_database_value(),
                 ],
             )
             .map_err(|error| duplicate_file_error(error, &entry.filename))?;
         let id = FileId::new(transaction.last_insert_rowid())?;
+        transaction
+            .execute(
+                "UPDATE file_areas SET state_version=state_version+1,updated_at=CURRENT_TIMESTAMP WHERE area_id=?1",
+                params![entry.area_id.get()],
+            )
+            .map_err(FileError::Sqlite)?;
         if let Some(caller_id) = entry.uploader_caller_id {
             let changed = transaction
                 .execute(
@@ -539,7 +662,7 @@ impl RuntimeDatabase {
         let mut area = self
             .connection
             .query_row(
-                "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active FROM file_areas WHERE area_number = ?1",
+                "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active, state_version FROM file_areas WHERE area_number = ?1",
                 params![number],
                 stored_area,
             )
@@ -551,11 +674,11 @@ impl RuntimeDatabase {
         Ok(area)
     }
 
-    fn load_area_by_id(&self, id: FileAreaId) -> Result<Option<FileArea>, FileError> {
+    pub(crate) fn load_area_by_id(&self, id: FileAreaId) -> Result<Option<FileArea>, FileError> {
         let mut area = self
             .connection
             .query_row(
-                "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active FROM file_areas WHERE area_id = ?1",
+                "SELECT area_id, area_number, name, description, storage_key, access_mode, read_security, upload_security, preview, no_charge, maximum_upload_bytes, active, state_version FROM file_areas WHERE area_id = ?1",
                 params![id.get()],
                 stored_area,
             )
@@ -567,10 +690,10 @@ impl RuntimeDatabase {
         Ok(area)
     }
 
-    fn load_file_by_id(&self, id: FileId) -> Result<Option<FileEntry>, FileError> {
+    pub(crate) fn load_file_by_id(&self, id: FileId) -> Result<Option<FileEntry>, FileError> {
         self.connection
             .query_row(
-                "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, state FROM files WHERE file_id = ?1",
+                "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, lifecycle, integrity_state, state_version, description_source, description_source_digest FROM files WHERE file_id = ?1",
                 params![id.get()],
                 stored_file,
             )
@@ -578,7 +701,7 @@ impl RuntimeDatabase {
             .map_err(FileError::Sqlite)
     }
 
-    fn active_file_actor(&self, actor: FileActor) -> Result<Caller, FileError> {
+    pub(crate) fn active_file_actor(&self, actor: FileActor) -> Result<Caller, FileError> {
         let caller = self
             .caller_by_id(actor.caller_id)?
             .ok_or(FileError::CallerUnavailable)?;
@@ -588,7 +711,7 @@ impl RuntimeDatabase {
         Ok(caller)
     }
 
-    fn authorized_area(
+    pub(crate) fn authorized_area(
         &self,
         actor: FileActor,
         area: FileAreaId,
@@ -636,7 +759,7 @@ impl FileBackend for RuntimeDatabase {
         self.authorized_area(actor, area)?;
         query_files(
             &self.connection,
-            "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, state FROM files WHERE area_id = ?1 AND state = 'available' ORDER BY normalized_filename",
+            "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, lifecycle, integrity_state, state_version, description_source, description_source_digest FROM files WHERE area_id = ?1 AND lifecycle IN ('active', 'offline') ORDER BY normalized_filename",
             params![area.get()],
         )
     }
@@ -737,6 +860,14 @@ impl FileBackend for RuntimeDatabase {
                 continue;
             }
             for file in self.files(actor, area.id)? {
+                if file.lifecycle != FileLifecycle::Active
+                    || matches!(
+                        file.integrity,
+                        FileIntegrity::Missing | FileIntegrity::DigestMismatch
+                    )
+                {
+                    continue;
+                }
                 statistics.available_files = statistics
                     .available_files
                     .checked_add(1)
@@ -770,7 +901,7 @@ impl FileBackend for RuntimeDatabase {
         let normalized = normalize_filename(filename)?;
         self.connection
             .query_row(
-                "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, state FROM files WHERE area_id = ?1 AND normalized_filename = ?2 AND state = 'available'",
+                "SELECT file_id, area_id, filename, description, size_bytes, sha256, uploaded_at, uploader_caller_id, uploader_name, download_count, lifecycle, integrity_state, state_version, description_source, description_source_digest FROM files WHERE area_id = ?1 AND normalized_filename = ?2 AND lifecycle = 'active' AND integrity_state NOT IN ('missing','digest-mismatch')",
                 params![area.get(), normalized],
                 stored_file,
             )
@@ -783,7 +914,13 @@ impl FileBackend for RuntimeDatabase {
         let caller = self.active_file_actor(actor)?;
         let file = self
             .load_file_by_id(file_id)?
-            .filter(|file| file.available)
+            .filter(|file| {
+                file.lifecycle == FileLifecycle::Active
+                    && !matches!(
+                        file.integrity,
+                        FileIntegrity::Missing | FileIntegrity::DigestMismatch
+                    )
+            })
             .ok_or(FileError::FileIdNotFound(file_id.get()))?;
         let area = self
             .load_area_by_id(file.area_id)?
@@ -849,6 +986,10 @@ fn replace_privileged_levels(
 }
 
 fn stored_area(row: &Row<'_>) -> rusqlite::Result<FileArea> {
+    stored_area_at_schema(row, 15)
+}
+
+fn stored_area_at_schema(row: &Row<'_>, schema: u32) -> rusqlite::Result<FileArea> {
     let id = FileAreaId::new(row.get(0)?).map_err(sql_conversion)?;
     let mode =
         FileAccessMode::from_database_value(&row.get::<_, String>(5)?).map_err(sql_conversion)?;
@@ -869,6 +1010,11 @@ fn stored_area(row: &Row<'_>) -> rusqlite::Result<FileArea> {
         maximum_upload_bytes: u64::try_from(maximum).map_err(sql_conversion)?,
         privileged_security_levels: Vec::new(),
         active: row.get(11)?,
+        state_version: if schema >= 15 {
+            u64::try_from(row.get::<_, i64>(12)?).map_err(sql_conversion)?
+        } else {
+            1
+        },
     })
 }
 
@@ -890,7 +1036,13 @@ fn stored_file(row: &Row<'_>) -> rusqlite::Result<FileEntry> {
             .map_err(sql_conversion)?,
         uploader_name: row.get(8)?,
         download_count: u64::try_from(downloads).map_err(sql_conversion)?,
-        available: row.get::<_, String>(10)? == "available",
+        lifecycle: FileLifecycle::from_database_value(&row.get::<_, String>(10)?)
+            .map_err(sql_conversion)?,
+        integrity: FileIntegrity::from_database_value(&row.get::<_, String>(11)?)
+            .map_err(sql_conversion)?,
+        state_version: u64::try_from(row.get::<_, i64>(12)?).map_err(sql_conversion)?,
+        description_source: row.get(13)?,
+        description_source_digest: row.get(14)?,
     })
 }
 
@@ -902,6 +1054,46 @@ fn query_files<P: rusqlite::Params>(
     let mut statement = connection.prepare(sql).map_err(FileError::Sqlite)?;
     let rows = statement
         .query_map(parameters, stored_file)
+        .map_err(FileError::Sqlite)?;
+    rows.map(|row| row.map_err(FileError::Sqlite)).collect()
+}
+
+fn query_files_legacy<P: rusqlite::Params>(
+    connection: &rusqlite::Connection,
+    sql: &str,
+    parameters: P,
+) -> Result<Vec<FileEntry>, FileError> {
+    let mut statement = connection.prepare(sql).map_err(FileError::Sqlite)?;
+    let rows = statement
+        .query_map(parameters, |row| {
+            let size: i64 = row.get(4)?;
+            let downloads: i64 = row.get(9)?;
+            let uploader: Option<i64> = row.get(7)?;
+            Ok(FileEntry {
+                id: FileId::new(row.get(0)?).map_err(sql_conversion)?,
+                area_id: FileAreaId::new(row.get(1)?).map_err(sql_conversion)?,
+                filename: row.get(2)?,
+                description: row.get(3)?,
+                size_bytes: u64::try_from(size).map_err(sql_conversion)?,
+                sha256: row.get(5)?,
+                uploaded_at: row.get(6)?,
+                uploader_caller_id: uploader
+                    .map(CallerId::new)
+                    .transpose()
+                    .map_err(sql_conversion)?,
+                uploader_name: row.get(8)?,
+                download_count: u64::try_from(downloads).map_err(sql_conversion)?,
+                lifecycle: if row.get::<_, String>(10)? == "available" {
+                    FileLifecycle::Active
+                } else {
+                    FileLifecycle::Disabled
+                },
+                integrity: FileIntegrity::Unknown,
+                state_version: 1,
+                description_source: "legacy-import".to_owned(),
+                description_source_digest: None,
+            })
+        })
         .map_err(FileError::Sqlite)?;
     rows.map(|row| row.map_err(FileError::Sqlite)).collect()
 }
@@ -941,6 +1133,7 @@ fn validate_new_file(entry: &NewFileEntry) -> Result<(), FileError> {
     normalize_filename(&entry.filename)?;
     if entry.description.trim().is_empty()
         || entry.description.len() > MAX_FILE_DESCRIPTION_BYTES
+        || entry.description.lines().count() > MAX_FILE_DESCRIPTION_LINES
         || !safe_file_description(&entry.description)
     {
         return Err(FileError::InvalidDescription);
@@ -962,12 +1155,12 @@ fn printable_ascii(value: &str) -> bool {
 }
 
 fn safe_file_description(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b' '..=b'~' | b'\n' => index += 1,
-            b'\r' if bytes.get(index + 1) == Some(&b'\n') => index += 2,
+    let mut characters = value.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\n' => {}
+            '\r' if characters.next_if_eq(&'\n').is_some() => {}
+            value if !value.is_control() => {}
             _ => return false,
         }
     }
@@ -1173,6 +1366,40 @@ impl FileStorage {
         Ok(canonical)
     }
 
+    /// Returns the current single confined writable authority. The ordered
+    /// result is deliberately shaped for future read-only secondary roots;
+    /// legacy FA<x>.TXT host paths are never accepted directly here.
+    pub fn logical_roots(&self, area: &FileArea) -> Result<Vec<LogicalFileStorageRoot>, FileError> {
+        validate_storage_key(&area.storage_key)?;
+        Ok(vec![LogicalFileStorageRoot {
+            logical_key: area.storage_key.clone(),
+            order: 0,
+            access: StorageRootAccess::ManagedReadWrite,
+        }])
+    }
+
+    pub(crate) fn file_path(
+        &self,
+        area: &FileArea,
+        file: &FileEntry,
+    ) -> Result<PathBuf, FileError> {
+        let directory = self.ensure_area(area)?;
+        normalize_filename(&file.filename)?;
+        Ok(directory.join(&file.filename))
+    }
+
+    pub(crate) fn confined_relative_path(&self, relative: &str) -> Result<PathBuf, FileError> {
+        let relative = Path::new(relative);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(FileError::StorageEscape(relative.to_path_buf()));
+        }
+        Ok(self.files_root.join(relative))
+    }
+
     pub fn write_seed_file(
         &self,
         database: &mut RuntimeDatabase,
@@ -1209,6 +1436,7 @@ impl FileStorage {
             uploaded_at,
             uploader_caller_id: None,
             uploader_name: "SPITFIRE NG".to_owned(),
+            lifecycle: FileLifecycle::Active,
         };
         match database.insert_file_entry(&entry) {
             Ok(file) => Ok(file),
@@ -1331,6 +1559,12 @@ impl FileStorage {
         if !current_area.allows_upload(&caller, actor.sysop_security) {
             return Err(FileError::UploadDenied(current_area.number));
         }
+        if database
+            .upload_is_denied(actor, &staged.filename)
+            .map_err(|error| FileError::Maintenance(error.to_string()))?
+        {
+            return Err(FileError::UploadDeniedByPolicy);
+        }
         let mut staged_file = staged.file.take().ok_or(FileError::StagingClosed)?;
         staged_file
             .flush()
@@ -1351,47 +1585,142 @@ impl FileStorage {
         }
         let directory = self.ensure_area(&current_area)?;
         let destination = directory.join(&staged.filename);
-        let mut source = File::open(&staged.path).map_err(|source| FileError::StorageIo {
-            path: staged.path.clone(),
-            source,
-        })?;
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&destination)
-            .map_err(|source| {
-                if source.kind() == std::io::ErrorKind::AlreadyExists {
-                    FileError::DuplicateFilename(staged.filename.clone())
-                } else {
-                    FileError::StorageIo {
-                        path: destination.clone(),
-                        source,
-                    }
-                }
-            })?;
-        if let Err(source) = std::io::copy(&mut source, &mut output).and_then(|_| output.sync_all())
-        {
-            let _ = fs::remove_file(&destination);
-            return Err(FileError::StorageIo {
-                path: destination,
+        let pending_review = description.starts_with('/');
+        let description = if pending_review {
+            description.trim_start_matches('/').trim()
+        } else {
+            description
+        };
+        let description = database
+            .normalize_upload_description(description)
+            .map_err(|error| FileError::Maintenance(error.to_string()))?;
+        let normalized_filename = normalize_filename(&staged.filename)?;
+        let operation_id = format!(
+            "upload-{}-{}-{}",
+            caller.id.get(),
+            current_area.id.get(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        let operation = database
+            .connection
+            .transaction()
+            .map_err(FileError::Sqlite)?;
+        operation
+            .execute(
+                "DELETE FROM file_operation_leases WHERE expires_at<=CURRENT_TIMESTAMP",
+                [],
+            )
+            .map_err(FileError::Sqlite)?;
+        operation
+            .execute(
+                "INSERT INTO file_operations(operation_id,kind,destination_area_id,expected_area_version,phase,staging_path,digest,actor_caller_id) VALUES(?1,'upload',?2,?3,'staged',?4,?5,?6)",
+                params![operation_id, current_area.id.get(), current_area.state_version as i64, format!("{}/{}", current_area.storage_key, staged.filename), hash, caller.id.get()],
+            )
+            .map_err(FileError::Sqlite)?;
+        operation
+            .execute(
+                "INSERT INTO file_operation_leases(lease_kind,area_id,normalized_filename,operation_id,expires_at) VALUES('name',?1,?2,?3,datetime('now','+5 minutes'))",
+                params![current_area.id.get(), normalized_filename, operation_id],
+            )
+            .map_err(|_| FileError::DuplicateFilename(staged.filename.clone()))?;
+        operation.commit().map_err(FileError::Sqlite)?;
+        let publish_result = (|| {
+            let mut source = File::open(&staged.path).map_err(|source| FileError::StorageIo {
+                path: staged.path.clone(),
                 source,
-            });
+            })?;
+            let mut output = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&destination)
+                .map_err(|source| {
+                    if source.kind() == std::io::ErrorKind::AlreadyExists {
+                        FileError::DuplicateFilename(staged.filename.clone())
+                    } else {
+                        FileError::StorageIo {
+                            path: destination.clone(),
+                            source,
+                        }
+                    }
+                })?;
+            std::io::copy(&mut source, &mut output)
+                .and_then(|_| output.sync_all())
+                .map_err(|source| FileError::StorageIo {
+                    path: destination.clone(),
+                    source,
+                })?;
+            Ok::<(), FileError>(())
+        })();
+        if let Err(error) = publish_result {
+            let _ = fs::remove_file(&destination);
+            let _ = database.connection.execute(
+                "UPDATE file_operations SET phase='rolled-back',error_code='byte-publish-failed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
+                params![operation_id],
+            );
+            let _ = database.connection.execute(
+                "DELETE FROM file_operation_leases WHERE operation_id=?1",
+                params![operation_id],
+            );
+            return Err(error);
         }
         let entry = NewFileEntry {
             area_id: current_area.id,
             filename: staged.filename.clone(),
-            description: description.to_owned(),
+            description,
             size_bytes: size,
             sha256: hash,
             uploaded_at,
             uploader_caller_id: Some(caller.id),
             uploader_name: caller.display_name,
+            lifecycle: if pending_review {
+                FileLifecycle::PendingReview
+            } else {
+                FileLifecycle::Active
+            },
         };
+        database
+            .connection
+            .execute(
+                "UPDATE file_operations SET phase='bytes-published',updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
+                params![operation_id],
+            )
+            .map_err(FileError::Sqlite)?;
         let result = database.insert_file_entry(&entry);
         if result.is_err() {
             let _ = fs::remove_file(&destination);
+            let _ = database.connection.execute(
+                "UPDATE file_operations SET phase='rolled-back',error_code='catalog-insert-failed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
+                params![operation_id],
+            );
+            let _ = database.connection.execute(
+                "DELETE FROM file_operation_leases WHERE operation_id=?1",
+                params![operation_id],
+            );
         }
         let file = result?;
+        let completion = database
+            .connection
+            .transaction()
+            .map_err(FileError::Sqlite)?;
+        completion
+            .execute(
+                "UPDATE file_operations SET file_id=?2,phase='committed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
+                params![operation_id, file.id.get()],
+            )
+            .map_err(FileError::Sqlite)?;
+        completion
+            .execute(
+                "DELETE FROM file_operation_leases WHERE operation_id=?1",
+                params![operation_id],
+            )
+            .map_err(FileError::Sqlite)?;
+        completion
+            .execute(
+                "INSERT INTO file_events(operation,actor_caller_id,file_id,area_id,operation_id,digest,detail) VALUES('file-added',?1,?2,?3,?4,?5,?6)",
+                params![caller.id.get(), file.id.get(), current_area.id.get(), operation_id, file.sha256, if pending_review { "pending-review" } else { "caller-upload" }],
+            )
+            .map_err(FileError::Sqlite)?;
+        completion.commit().map_err(FileError::Sqlite)?;
         staged.committed = true;
         let _ = fs::remove_file(&staged.path);
         let _ = fs::remove_dir(&staged.session_directory);
@@ -1624,6 +1953,8 @@ pub enum FileError {
     DownloadDenied(u16),
     #[error("uploads to file area {0} are denied")]
     UploadDenied(u16),
+    #[error("upload filename is denied by board policy")]
+    UploadDeniedByPolicy,
     #[error("unsafe filename: {0:?}")]
     InvalidFilename(String),
     #[error("invalid file description")]
@@ -1648,6 +1979,10 @@ pub enum FileError {
     InvalidNewFileTimestamp(i64),
     #[error("database contains unknown file-area access mode {0:?}")]
     InvalidStoredAccessMode(String),
+    #[error("database contains unknown file lifecycle {0:?}")]
+    InvalidStoredLifecycle(String),
+    #[error("database contains unknown file integrity state {0:?}")]
+    InvalidStoredIntegrity(String),
     #[error("database contains an invalid negative or oversized counter {0}")]
     InvalidStoredCounter(i64),
     #[error("counter {0} is too large for SQLite")]
@@ -1686,6 +2021,8 @@ pub enum FileError {
     Database(#[from] DatabaseError),
     #[error("SQLite file operation failed: {0}")]
     Sqlite(#[source] rusqlite::Error),
+    #[error("file-maintenance policy failed: {0}")]
+    Maintenance(String),
 }
 
 #[cfg(test)]
@@ -2114,6 +2451,7 @@ mod tests {
                 uploaded_at: 200,
                 uploader_caller_id: None,
                 uploader_name: "SPITFIRE NG".to_owned(),
+                lifecycle: FileLifecycle::Active,
             }),
             Err(FileError::InvalidDescription)
         ));
@@ -2305,7 +2643,11 @@ mod tests {
             .into_iter()
             .map(|handle| handle.join().unwrap())
             .collect();
-        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results.iter().filter(|result| result.is_ok()).count(),
+            1,
+            "{results:?}"
+        );
         assert_eq!(
             results
                 .iter()

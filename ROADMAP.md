@@ -40,6 +40,13 @@ outcomes rather than internal checkpoint chronology.
   disabled/caller-opt-in handle-only directory and locate, native ordered
   Other BBS authority, numbered bulletins, newsletter, safe system facts, and
   bounded project-native thoughts with privacy-safe audit and cold recovery.
+- Added post-0.1.0 schema-15 safe file inspection, request, and maintenance:
+  stable file identities; separate lifecycle/integrity; bounded sanitized
+  text, ZIP, and FILE_ID.DIZ inspection; Preview inspection without transfer;
+  private requests; PendingReview uploads; duplicate/denial/case policy;
+  versioned staged operations; crash reconciliation; semantic audit; and cold
+  recovery. B-013 is VERIFIED; B-015 and B-012 remain IMPLEMENTED with
+  explicit verification work outstanding.
 
 ### Modern transport interleave
 
@@ -77,25 +84,23 @@ unsigned/unnotarized macOS first-run workflow have passed.
 
 Public source `main` now includes post-0.1.0 message-discovery, auditable
 message-mutation, auditable caller-access, schema-13 caller identity, SSH
-caller-transport improvements, and schema-14 public-information features. No
-new binary, tag, or release has been published; the downloadable binary remains
-the accepted 0.1.0 Development Preview and does not contain those later source
-changes.
+caller-transport improvements, schema-14 public information, and schema-15
+Tranche 5 file-domain features. No new binary, tag, or release has been
+published; the downloadable binary remains the accepted 0.1.0 Development
+Preview and does not contain those later source changes.
 
 ## Next dependency-ordered Category-B tranche
 
-M043 completes B-002 caller/Other-BBS public information and B-003 bulletins,
-newsletter, system information, and a bounded native thought catalog. The
-current Category-B ledger is 8 VERIFIED, 0 IMPLEMENTED, 8 PARTIAL, and 9 NOT
-STARTED. Exact `SFBBSLST.DAT` and `THOUGHTS.BBS` byte adapters remain distinct
-deferred compatibility gaps and are not claimed by the native models.
+M039 Tranche 5 has implemented B-013, B-015, and the remaining B-012 native
+contracts on schema 15. B-013 completed its accepted semantic, security,
+presentation, transport, and client matrix and is VERIFIED. B-015 and B-012
+remain IMPLEMENTED while their documented legacy-import/recovery/operator and
+caller-workflow acceptance items remain open. The Category-B ledger is now
+9 VERIFIED, 2 IMPLEMENTED, 7 PARTIAL, and 7 NOT STARTED.
 
-The next dependency-ordered tranche is **Safe file inspection, request, and
-maintenance**: B-013 and B-015, then B-012. Its separately reviewed gate must
-settle bounded text/archive inspection, path confinement, transactional file
-move/delete and reconciliation, request/review privacy, duplicate heuristics,
-concurrency, migration/recovery if review state is persisted, and caller plus
-operator acceptance before implementation begins.
+The next separately gated tranche is **M039 Tranche 6 — Batch Transfer Policy
+and Extended Storage**. Dependency order is B-024 interoperability closure,
+then B-011/B-014/B-023. This is planning only: Tranche 6 has not begun.
 
 Near-term release work includes:
 

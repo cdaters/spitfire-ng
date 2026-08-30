@@ -77,6 +77,11 @@ the historical or architectural material to set up a board.
   visibility, receipts, tombstones, Copy/Forward lineage, mutation audit, and
   the future network-adapter boundary.
 - [Native File System](sfng-file-system.md)
+- [Tranche 5 Implementation](research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md) —
+  Schema 15, safe inspection, requests/review, staged maintenance, recovery,
+  and exact compatibility boundaries.
+- [Tranche 5 Verification](research/m039-tranche-5-verification.md) — B-013
+  verification and the exact remaining B-015/B-012 acceptance items.
 - [Native File Transfers](sfng-file-transfers.md)
 - [Native Multinode Runtime](sfng-multinode-runtime.md)
 - [Native Backup and Restore](sfng-backup-restore.md)
@@ -88,6 +93,9 @@ the historical or architectural material to set up a board.
 - [Synchronet Engineering Reference](research/synchronet-reference.md) —
   Comparison only; Synchronet is not SPITFIRE's behavioral authority.
 - [SyncTERM RLogin Interoperability](research/syncterm-rlogin-autologin.md)
+- [Historical THOUGHTS.BBS Format](research/historical-thoughts-bbs-format.md) —
+  Rights-safe fixed-record format facts, parser safety rules, and unresolved
+  runtime questions; no historical content is redistributed.
 
 The public repository contains independently written findings, not the
 historical software corpus. Visit

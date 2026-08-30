@@ -1276,12 +1276,15 @@ mod tests {
                 b"Legacy SSH Public Name",
                 b"pixelwizard",
                 b"PixelWizard",
-                Some("Avery Example".to_owned()),
+                Some("SSH Acceptance Real Name".to_owned()),
             )
             .unwrap();
         assert_eq!(identity.login_identifier, "pixelwizard");
         assert_eq!(identity.display_name, "PixelWizard");
-        assert_eq!(identity.real_name.as_deref(), Some("Avery Example"));
+        assert_eq!(
+            identity.real_name.as_deref(),
+            Some("SSH Acceptance Real Name")
+        );
         drop(runtime);
 
         let validated = RuntimeConfig::load(&config_path)
@@ -1452,7 +1455,7 @@ mod tests {
         assert!(contains(&transcript, b"Thank you for calling"));
         assert!(!contains(&transcript, b"Caller name"));
         assert!(!contains(&transcript, password.as_bytes()));
-        assert!(!contains(&transcript, b"Avery Example"));
+        assert!(!contains(&transcript, b"SSH Acceptance Real Name"));
         assert!(!contains(&transcript, b"pixelwizard"));
         assert!(root.join("system/ssh/host-ed25519").is_file());
     }
@@ -3064,6 +3067,9 @@ mod tests {
             b"File Caller".to_vec(),
             b"test-only file password".to_vec(),
             b"F".to_vec(),
+            b"R".to_vec(),
+            b"WELCOME.TXT".to_vec(),
+            Vec::new(),
             b"L".to_vec(),
             Vec::new(),
             b"F".to_vec(),
@@ -3141,6 +3147,273 @@ mod tests {
             .any(|file| file.filename == "CALLER.TXT"));
         assert_eq!(caller.files_uploaded, 1);
         assert_eq!(caller.files_downloaded, 2);
+    }
+
+    #[test]
+    fn unavailable_file_download_creates_one_private_durable_request() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("fixture-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Request Caller",
+            b"test-only request password",
+            CallerState::Active,
+        );
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let caller = database.caller_by_name(b"Request Caller").unwrap().unwrap();
+        let actor = FileActor::new(
+            caller.id,
+            SecurityLevel::new(validated.caller.sysop_security).unwrap(),
+        );
+        let area = database.file_area(actor, 1).unwrap().0;
+        let storage = FileStorage::new(&paths).unwrap();
+        let file = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "OFFLINE.TXT",
+                "Offline request fixture",
+                b"not currently available",
+                1_777_000_000,
+            )
+            .unwrap();
+        database
+            .set_file_lifecycle(
+                sf_core::FileAdminActor::LocalOperator,
+                file.id,
+                file.state_version,
+                sf_core::FileLifecycle::Offline,
+            )
+            .unwrap();
+        drop(database);
+
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let mut terminal = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Request Caller".to_vec(),
+            b"test-only request password".to_vec(),
+            b"F".to_vec(),
+            b"D".to_vec(),
+            b"OFFLINE.TXT".to_vec(),
+            b"Y".to_vec(),
+            b"Q".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut terminal).unwrap();
+        assert!(
+            contains(terminal.output(), b"private file request was recorded"),
+            "{}",
+            String::from_utf8_lossy(terminal.output())
+        );
+        let database = RuntimeDatabase::open(paths.database()).unwrap();
+        let requests = database
+            .pending_file_requests(sf_core::FileAdminActor::LocalOperator)
+            .unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].file_id, file.id);
+        assert_eq!(requests[0].requesting_caller_id, caller.id);
+    }
+
+    #[test]
+    fn preview_area_session_inspects_but_never_prompts_for_transfer_or_request() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("fixture-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Preview Journey Caller",
+            b"test-only preview journey password",
+            CallerState::Active,
+        );
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let area = database
+            .create_file_area(&sf_core::FileAreaDefinition {
+                number: 3,
+                name: "Preview Files".to_owned(),
+                description: "Synthetic inspect-only area".to_owned(),
+                storage_key: "preview".to_owned(),
+                access_mode: sf_core::FileAccessMode::AtLeast,
+                read_security: SecurityLevel::new(50).unwrap(),
+                upload_security: SecurityLevel::new(50).unwrap(),
+                preview: true,
+                no_charge: false,
+                maximum_upload_bytes: 1024 * 1024,
+                privileged_security_levels: Vec::new(),
+            })
+            .unwrap();
+        let storage = FileStorage::new(&paths).unwrap();
+        storage.ensure_area(&area).unwrap();
+        storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "PREVIEW.TXT",
+                "Preview session fixture",
+                b"Preview-safe text.\r\n",
+                1_777_000_010,
+            )
+            .unwrap();
+        drop(database);
+
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let mut terminal = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Preview Journey Caller".to_vec(),
+            b"test-only preview journey password".to_vec(),
+            b"F".to_vec(),
+            b"C".to_vec(),
+            b"3".to_vec(),
+            b"R".to_vec(),
+            b"PREVIEW.TXT".to_vec(),
+            Vec::new(),
+            b"D".to_vec(),
+            b"U".to_vec(),
+            b"Q".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut terminal).unwrap();
+        assert!(contains(terminal.output(), b"Preview-safe text."));
+        assert!(contains(
+            terminal.output(),
+            b"This is a preview area; downloads are not permitted."
+        ));
+        assert!(contains(
+            terminal.output(),
+            b"This is a preview area; uploads are not permitted."
+        ));
+        assert!(!contains(terminal.output(), b"File to download"));
+        assert!(!contains(terminal.output(), b"private request"));
+        let database = RuntimeDatabase::open(paths.database()).unwrap();
+        assert!(database
+            .pending_file_requests(sf_core::FileAdminActor::LocalOperator)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn tranche_5_inspection_semantics_are_identical_across_packaged_profiles() {
+        use std::io::Cursor;
+
+        for profile in [
+            crate::MODERN_PROFILE_ID,
+            crate::MINIMAL_PROFILE_ID,
+            crate::CLASSIC_PROFILE_ID,
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join(format!("{profile}-inspection-board"));
+            initialize_fixture_board(&root).unwrap();
+            use_fast_test_hashing(&root);
+            seed_caller(
+                &root,
+                b"Profile Inspection Caller",
+                b"test-only profile inspection password",
+                CallerState::Active,
+            );
+            let config_path = root.join(FIXTURE_CONFIG_FILE);
+            let mut config = RuntimeConfig::load(&config_path).unwrap();
+            config.presentation.active_profile = Some(profile.to_owned());
+            config.presentation.base_profile = Some(crate::MODERN_PROFILE_ID.to_owned());
+            config.save_atomic(&config_path).unwrap();
+            let paths = LogicalPaths::resolve(&root, &config.validate().unwrap()).unwrap();
+            let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+            let area = database
+                .create_file_area(&sf_core::FileAreaDefinition {
+                    number: 3,
+                    name: "Profile Preview".to_owned(),
+                    description: "Synthetic profile parity area".to_owned(),
+                    storage_key: "profile-preview".to_owned(),
+                    access_mode: sf_core::FileAccessMode::AtLeast,
+                    read_security: SecurityLevel::new(50).unwrap(),
+                    upload_security: SecurityLevel::new(50).unwrap(),
+                    preview: true,
+                    no_charge: false,
+                    maximum_upload_bytes: 1024 * 1024,
+                    privileged_security_levels: Vec::new(),
+                })
+                .unwrap();
+            let storage = FileStorage::new(&paths).unwrap();
+            storage.ensure_area(&area).unwrap();
+            storage
+                .write_seed_file(
+                    &mut database,
+                    &area,
+                    "PROFILE.TXT",
+                    "Profile semantic text",
+                    b"Identical safe inspection result.\r\n",
+                    1_777_000_020,
+                )
+                .unwrap();
+            let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            writer
+                .start_file(
+                    "profile-member.txt",
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Deflated),
+                )
+                .unwrap();
+            writer.write_all(b"metadata only").unwrap();
+            let archive = writer.finish().unwrap().into_inner();
+            storage
+                .write_seed_file(
+                    &mut database,
+                    &area,
+                    "PROFILE.ZIP",
+                    "Profile semantic archive",
+                    &archive,
+                    1_777_000_021,
+                )
+                .unwrap();
+            drop(database);
+
+            let runtime = BoardRuntime::load(&config_path).unwrap();
+            let mut terminal = InMemoryTerminal::with_lines([
+                b"N".to_vec(),
+                b"Profile Inspection Caller".to_vec(),
+                b"test-only profile inspection password".to_vec(),
+                b"F".to_vec(),
+                b"C".to_vec(),
+                b"3".to_vec(),
+                b"R".to_vec(),
+                b"PROFILE.TXT".to_vec(),
+                Vec::new(),
+                b"V".to_vec(),
+                b"PROFILE.ZIP".to_vec(),
+                Vec::new(),
+                b"D".to_vec(),
+                b"Q".to_vec(),
+                b"G".to_vec(),
+            ]);
+            runtime.run_connection(&mut terminal).unwrap();
+            assert!(
+                contains(terminal.output(), b"Identical safe inspection result."),
+                "{profile} text inspection transcript:\n{}",
+                String::from_utf8_lossy(terminal.output())
+            );
+            assert!(
+                contains(terminal.output(), b"profile-member.txt"),
+                "{profile} ZIP inspection transcript:\n{}",
+                String::from_utf8_lossy(terminal.output())
+            );
+            assert!(contains(
+                terminal.output(),
+                b"This is a preview area; downloads are not permitted."
+            ));
+        }
     }
 
     #[test]
@@ -5084,6 +5357,189 @@ mod tests {
         let report = handle.join().unwrap();
         assert_eq!(report.completed_sessions, 1);
         transcript
+    }
+
+    #[test]
+    #[ignore = "manual Qodem, SyncTERM, and macOS OpenSSH Tranche 5 acceptance server"]
+    fn tranche_5_real_client_acceptance_server() {
+        use std::io::Cursor;
+
+        let root = PathBuf::from(
+            std::env::var("SPITFIRE_TRANCHE5_ACCEPTANCE_ROOT")
+                .expect("set SPITFIRE_TRANCHE5_ACCEPTANCE_ROOT to a new disposable directory"),
+        );
+        let telnet_address: SocketAddr = std::env::var("SPITFIRE_TRANCHE5_TELNET")
+            .unwrap_or_else(|_| "127.0.0.1:24231".to_owned())
+            .parse()
+            .unwrap();
+        let ssh_address: SocketAddr = std::env::var("SPITFIRE_TRANCHE5_SSH")
+            .unwrap_or_else(|_| "127.0.0.1:24232".to_owned())
+            .parse()
+            .unwrap();
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        let password = b"test-only tranche-five password";
+        for caller in [
+            b"Qodem Acceptance".as_slice(),
+            b"SyncTERM Acceptance".as_slice(),
+            b"OpenSSH Acceptance".as_slice(),
+        ] {
+            seed_caller(&root, caller, password, CallerState::Active);
+        }
+
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let storage = FileStorage::new(&paths).unwrap();
+        let operator = database
+            .caller_by_name(b"Qodem Acceptance")
+            .unwrap()
+            .unwrap();
+        let actor = FileActor::new(operator.id, SecurityLevel::new(10).unwrap());
+        let area = database.file_area(actor, 1).unwrap().0;
+
+        let mut zip_writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        zip_writer
+            .start_file(
+                "docs/readme.txt",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated),
+            )
+            .unwrap();
+        zip_writer
+            .write_all(b"Synthetic real-client archive member")
+            .unwrap();
+        let zip_bytes = zip_writer.finish().unwrap().into_inner();
+        storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "CLIENT.ZIP",
+                "Synthetic real-client ZIP",
+                &zip_bytes,
+                1_777_000_000,
+            )
+            .unwrap();
+        storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "BINARY.DAT",
+                "Synthetic binary rejection",
+                b"binary\0fixture",
+                1_777_000_001,
+            )
+            .unwrap();
+        storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "CONTROL.TXT",
+                "Synthetic terminal-control rejection",
+                b"safe prefix\x1b[2Junsafe suffix",
+                1_777_000_002,
+            )
+            .unwrap();
+        let offline = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "OFFLINE.ZIP",
+                "Synthetic unavailable request",
+                &zip_bytes,
+                1_777_000_003,
+            )
+            .unwrap();
+        database
+            .set_file_lifecycle(
+                sf_core::FileAdminActor::LocalOperator,
+                offline.id,
+                offline.state_version,
+                sf_core::FileLifecycle::Offline,
+            )
+            .unwrap();
+        let preview_area = database
+            .create_file_area(&sf_core::FileAreaDefinition {
+                number: 3,
+                name: "Preview Files".to_owned(),
+                description: "Synthetic inspect-only acceptance area".to_owned(),
+                storage_key: "preview".to_owned(),
+                access_mode: sf_core::FileAccessMode::AtLeast,
+                read_security: SecurityLevel::new(50).unwrap(),
+                upload_security: SecurityLevel::new(50).unwrap(),
+                preview: true,
+                no_charge: false,
+                maximum_upload_bytes: 1024 * 1024,
+                privileged_security_levels: Vec::new(),
+            })
+            .unwrap();
+        storage.ensure_area(&preview_area).unwrap();
+        storage
+            .write_seed_file(
+                &mut database,
+                &preview_area,
+                "PREVIEW.TXT",
+                "Synthetic Preview-area text",
+                b"Preview inspection succeeds without transfer authority.\r\n",
+                1_777_000_004,
+            )
+            .unwrap();
+        storage
+            .write_seed_file(
+                &mut database,
+                &preview_area,
+                "PREVIEW.ZIP",
+                "Synthetic Preview-area archive",
+                &zip_bytes,
+                1_777_000_005,
+            )
+            .unwrap();
+        drop(database);
+
+        let mut config = RuntimeConfig::load(&config_path).unwrap();
+        config.node = None;
+        config.nodes = Some(NodePoolConfig {
+            count: 3,
+            overrides: Vec::new(),
+        });
+        config.transports = vec![
+            listener_config(
+                "tranche5-telnet",
+                TransportAdapterConfig::Telnet {
+                    listen: telnet_address,
+                    terminal: NetworkTerminalDefaults::default(),
+                },
+            ),
+            listener_config(
+                "tranche5-ssh",
+                TransportAdapterConfig::Ssh {
+                    listen: ssh_address,
+                    host_key: PathBuf::from("ssh/host-ed25519"),
+                    terminal: NetworkTerminalDefaults::default(),
+                    maximum_unauthenticated_connections: 4,
+                    maximum_authentication_attempts: 3,
+                    handshake_timeout_seconds: 10,
+                },
+            ),
+        ];
+        config.save_atomic(&config_path).unwrap();
+        println!("TRANCHE5_ACCEPTANCE_READY root={}", root.display());
+        println!("TELNET={telnet_address} SSH={ssh_address}");
+        println!("PASSWORD=test-only tranche-five password");
+        let report =
+            serve_with_shutdown(&config_path, Some(3), Arc::new(AtomicBool::new(false))).unwrap();
+        assert_eq!(report.completed_sessions, 3);
+
+        let database = RuntimeDatabase::open(paths.database()).unwrap();
+        let requests = database
+            .pending_file_requests(sf_core::FileAdminActor::LocalOperator)
+            .unwrap();
+        assert_eq!(requests.len(), 3);
+        println!("TRANCHE5_ACCEPTANCE_COMPLETE requests={}", requests.len());
     }
 
     fn available_address() -> SocketAddr {

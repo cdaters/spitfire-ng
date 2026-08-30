@@ -560,6 +560,21 @@ Examples:
 
 The web dashboard and local console may display this information.
 
+### Operator projection and control boundary
+
+Future expert configuration and live monitoring clients consume bounded node,
+health, job, listener, log, and statistics projections through authenticated
+local operator IPC. They do not read node/session structs, status files,
+SQLite, configuration files, or logs as alternate authorities. Live actions
+are typed, capability-scoped, versioned, dispatch-authorized, and semantically
+audited by the daemon.
+
+Maintenance mode keeps the administrative channel alive while fencing new
+work and draining or leasing affected nodes/services. Offline repair requires
+the daemon to be stopped and the exclusive board lock to be held. This is an
+accepted future architecture boundary; admin IPC, `sfconfig`, and `sfmonitor`
+are not implemented by current source.
+
 ## 37. Resource Limits
 
 Configurable limits may include:

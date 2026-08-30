@@ -16,9 +16,9 @@ access; M042.5 adds schema-13 durable login/handle/real-name separation and
 SSH authentication. It does not import `SFUSERS.DAT` or
 implement the Category-B `SFNEWU.QUE` questionnaire engine.
 
-Primary historical evidence is Buffalo Creek's read-only SPITFIRE 3.7 manual,
-`research/samples/shareware-software/sf37-2/spitfire.doc`, especially sections
-3.2, 5.4, 5.9, 7, 8.2, 9.2, and the `DAILYLMT.DAT` description. The current
+Primary historical evidence is Buffalo Creek's SPITFIRE 3.7 manual, held
+outside this public repository, especially sections 3.2, 5.4, 5.9, 7, 8.2,
+9.2, and the `DAILYLMT.DAT` description. The current
 parity status is maintained in
 [the stock checklist](stock-spitfire-3.7-parity.md).
 
