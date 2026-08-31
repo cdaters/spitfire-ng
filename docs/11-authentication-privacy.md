@@ -562,3 +562,16 @@ contents, paths, login identifiers, real names, contacts, credentials, or
 secrets. Every privileged command reauthorizes at dispatch. See the
 [Native File System](sfng-file-system.md) and
 [Tranche 5 implementation report](research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md).
+
+## 36. Transfer, queue, and storage privacy
+
+Schema 16 transfer authority reauthorizes every queue item before reservation
+and again at dispatch. Protocol metadata cannot select a host path or bypass
+staging/review. Audit records stable IDs, protocol, bounded sizes, state, and
+semantic outcome—not payloads, raw frames, negotiated private metadata,
+credentials, caller real names, or storage bindings. Queue ownership is
+session-local and cannot cross callers or nodes.
+
+SSH remains a caller carrier with no shell, exec, SCP, SFTP, subsystem, or
+forwarding route. Independent closure signaling ensures a saturated input
+queue cannot strand reservations or active-use authority after disconnect.

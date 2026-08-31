@@ -15,7 +15,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 15;
+pub const SCHEMA_VERSION: u32 = 17;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -42,7 +42,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 15] = [
+const MIGRATIONS: [Migration; 17] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -944,6 +944,341 @@ const MIGRATIONS: [Migration; 15] = [
         BEGIN SELECT RAISE(ABORT, 'file events are append-only'); END;
         "#,
     },
+    Migration {
+        version: 16,
+        name: "batch_transfer_policy_extended_storage",
+        sql: r#"
+        CREATE TABLE migration_16_validation AS
+        SELECT COUNT(*) AS caller_count,
+               COALESCE(SUM(caller_id),0) AS caller_id_sum,
+               (SELECT COUNT(*) FROM caller_credentials) AS credential_count,
+               (SELECT COUNT(*) FROM messages) AS message_count,
+               (SELECT COUNT(*) FROM file_areas) AS area_count,
+               (SELECT COALESCE(SUM(area_id),0) FROM file_areas) AS area_id_sum,
+               (SELECT COUNT(*) FROM files) AS file_count,
+               (SELECT COALESCE(SUM(file_id),0) FROM files) AS file_id_sum,
+               (SELECT COALESCE(SUM(size_bytes),0) FROM files) AS file_size_sum,
+               (SELECT COALESCE(SUM(download_count),0) FROM files) AS download_count_sum,
+               (SELECT COUNT(*) FROM file_requests) AS request_count,
+               (SELECT COUNT(*) FROM file_operations) AS operation_count,
+               (SELECT COUNT(*) FROM public_information_policy) AS public_policy_count,
+               (SELECT COUNT(*) FROM other_bbs_entries) AS other_bbs_count,
+               (SELECT COUNT(*) FROM caller_access_events) AS access_event_count,
+               (SELECT COUNT(*) FROM caller_security_adjustments) AS adjustment_count
+          FROM callers;
+
+        CREATE TEMP TABLE migration_16_caller_access_events AS
+        SELECT * FROM caller_access_events;
+        CREATE TEMP TABLE migration_16_caller_security_adjustments AS
+        SELECT * FROM caller_security_adjustments;
+        DROP TRIGGER caller_access_events_no_update;
+        DROP TRIGGER caller_access_events_no_delete;
+        DROP INDEX caller_security_adjustments_one_active_kind;
+        DROP TABLE caller_security_adjustments;
+        DROP TABLE caller_access_events;
+
+        CREATE TABLE caller_access_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            operation TEXT NOT NULL CHECK (operation IN (
+                'caller-created', 'security-changed', 'disabled', 'enabled',
+                'tombstoned', 'restored', 'purge-protection-changed',
+                'subscription-updated', 'subscription-expired',
+                'subscription-adjustment-resolved', 'subscription-warning',
+                'joker-denied', 'ratio-adjustment-applied',
+                'ratio-adjustment-resolved'
+            )),
+            outcome TEXT NOT NULL DEFAULT 'committed' CHECK (outcome IN ('committed', 'denied')),
+            subject_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            actor_kind TEXT NOT NULL CHECK (actor_kind IN ('caller', 'threshold-sysop', 'local-operator', 'system-policy')),
+            actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            prior_lifecycle TEXT CHECK (prior_lifecycle IS NULL OR prior_lifecycle IN ('active', 'disabled', 'deleted')),
+            new_lifecycle TEXT CHECK (new_lifecycle IS NULL OR new_lifecycle IN ('active', 'disabled', 'deleted')),
+            prior_state_version INTEGER CHECK (prior_state_version IS NULL OR prior_state_version >= 0),
+            new_state_version INTEGER CHECK (new_state_version IS NULL OR new_state_version >= 0),
+            prior_base_security INTEGER CHECK (prior_base_security IS NULL OR prior_base_security BETWEEN 0 AND 9999),
+            new_base_security INTEGER CHECK (new_base_security IS NULL OR new_base_security BETWEEN 0 AND 9999),
+            adjustment_kind TEXT CHECK (adjustment_kind IS NULL OR adjustment_kind IN ('subscription-expired','ratio-violation')),
+            policy_generation INTEGER CHECK (policy_generation IS NULL OR policy_generation > 0)
+        );
+        INSERT INTO caller_access_events SELECT * FROM migration_16_caller_access_events;
+
+        CREATE TABLE caller_security_adjustments (
+            adjustment_id INTEGER PRIMARY KEY,
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            kind TEXT NOT NULL CHECK (kind IN ('subscription-expired','ratio-violation')),
+            target_security_level INTEGER NOT NULL CHECK (target_security_level BETWEEN 0 AND 9999),
+            status TEXT NOT NULL CHECK (status IN ('active', 'resolved')),
+            applied_at INTEGER NOT NULL CHECK (applied_at >= 0),
+            resolved_at INTEGER CHECK (
+                (status = 'active' AND resolved_at IS NULL)
+                OR (status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at >= applied_at)
+            ),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            applied_event_id INTEGER NOT NULL REFERENCES caller_access_events(event_id) ON DELETE RESTRICT,
+            resolved_event_id INTEGER REFERENCES caller_access_events(event_id) ON DELETE RESTRICT
+        );
+        INSERT INTO caller_security_adjustments SELECT * FROM migration_16_caller_security_adjustments;
+        CREATE UNIQUE INDEX caller_security_adjustments_one_active_kind
+            ON caller_security_adjustments (caller_id, kind) WHERE status = 'active';
+        CREATE TRIGGER caller_access_events_no_update
+        BEFORE UPDATE ON caller_access_events BEGIN
+            SELECT RAISE(ABORT, 'caller access events are append-only');
+        END;
+        CREATE TRIGGER caller_access_events_no_delete
+        BEFORE DELETE ON caller_access_events BEGIN
+            SELECT RAISE(ABORT, 'caller access events are append-only');
+        END;
+        DROP TABLE migration_16_caller_security_adjustments;
+        DROP TABLE migration_16_caller_access_events;
+
+        CREATE TABLE transfer_timezone_policy (
+            singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+            timezone_name TEXT NOT NULL CHECK (length(CAST(timezone_name AS BLOB)) BETWEEN 1 AND 64),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO transfer_timezone_policy(singleton,timezone_name) VALUES(1,'UTC');
+
+        CREATE TABLE transfer_policies (
+            security_level INTEGER PRIMARY KEY CHECK (security_level BETWEEN 0 AND 9999),
+            daily_file_limit INTEGER CHECK (daily_file_limit IS NULL OR daily_file_limit > 0),
+            daily_byte_limit INTEGER CHECK (daily_byte_limit IS NULL OR daily_byte_limit > 0),
+            ratio_warning_thousandths INTEGER CHECK (ratio_warning_thousandths IS NULL OR ratio_warning_thousandths > 0),
+            ratio_enforcement_thousandths INTEGER CHECK (ratio_enforcement_thousandths IS NULL OR ratio_enforcement_thousandths > 0),
+            ratio_violation_security INTEGER CHECK (ratio_violation_security IS NULL OR ratio_violation_security BETWEEN 0 AND 9999),
+            upload_credit_thousandths INTEGER NOT NULL DEFAULT 0 CHECK (upload_credit_thousandths BETWEEN 0 AND 100000),
+            upload_credit_file_cap_seconds INTEGER NOT NULL DEFAULT 0 CHECK (upload_credit_file_cap_seconds >= 0),
+            upload_credit_day_cap_seconds INTEGER NOT NULL DEFAULT 0 CHECK (upload_credit_day_cap_seconds >= 0),
+            protocol_mask INTEGER NOT NULL DEFAULT 511 CHECK (protocol_mask BETWEEN 0 AND 511),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (ratio_warning_thousandths IS NULL OR ratio_enforcement_thousandths IS NULL OR ratio_warning_thousandths <= ratio_enforcement_thousandths)
+        );
+
+        CREATE TABLE transfer_daily_usage (
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            board_day TEXT NOT NULL CHECK (length(board_day)=10),
+            timezone_policy_version INTEGER NOT NULL CHECK (timezone_policy_version > 0),
+            chargeable_download_files INTEGER NOT NULL DEFAULT 0 CHECK (chargeable_download_files >= 0),
+            chargeable_download_bytes INTEGER NOT NULL DEFAULT 0 CHECK (chargeable_download_bytes >= 0),
+            upload_credit_seconds INTEGER NOT NULL DEFAULT 0 CHECK (upload_credit_seconds >= 0),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(caller_id,board_day,timezone_policy_version)
+        );
+
+        CREATE TABLE transfer_records (
+            transfer_id TEXT PRIMARY KEY CHECK (length(transfer_id) BETWEEN 1 AND 96),
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            node_id INTEGER NOT NULL CHECK (node_id > 0),
+            direction TEXT NOT NULL CHECK (direction IN ('download','upload')),
+            protocol TEXT NOT NULL CHECK (protocol IN ('ascii','xmodem-checksum','xmodem-crc','xmodem-1k','xmodem-1k-g','ymodem-batch','ymodem-g-batch','zmodem-batch','telink')),
+            state TEXT NOT NULL CHECK (state IN ('planned','authorized','reserved','negotiating','transferring','settling','completed','cancelled','failed','needs-review')),
+            bytes_expected INTEGER NOT NULL DEFAULT 0 CHECK (bytes_expected >= 0),
+            bytes_transferred INTEGER NOT NULL DEFAULT 0 CHECK (bytes_transferred >= 0),
+            cancel_source TEXT CHECK (cancel_source IS NULL OR cancel_source IN ('caller','operator','disconnect','timeout','daemon-shutdown')),
+            error_class TEXT CHECK (error_class IS NULL OR length(error_class) BETWEEN 1 AND 64),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            started_at INTEGER NOT NULL CHECK (started_at >= 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+            completed_at INTEGER CHECK (completed_at IS NULL OR completed_at >= started_at)
+        );
+        CREATE INDEX transfer_records_state ON transfer_records(state,transfer_id);
+        CREATE INDEX transfer_records_caller ON transfer_records(caller_id,started_at);
+
+        CREATE TABLE transfer_quota_reservations (
+            reservation_id TEXT PRIMARY KEY CHECK (length(reservation_id) BETWEEN 1 AND 96),
+            transfer_id TEXT NOT NULL UNIQUE REFERENCES transfer_records(transfer_id) ON DELETE RESTRICT,
+            caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            board_day TEXT NOT NULL CHECK (length(board_day)=10),
+            timezone_policy_version INTEGER NOT NULL CHECK (timezone_policy_version > 0),
+            policy_security_level INTEGER NOT NULL CHECK (policy_security_level BETWEEN 0 AND 9999),
+            policy_state_version INTEGER NOT NULL CHECK (policy_state_version >= 0),
+            reserved_file_count INTEGER NOT NULL CHECK (reserved_file_count >= 0),
+            reserved_bytes INTEGER NOT NULL CHECK (reserved_bytes >= 0),
+            state TEXT NOT NULL CHECK (state IN ('active','settled','released','needs-review')),
+            expires_at INTEGER NOT NULL CHECK (expires_at >= 0),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= created_at)
+        );
+        CREATE INDEX transfer_quota_reservations_active
+            ON transfer_quota_reservations(caller_id,board_day,state,expires_at);
+
+        CREATE TABLE transfer_quota_reservation_items (
+            reservation_id TEXT NOT NULL REFERENCES transfer_quota_reservations(reservation_id) ON DELETE CASCADE,
+            item_id TEXT NOT NULL CHECK (length(item_id) BETWEEN 1 AND 96),
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE RESTRICT,
+            expected_file_version INTEGER NOT NULL CHECK (expected_file_version > 0),
+            reserved_bytes INTEGER NOT NULL CHECK (reserved_bytes >= 0),
+            no_charge INTEGER NOT NULL CHECK (no_charge IN (0,1)),
+            state TEXT NOT NULL DEFAULT 'reserved' CHECK (state IN ('reserved','settled','released')),
+            settled_bytes INTEGER CHECK (settled_bytes IS NULL OR settled_bytes >= 0),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            PRIMARY KEY(reservation_id,item_id)
+        );
+        CREATE INDEX transfer_reservation_items_file
+            ON transfer_quota_reservation_items(file_id,state);
+
+        CREATE TABLE transfer_settlements (
+            transfer_id TEXT NOT NULL REFERENCES transfer_records(transfer_id) ON DELETE RESTRICT,
+            item_id TEXT NOT NULL CHECK (length(item_id) BETWEEN 1 AND 96),
+            file_id INTEGER NOT NULL REFERENCES files(file_id) ON DELETE RESTRICT,
+            direction TEXT NOT NULL CHECK (direction IN ('download','upload')),
+            completed_bytes INTEGER NOT NULL CHECK (completed_bytes >= 0),
+            no_charge INTEGER NOT NULL CHECK (no_charge IN (0,1)),
+            upload_credit_seconds INTEGER NOT NULL DEFAULT 0 CHECK (upload_credit_seconds >= 0),
+            settled_at INTEGER NOT NULL CHECK (settled_at >= 0),
+            PRIMARY KEY(transfer_id,item_id)
+        );
+
+        CREATE TABLE file_storage_roots (
+            storage_root_id INTEGER PRIMARY KEY,
+            area_id INTEGER NOT NULL REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            stable_key TEXT NOT NULL UNIQUE CHECK (length(CAST(stable_key AS BLOB)) BETWEEN 1 AND 96),
+            label TEXT NOT NULL CHECK (length(CAST(label AS BLOB)) BETWEEN 1 AND 96),
+            root_kind TEXT NOT NULL CHECK (root_kind IN ('managed','external')),
+            access_mode TEXT NOT NULL CHECK (access_mode IN ('read-write','read-only')),
+            priority INTEGER NOT NULL CHECK (priority BETWEEN 0 AND 255),
+            configured_locator TEXT NOT NULL CHECK (length(CAST(configured_locator AS BLOB)) BETWEEN 1 AND 255),
+            configured_state TEXT NOT NULL DEFAULT 'enabled' CHECK (configured_state IN ('enabled','maintenance','disabled')),
+            availability TEXT NOT NULL DEFAULT 'unknown' CHECK (availability IN ('unknown','available','unavailable')),
+            media_expectation TEXT CHECK (media_expectation IS NULL OR length(CAST(media_expectation AS BLOB)) BETWEEN 1 AND 128),
+            staging_policy TEXT NOT NULL DEFAULT 'direct-if-safe' CHECK (staging_policy IN ('direct-if-safe','always-stage')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(area_id,priority)
+        );
+        CREATE INDEX file_storage_roots_area ON file_storage_roots(area_id,priority);
+
+        INSERT INTO file_storage_roots(
+            storage_root_id,area_id,stable_key,label,root_kind,access_mode,
+            priority,configured_locator,configured_state,availability,staging_policy
+        )
+        SELECT area_id,area_id,'area-'||area_id||'-primary',name||' primary',
+               'managed','read-write',0,storage_key,'enabled','available','direct-if-safe'
+          FROM file_areas;
+
+        CREATE TABLE file_storage_locators (
+            file_id INTEGER PRIMARY KEY REFERENCES files(file_id) ON DELETE RESTRICT,
+            storage_root_id INTEGER NOT NULL REFERENCES file_storage_roots(storage_root_id) ON DELETE RESTRICT,
+            relative_path TEXT NOT NULL CHECK (length(CAST(relative_path AS BLOB)) BETWEEN 1 AND 255),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX file_storage_locators_root ON file_storage_locators(storage_root_id,file_id);
+        INSERT INTO file_storage_locators(file_id,storage_root_id,relative_path)
+        SELECT file_id,area_id,filename FROM files;
+
+        CREATE TABLE transfer_events (
+            event_id INTEGER PRIMARY KEY,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            operation TEXT NOT NULL CHECK (operation IN (
+                'transfer-started','reservation-created','transfer-state-changed',
+                'transfer-completed','transfer-cancelled','transfer-failed',
+                'quota-settled','quota-released','queue-item-skipped',
+                'storage-unavailable','upload-credit-applied',
+                'transfer-policy-changed','timezone-policy-changed',
+                'storage-root-added','storage-root-updated','storage-root-reordered',
+                'storage-root-disabled','storage-root-probed','storage-locator-updated'
+            )),
+            actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            transfer_id TEXT REFERENCES transfer_records(transfer_id) ON DELETE RESTRICT,
+            reservation_id TEXT REFERENCES transfer_quota_reservations(reservation_id) ON DELETE RESTRICT,
+            file_id INTEGER REFERENCES files(file_id) ON DELETE RESTRICT,
+            storage_root_id INTEGER REFERENCES file_storage_roots(storage_root_id) ON DELETE RESTRICT,
+            protocol TEXT CHECK (protocol IS NULL OR length(protocol) BETWEEN 1 AND 32),
+            direction TEXT CHECK (direction IS NULL OR direction IN ('download','upload')),
+            outcome TEXT CHECK (outcome IS NULL OR length(outcome) BETWEEN 1 AND 64),
+            byte_count INTEGER CHECK (byte_count IS NULL OR byte_count >= 0),
+            prior_version INTEGER CHECK (prior_version IS NULL OR prior_version >= 0),
+            next_version INTEGER CHECK (next_version IS NULL OR next_version >= 0),
+            detail TEXT CHECK (detail IS NULL OR length(CAST(detail AS BLOB)) BETWEEN 1 AND 96)
+        );
+        CREATE INDEX transfer_events_transfer ON transfer_events(transfer_id,event_id);
+        CREATE INDEX transfer_events_caller ON transfer_events(actor_caller_id,event_id);
+        CREATE TRIGGER transfer_events_no_update BEFORE UPDATE ON transfer_events
+        BEGIN SELECT RAISE(ABORT, 'transfer events are append-only'); END;
+        CREATE TRIGGER transfer_events_no_delete BEFORE DELETE ON transfer_events
+        BEGIN SELECT RAISE(ABORT, 'transfer events are append-only'); END;
+        "#,
+    },
+    Migration {
+        version: 17,
+        name: "zero_byte_file_authority",
+        sql: r#"
+        CREATE TABLE migration_17_validation AS
+        SELECT COUNT(*) AS file_count,
+               COALESCE(SUM(file_id),0) AS file_id_sum,
+               COALESCE(SUM(size_bytes),0) AS file_size_sum,
+               COALESCE(SUM(download_count),0) AS download_count_sum,
+               COALESCE(SUM(state_version),0) AS file_version_sum,
+               COALESCE(SUM(length(filename)+length(normalized_filename)+
+                   length(CAST(description AS BLOB))+length(sha256)+
+                   length(uploader_name)+length(lifecycle)+length(integrity_state)+
+                   length(description_source)),0) AS semantic_bytes
+          FROM files;
+
+        DROP INDEX files_area_filename_live;
+        DROP INDEX files_area_listing;
+        DROP INDEX files_upload_time;
+        ALTER TABLE files RENAME TO files_schema_16;
+
+        CREATE TABLE files (
+            file_id INTEGER PRIMARY KEY,
+            area_id INTEGER NOT NULL REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+            filename TEXT NOT NULL CHECK (length(filename) BETWEEN 1 AND 64),
+            normalized_filename TEXT NOT NULL CHECK (length(normalized_filename) BETWEEN 1 AND 64),
+            description TEXT NOT NULL CHECK (length(CAST(description AS BLOB)) BETWEEN 1 AND 4096),
+            size_bytes INTEGER NOT NULL CHECK (size_bytes >= 0),
+            sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+            uploaded_at INTEGER NOT NULL,
+            uploader_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            uploader_name TEXT NOT NULL CHECK (length(uploader_name) BETWEEN 1 AND 60),
+            download_count INTEGER NOT NULL DEFAULT 0 CHECK (download_count >= 0),
+            lifecycle TEXT NOT NULL DEFAULT 'active'
+                CHECK (lifecycle IN ('active','offline','pending-review','disabled','tombstoned')),
+            integrity_state TEXT NOT NULL DEFAULT 'unknown'
+                CHECK (integrity_state IN ('unknown','present','missing','digest-mismatch')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            description_source TEXT NOT NULL DEFAULT 'legacy-import'
+                CHECK (description_source IN ('caller','operator','file-id-diz','legacy-import','system')),
+            description_source_digest TEXT CHECK (description_source_digest IS NULL OR
+                (length(description_source_digest)=64 AND description_source_digest NOT GLOB '*[^0-9a-f]*')),
+            review_submitted_at INTEGER CHECK (review_submitted_at IS NULL OR review_submitted_at >= 0),
+            reviewed_by_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            reviewed_at INTEGER CHECK (reviewed_at IS NULL OR reviewed_at >= 0),
+            tombstoned_at INTEGER CHECK (tombstoned_at IS NULL OR tombstoned_at >= 0),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO files (
+            file_id,area_id,filename,normalized_filename,description,size_bytes,
+            sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,
+            lifecycle,integrity_state,state_version,description_source,
+            description_source_digest,review_submitted_at,reviewed_by_caller_id,
+            reviewed_at,tombstoned_at,created_at,updated_at
+        )
+        SELECT file_id,area_id,filename,normalized_filename,description,size_bytes,
+               sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,
+               lifecycle,integrity_state,state_version,description_source,
+               description_source_digest,review_submitted_at,reviewed_by_caller_id,
+               reviewed_at,tombstoned_at,created_at,updated_at
+          FROM files_schema_16;
+        DROP TABLE files_schema_16;
+
+        CREATE UNIQUE INDEX files_area_filename_live
+            ON files(area_id, normalized_filename)
+            WHERE lifecycle <> 'tombstoned';
+        CREATE INDEX files_area_listing
+            ON files(area_id, normalized_filename, lifecycle, integrity_state);
+        CREATE INDEX files_upload_time
+            ON files(uploaded_at, area_id, lifecycle);
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1120,6 +1455,12 @@ impl RuntimeDatabase {
         }
         if required >= 15 {
             validate_schema_15_snapshot(&self.connection)?;
+        }
+        if required >= 16 {
+            validate_schema_16_snapshot(&self.connection)?;
+        }
+        if required >= 17 {
+            validate_schema_17_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -2318,9 +2659,26 @@ fn apply_migration(
     connection: &mut Connection,
     migration: &Migration,
 ) -> Result<(), DatabaseError> {
-    let transaction = connection.transaction().map_err(DatabaseError::Sqlite)?;
-    run_migration(&transaction, migration)?;
-    transaction.commit().map_err(DatabaseError::Sqlite)
+    let rebuilds_referenced_file_table = migration.version == 17;
+    if rebuilds_referenced_file_table {
+        connection
+            .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;")
+            .map_err(DatabaseError::Sqlite)?;
+    }
+    let result = (|| {
+        let transaction = connection.transaction().map_err(DatabaseError::Sqlite)?;
+        run_migration(&transaction, migration)?;
+        transaction.commit().map_err(DatabaseError::Sqlite)
+    })();
+    if rebuilds_referenced_file_table {
+        let restore = connection
+            .execute_batch("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;")
+            .map_err(DatabaseError::Sqlite);
+        if result.is_ok() {
+            restore?;
+        }
+    }
+    result
 }
 
 fn run_migration(
@@ -2355,6 +2713,18 @@ fn run_migration(
         validate_file_maintenance_migration(transaction)?;
         transaction
             .execute("DROP TABLE migration_15_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
+    if migration.version == 16 {
+        validate_transfer_storage_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_16_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
+    if migration.version == 17 {
+        validate_zero_byte_file_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_17_validation", [])
             .map_err(DatabaseError::Sqlite)?;
     }
     transaction
@@ -2669,6 +3039,168 @@ fn validate_schema_15_snapshot(connection: &Connection) -> Result<(), DatabaseEr
     Ok(())
 }
 
+fn validate_transfer_storage_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected: [i64; 16] =
+        transaction
+            .query_row(
+                "SELECT caller_count,caller_id_sum,credential_count,message_count,area_count,area_id_sum,file_count,file_id_sum,file_size_sum,download_count_sum,request_count,operation_count,public_policy_count,other_bbs_count,access_event_count,adjustment_count FROM migration_16_validation",
+                [],
+                |row| Ok([row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?,row.get(12)?,row.get(13)?,row.get(14)?,row.get(15)?]),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+    let actual: [i64; 16] =
+        transaction
+            .query_row(
+                "SELECT COUNT(*),COALESCE(SUM(caller_id),0),(SELECT COUNT(*) FROM caller_credentials),(SELECT COUNT(*) FROM messages),(SELECT COUNT(*) FROM file_areas),(SELECT COALESCE(SUM(area_id),0) FROM file_areas),(SELECT COUNT(*) FROM files),(SELECT COALESCE(SUM(file_id),0) FROM files),(SELECT COALESCE(SUM(size_bytes),0) FROM files),(SELECT COALESCE(SUM(download_count),0) FROM files),(SELECT COUNT(*) FROM file_requests),(SELECT COUNT(*) FROM file_operations),(SELECT COUNT(*) FROM public_information_policy),(SELECT COUNT(*) FROM other_bbs_entries),(SELECT COUNT(*) FROM caller_access_events),(SELECT COUNT(*) FROM caller_security_adjustments) FROM callers",
+                [],
+                |row| Ok([row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?,row.get(10)?,row.get(11)?,row.get(12)?,row.get(13)?,row.get(14)?,row.get(15)?]),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+    if expected != actual {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-16 migration changed schema-15 caller, credential, message, file, request, operation, or public-information authority".to_owned(),
+        ));
+    }
+    let fabricated_runtime: i64 = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM transfer_policies)+(SELECT COUNT(*) FROM transfer_daily_usage)+(SELECT COUNT(*) FROM transfer_records)+(SELECT COUNT(*) FROM transfer_quota_reservations)+(SELECT COUNT(*) FROM transfer_quota_reservation_items)+(SELECT COUNT(*) FROM transfer_settlements)+(SELECT COUNT(*) FROM transfer_events)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let policy: (String, i64) = transaction
+        .query_row(
+            "SELECT timezone_name,state_version FROM transfer_timezone_policy WHERE singleton=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let mapping: (i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM file_storage_roots),(SELECT COUNT(*) FROM file_areas),(SELECT COUNT(*) FROM file_storage_locators),(SELECT COUNT(*) FROM files)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if fabricated_runtime != 0
+        || policy != ("UTC".to_owned(), 1)
+        || mapping.0 != mapping.1
+        || mapping.2 != mapping.3
+    {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-16 transfer/storage defaults are invalid".to_owned(),
+        ));
+    }
+    validate_schema_16_snapshot(transaction)
+}
+
+fn validate_schema_16_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let timezone_rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM transfer_timezone_policy WHERE singleton=1 AND state_version>0",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_policies: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM transfer_policies WHERE state_version<=0 OR protocol_mask<0 OR protocol_mask>511",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_usage: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM transfer_daily_usage WHERE state_version<=0 OR length(board_day)<>10 OR timezone_policy_version<=0",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_reservations: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM transfer_quota_reservations WHERE state_version<=0 OR updated_at<created_at OR state NOT IN ('active','settled','released','needs-review')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_roots: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_storage_roots WHERE state_version<=0 OR priority<0 OR priority>255 OR (priority=0 AND (root_kind<>'managed' OR access_mode<>'read-write'))",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let unmapped_files: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM files f LEFT JOIN file_storage_locators l ON l.file_id=f.file_id WHERE l.file_id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let invalid_locators: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM file_storage_locators l JOIN files f ON f.file_id=l.file_id JOIN file_storage_roots r ON r.storage_root_id=l.storage_root_id WHERE l.state_version<=0 OR f.area_id<>r.area_id",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if timezone_rows != 1
+        || invalid_policies != 0
+        || invalid_usage != 0
+        || invalid_reservations != 0
+        || invalid_roots != 0
+        || unmapped_files != 0
+        || invalid_locators != 0
+    {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-16 transfer/accounting/storage state is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_zero_byte_file_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected: (i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT file_count,file_id_sum,file_size_sum,download_count_sum,file_version_sum,semantic_bytes FROM migration_17_validation",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let actual: (i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT COUNT(*),COALESCE(SUM(file_id),0),COALESCE(SUM(size_bytes),0),COALESCE(SUM(download_count),0),COALESCE(SUM(state_version),0),COALESCE(SUM(length(filename)+length(normalized_filename)+length(CAST(description AS BLOB))+length(sha256)+length(uploader_name)+length(lifecycle)+length(integrity_state)+length(description_source)),0) FROM files",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let foreign_key_failures: i64 = transaction
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .map_err(DatabaseError::Sqlite)?;
+    if expected != actual || foreign_key_failures != 0 {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-17 migration changed file authority or broke a file reference".to_owned(),
+        ));
+    }
+    validate_schema_17_snapshot(transaction)
+}
+
+fn validate_schema_17_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let invalid_files: i64 = connection
+        .query_row("SELECT COUNT(*) FROM files WHERE size_bytes<0", [], |row| {
+            row.get(0)
+        })
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid_files != 0 {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-17 file size authority is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_caller_access_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
     let expected: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
         .query_row(
@@ -2921,7 +3453,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 15,
+                applied: 17,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -2948,7 +3480,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 8,
             }
         );
         let table_count: i64 = database
@@ -3016,7 +3548,7 @@ mod tests {
             MigrationReport {
                 starting_version: 10,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 7,
             }
         );
         let preserved = database
@@ -3179,7 +3711,7 @@ mod tests {
             MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 6,
             }
         );
         let caller = database
@@ -3289,7 +3821,7 @@ mod tests {
             MigrationReport {
                 starting_version: 12,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 5,
             }
         );
         let first = database
@@ -3350,8 +3882,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 13,
-                ending_version: 15,
-                applied: 2
+                ending_version: 17,
+                applied: 4
             }
         );
         let caller = database
@@ -3461,8 +3993,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 14,
-                ending_version: 15,
-                applied: 1,
+                ending_version: 17,
+                applied: 3,
             }
         );
         let preserved: (i64, String, String, i64, String, String, i64) = database.connection.query_row(
@@ -3545,6 +4077,225 @@ mod tests {
                 "Rollback File".to_owned(),
                 Some("Private Rollback Name".to_owned())
             )
+        );
+    }
+
+    #[test]
+    fn schema_fifteen_to_sixteen_preserves_authority_and_maps_storage() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(15) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Schema Sixteen Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at,state_version) VALUES(42,'transfercaller','TransferCaller','TRANSFERCALLER','Private Fixture Name',25,'active',0,1700000000,7)", []).unwrap();
+        connection.execute("INSERT INTO caller_credentials(caller_id,scheme,password_hash) VALUES(42,?1,'synthetic-hash')", [CREDENTIAL_SCHEME]).unwrap();
+        connection.execute("INSERT INTO file_areas(area_id,area_number,name,description,storage_key,access_mode,read_security,upload_security,maximum_upload_bytes,state_version) VALUES(8,1,'Migration Files','Preserved','migration-files','at-least',0,0,1048576,4)", []).unwrap();
+        connection.execute("INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,lifecycle,integrity_state,state_version,description_source) VALUES(9,8,'PRESERVE.TXT','PRESERVE.TXT','Preserved file',4,?1,1700000002,42,'TransferCaller',3,'active','present',6,'caller')", ["11".repeat(32)]).unwrap();
+        drop(connection);
+
+        let mut database = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            MigrationReport {
+                starting_version: 15,
+                ending_version: 17,
+                applied: 2,
+            }
+        );
+        let preserved: (i64, String, String, i64, i64, String) = database
+            .connection
+            .query_row(
+                "SELECT f.area_id,f.filename,f.sha256,f.download_count,f.state_version,c.real_name FROM files f JOIN callers c ON c.caller_id=f.uploader_caller_id WHERE f.file_id=9",
+                [],
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            preserved,
+            (
+                8,
+                "PRESERVE.TXT".to_owned(),
+                "11".repeat(32),
+                3,
+                6,
+                "Private Fixture Name".to_owned()
+            )
+        );
+        let mapping: (String, String, String, i64) = database.connection.query_row(
+            "SELECT r.stable_key,r.configured_locator,l.relative_path,l.state_version FROM file_storage_roots r JOIN file_storage_locators l ON l.storage_root_id=r.storage_root_id WHERE l.file_id=9",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+        ).unwrap();
+        assert_eq!(
+            mapping,
+            (
+                "area-8-primary".to_owned(),
+                "migration-files".to_owned(),
+                "PRESERVE.TXT".to_owned(),
+                1
+            )
+        );
+        let fabricated: i64 = database.connection.query_row(
+            "SELECT (SELECT COUNT(*) FROM transfer_policies)+(SELECT COUNT(*) FROM transfer_daily_usage)+(SELECT COUNT(*) FROM transfer_records)+(SELECT COUNT(*) FROM transfer_quota_reservations)+(SELECT COUNT(*) FROM transfer_settlements)+(SELECT COUNT(*) FROM transfer_events)",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(fabricated, 0);
+        database.validate_current_snapshot().unwrap();
+    }
+
+    #[test]
+    fn failed_schema_sixteen_validation_rolls_back_to_unchanged_schema_fifteen() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(15) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Rollback Sixteen','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at) VALUES(7,'rollback-transfer','Rollback Transfer','ROLLBACK TRANSFER','Private Rollback Name',10,'active',0,1700000000)", []).unwrap();
+        connection.execute("INSERT INTO file_areas(area_id,area_number,name,description,storage_key,access_mode,read_security,upload_security,maximum_upload_bytes) VALUES(3,1,'Rollback Files','Preserved','rollback-files','at-least',0,0,1048576)", []).unwrap();
+        let broken_sql = MIGRATIONS[15].sql.replace(
+            "INSERT INTO transfer_timezone_policy(singleton,timezone_name) VALUES(1,'UTC');",
+            "INSERT INTO transfer_timezone_policy(singleton,timezone_name) VALUES(1,'Etc/Broken');",
+        );
+        let broken = Migration {
+            version: 16,
+            name: MIGRATIONS[15].name,
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        let error = apply_migration(&mut connection, &broken).unwrap_err();
+        assert!(matches!(error, DatabaseError::MigrationValidation(_)));
+        assert_eq!(schema_version_from(&connection).unwrap(), 15);
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='transfer_timezone_policy'", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT storage_key FROM file_areas WHERE area_id=3",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "rollback-files"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT real_name FROM callers WHERE caller_id=7",
+                    [],
+                    |row| row.get::<_, Option<String>>(0)
+                )
+                .unwrap()
+                .as_deref(),
+            Some("Private Rollback Name")
+        );
+    }
+
+    #[test]
+    fn schema_sixteen_to_seventeen_preserves_file_references_and_accepts_zero_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(16) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Schema Seventeen Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,real_name,security_level,account_state,is_new_caller,first_call_at) VALUES(42,'zerocaller','ZeroCaller','ZEROCALLER','Private Fixture Name',25,'active',0,1700000000)", []).unwrap();
+        connection.execute("INSERT INTO file_areas(area_id,area_number,name,description,storage_key,access_mode,read_security,upload_security,maximum_upload_bytes,state_version) VALUES(8,1,'Migration Files','Preserved','migration-files','at-least',0,0,1048576,4)", []).unwrap();
+        connection.execute("INSERT INTO file_storage_roots(storage_root_id,area_id,stable_key,label,root_kind,access_mode,priority,configured_locator,configured_state,availability,staging_policy) VALUES(8,8,'area-8-primary','Migration primary','managed','read-write',0,'migration-files','enabled','available','direct-if-safe')", []).unwrap();
+        connection.execute("INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name,download_count,lifecycle,integrity_state,state_version,description_source) VALUES(9,8,'PRESERVE.TXT','PRESERVE.TXT','Preserved file',4,?1,1700000002,42,'ZeroCaller',3,'offline','present',6,'caller')", ["11".repeat(32)]).unwrap();
+        connection.execute("INSERT INTO file_storage_locators(file_id,storage_root_id,relative_path,state_version) VALUES(9,8,'PRESERVE.TXT',3)", []).unwrap();
+        connection.execute("INSERT INTO file_requests(request_id,file_id,requesting_caller_id,created_board_day,reason,status,state_version) VALUES(5,9,42,'2026-08-30','offline','pending',2)", []).unwrap();
+
+        apply_migration(&mut connection, &MIGRATIONS[16]).unwrap();
+        assert_eq!(schema_version_from(&connection).unwrap(), 17);
+        assert_eq!(
+            connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        let preserved: (String, i64, i64, i64, i64) = connection.query_row(
+            "SELECT f.filename,f.size_bytes,f.state_version,l.state_version,r.state_version FROM files f JOIN file_storage_locators l ON l.file_id=f.file_id JOIN file_requests r ON r.file_id=f.file_id WHERE f.file_id=9",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)),
+        ).unwrap();
+        assert_eq!(preserved, ("PRESERVE.TXT".to_owned(), 4, 6, 3, 2));
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+
+        connection.execute("INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_caller_id,uploader_name,lifecycle,integrity_state,state_version,description_source) VALUES(10,8,'EMPTY.BIN','EMPTY.BIN','Valid empty file',0,'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',1700000003,42,'ZeroCaller','active','present',1,'caller')", []).unwrap();
+        connection.execute("INSERT INTO file_storage_locators(file_id,storage_root_id,relative_path) VALUES(10,8,'EMPTY.BIN')", []).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT size_bytes FROM files WHERE file_id=10", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn failed_schema_seventeen_rebuild_rolls_back_and_restores_foreign_keys() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(16) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO file_areas(area_id,area_number,name,description,storage_key,access_mode,read_security,upload_security,maximum_upload_bytes,state_version) VALUES(8,1,'Rollback Files','Preserved','rollback-files','at-least',0,0,1048576,1)", []).unwrap();
+        connection.execute("INSERT INTO file_storage_roots(storage_root_id,area_id,stable_key,label,root_kind,access_mode,priority,configured_locator,configured_state,availability,staging_policy) VALUES(8,8,'area-8-primary','Rollback primary','managed','read-write',0,'rollback-files','enabled','available','direct-if-safe')", []).unwrap();
+        connection.execute("INSERT INTO files(file_id,area_id,filename,normalized_filename,description,size_bytes,sha256,uploaded_at,uploader_name,lifecycle,integrity_state,state_version,description_source) VALUES(9,8,'PRESERVE.TXT','PRESERVE.TXT','Preserved file',4,?1,1700000002,'Fixture', 'active','present',6,'caller')", ["11".repeat(32)]).unwrap();
+        connection.execute("INSERT INTO file_storage_locators(file_id,storage_root_id,relative_path) VALUES(9,8,'PRESERVE.TXT')", []).unwrap();
+        let broken_sql = MIGRATIONS[16].sql.replace(
+            "DROP TABLE files_schema_16;",
+            "DROP TABLE missing_schema_16;",
+        );
+        let broken = Migration {
+            version: 17,
+            name: MIGRATIONS[16].name,
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        assert!(matches!(
+            apply_migration(&mut connection, &broken),
+            Err(DatabaseError::Sqlite(_))
+        ));
+        assert_eq!(schema_version_from(&connection).unwrap(), 16);
+        assert_eq!(
+            connection
+                .query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files_schema_16'", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+        assert_eq!(
+            connection
+                .query_row("SELECT size_bytes FROM files WHERE file_id=9", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            4
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
         );
     }
 
@@ -3703,7 +4454,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 14,
+                applied: 16,
             }
         );
         assert_eq!(
@@ -3739,7 +4490,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 13,
+                applied: 15,
             }
         );
         let caller = database
@@ -3786,7 +4537,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: 14,
             }
         );
         assert_eq!(
@@ -3826,7 +4577,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 13,
             }
         );
         let caller = database
@@ -3886,7 +4637,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 12,
             }
         );
         let caller = database
@@ -3926,7 +4677,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 11,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -4009,7 +4760,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 10,
             }
         );
         assert_eq!(
@@ -4109,7 +4860,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 9,
             }
         );
         let caller = database

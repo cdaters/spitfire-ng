@@ -83,6 +83,16 @@ the historical or architectural material to set up a board.
 - [Tranche 5 Verification](research/m039-tranche-5-verification.md) — B-013
   verification and the exact remaining B-015/B-012 acceptance items.
 - [Native File Transfers](sfng-file-transfers.md)
+- [Tranche 6 Gate](research/m039-tranche-6-batch-transfer-policy-extended-storage-gate.md) —
+  Public-safe protocol, queue, accounting, storage, security, and acceptance
+  contract.
+- [Tranche 6 Implementation](research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md) —
+  Schema 16 transfer/storage authority, schema 17 zero-byte correction, and
+  exact current row boundaries.
+- [Tranche 6 Verification](research/m039-tranche-6-verification.md) — B-024
+  VERIFIED and the remaining B-011/B-014/B-023 acceptance items.
+- [Independent Transfer Interoperability](research/m039-tranche-6-transfer-interoperability.md) —
+  Rights-safe peer/result summary without external binaries or payloads.
 - [Native Multinode Runtime](sfng-multinode-runtime.md)
 - [Native Backup and Restore](sfng-backup-restore.md)
 

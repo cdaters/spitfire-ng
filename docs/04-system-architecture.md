@@ -535,6 +535,20 @@ not a claim that daemon admin IPC, `sfconfig`, or `sfmonitor` already exists.
 
 ## 21. Implementation Language
 
+### Transfer and storage authority
+
+Current schema 16 places transfer policy, board-day usage, atomic quota
+reservations, idempotent settlement, logical storage roots, and per-file
+locators behind the common daemon/domain authority. Session queues and raw
+protocol state remain ephemeral. Schema 17 separately permits valid zero-byte
+catalog objects without changing transfer policy.
+
+Protocol engines operate on transport-neutral bounded binary I/O. They cannot
+authorize callers, choose host paths, publish uploads, or mutate accounting.
+Downloads use confined seekable sources and bounded reads; SSH closure is
+signaled independently of its bounded input queue so cancellation can unwind
+reservation and active-use state promptly.
+
 The preferred architecture should favor memory-safe implementation for new network-facing components.
 
 A candidate implementation stack is:

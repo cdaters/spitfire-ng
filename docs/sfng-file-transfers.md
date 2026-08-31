@@ -125,9 +125,11 @@ become menu input.
 
 Telink implements the FTS-0007 descriptor block (`SYN`, block zero and
 complement), little-endian length, DOS date/time slots, bounded filename and
-sender fields, checksum/CRC indicator, XMODEM-like data blocks, EOT, and
-cancellation. Remote pathnames remain untrusted basenames. Verification is a
-specification-derived independent peer test; SyncTERM does not expose Telink.
+sender fields, a one-byte descriptor checksum, descriptor-selected CRC data
+blocks, XMODEM-like 128-byte data, file EOT, final batch EOT, and cancellation.
+Remote pathnames remain untrusted basenames. Specification-derived vectors and
+original BinkleyTerm 2.59 now pass in both directions with exact lengths and
+digests; SyncTERM does not expose Telink.
 
 ## Upload Staging and Accounting
 
@@ -143,6 +145,11 @@ Timeout, CRC/checksum error, cancellation, disconnect, unsafe name, duplicate,
 or commit failure cannot award success statistics. No protocol writes directly
 to `EXTERNAL/files`. Downloads reauthorize and revalidate catalog size and
 SHA-256 before transmission, then award statistics only on protocol success.
+Production binary downloads open a confined seekable source and service
+protocol read requests in bounded chunks; they do not load the complete file
+into memory. X/Y/TeLink use their block sizes, and ZMODEM requests at most its
+current bounded engine chunk. Cancellation retains the existing active-use,
+reservation release, and no-accounting-on-failure boundary.
 
 ## Caller Selection and Preference
 
@@ -198,27 +205,48 @@ the empty batch terminator. The native state machine now models that behavior.
 | XMODEM checksum | VERIFIED | Actual SyncTERM 1.10a send/receive plus deterministic corruption/retry/cancel peer |
 | XMODEM CRC | VERIFIED | Actual SyncTERM 1.10a send/receive with `C`, plus corruption and checksum-fallback peer |
 | 1K-XMODEM | VERIFIED | Actual SyncTERM 1.10a upload plus deterministic STX/mixed-block peer |
-| 1K-XMODEM-g | IMPLEMENTED | Deterministic `G` streaming peer; external client pending |
+| 1K-XMODEM-g | VERIFIED | Original DOS Qmodem 4.6 Test-Drive send/receive plus deterministic `G` streaming tests |
 | YMODEM batch | VERIFIED | Actual SyncTERM 1.10a single and two-file upload/download plus deterministic peer |
-| YMODEM-g batch | VERIFIED for single-file SyncTERM download; IMPLEMENTED for batch/upload | Actual SyncTERM 1.10a `G` streaming plus deterministic bidirectional batch peer |
-| ZMODEM batch | VERIFIED for single-file SyncTERM upload/download; IMPLEMENTED for batch | Actual SyncTERM 1.9rc4 CRC-32 plus deterministic batch peer |
-| Telink | IMPLEMENTED | FTS-0007-derived peer; external client pending |
+| YMODEM-g batch | VERIFIED | Original DOS Qmodem 4.6 Test-Drive two-file batches in both directions plus deterministic peers |
+| ZMODEM batch | VERIFIED | SyncTERM/Qodem client transfers and independent lrzsz three-file upload plus deterministic batch tests |
+| TeLink | VERIFIED | FTS-0007 vectors plus original BinkleyTerm 2.59 send/receive pass |
 
-## Known Gaps and Next Verification
+## Evidence-only legacy boundaries
 
-- Perform a real multi-file ZMODEM batch run when a client path can select
-  multiple files after SPITFIRE NG's automatic ZRINIT handshake. SyncTERM
-  1.10a exposes a batch picker, but its auto-detection dispatch currently
-  selects the single-file upload operation.
-- Add a second external Telink/1K-XMODEM-g peer and external YMODEM-g upload/
-  batch evidence where compatible clients can be identified and run safely;
-  physical serial/modem hardware also remains unverified.
-- Stock ratio/daily-limit/upload-credit policy, persistent interrupted-transfer
-  resume, file tagging queues, and complete operator progress percentages are
-  separate parity work.
+- Exact stock ASCII newline/termination and prompt timing remain controlled
+  historical-runtime questions; modern bounded seven-bit semantics are not
+  presented as byte parity.
+- Physical serial/modem hardware and durable reconnect resume are not part of
+  the accepted semantic row. Protocol sockets and raw frames intentionally do
+  not become persistent authority.
 
 The intentionally promoted transfer milestone does not reclassify these
 protocols from Category B. Development priority and historical parity class are
-separate. After this milestone, the queued Category-A resource/menu fidelity
-closure remains the expected next SPITFIRE NG action unless a fresh parity
-audit identifies a more serious blocker.
+separate. The later Category-A resource/menu fidelity work completed; the
+remaining protocol breadth is now governed by the Tranche 6 gate below.
+
+## Tranche 6 implementation boundary
+
+The canonical queue/policy/storage contract is the
+[M039 Tranche 6 gate](research/m039-tranche-6-batch-transfer-policy-extended-storage-gate.md).
+Schema 16 places the protocol engines behind per-item preflight, whole-batch
+quota reservation, active-use/storage resolution, and idempotent per-item
+settlement. It adds versioned ratio/daily-limit/no-charge/upload-credit policy,
+board-local usage buckets, and stable confined storage roots/locators. Queues
+remain session-ephemeral; protocol frames and sockets are never persisted.
+
+TeLink is included in B-024's required protocol set even though the dependency
+review found no suitable Rust crate. The isolated safe-Rust FTS-0007 engine now passes original
+BinkleyTerm 2.59 send and receive, including descriptor checksum and batch
+termination; no alternate protocol substitutes for TeLink.
+Current-schema Qodem and SyncTERM complete representative exact X/Y/Z
+journeys. Original Qmodem 4.6 Test-Drive passes 1K-XMODEM-g and YMODEM-g Batch
+in both directions, and independent lrzsz passes a three-member ZMODEM upload.
+OpenSSH carries an exact completed XMODEM-CRC transfer through the common SSH
+caller session; bounded mid-negotiation disconnect releases reservation and
+active-use state. Schema 17 recognizes zero-byte catalog objects and all nine
+required choices preserve an exact zero logical length.
+
+The implementation and remaining semantic/interoperability blockers are
+recorded in the [Tranche 6 implementation report](research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md)
+and the subsequent [verification record](research/m039-tranche-6-verification.md).

@@ -47,6 +47,13 @@ outcomes rather than internal checkpoint chronology.
   versioned staged operations; crash reconciliation; semantic audit; and cold
   recovery. B-013 is VERIFIED; B-015 and B-012 remain IMPLEMENTED with
   explicit verification work outstanding.
+- Added post-0.1.0 schema-16 batch transfer policy and extended storage:
+  versioned board-day accounting and whole-batch reservations, idempotent
+  settlement, bounded session queues, all nine required transfer engines,
+  logical storage roots/locators, read-only media semantics, active-use, and
+  bounded large-source streaming. Schema 17 separately permits valid
+  zero-byte catalog objects. B-024 is VERIFIED; B-011, B-014, and B-023 remain
+  IMPLEMENTED pending their complete caller/policy/storage acceptance.
 
 ### Modern transport interleave
 
@@ -84,23 +91,30 @@ unsigned/unnotarized macOS first-run workflow have passed.
 
 Public source `main` now includes post-0.1.0 message-discovery, auditable
 message-mutation, auditable caller-access, schema-13 caller identity, SSH
-caller-transport improvements, schema-14 public information, and schema-15
-Tranche 5 file-domain features. No new binary, tag, or release has been
+caller-transport improvements, schema-14 public information, schema-15
+Tranche 5 file-domain features, and schema-16/17 Tranche 6 transfer/storage
+source. No new binary, tag, or release has been
 published; the downloadable binary remains the accepted 0.1.0 Development
 Preview and does not contain those later source changes.
 
-## Next dependency-ordered Category-B tranche
+## Current Category-B boundary
 
 M039 Tranche 5 has implemented B-013, B-015, and the remaining B-012 native
 contracts on schema 15. B-013 completed its accepted semantic, security,
 presentation, transport, and client matrix and is VERIFIED. B-015 and B-012
 remain IMPLEMENTED while their documented legacy-import/recovery/operator and
-caller-workflow acceptance items remain open. The Category-B ledger is now
-9 VERIFIED, 2 IMPLEMENTED, 7 PARTIAL, and 7 NOT STARTED.
+caller-workflow acceptance items remain open.
 
-The next separately gated tranche is **M039 Tranche 6 — Batch Transfer Policy
-and Extended Storage**. Dependency order is B-024 interoperability closure,
-then B-011/B-014/B-023. This is planning only: Tranche 6 has not begun.
+Tranche 6 adds B-024/B-011/B-014/B-023 on schema 16, with schema 17 correcting
+zero-byte file authority. Independent original and modern peers close B-024,
+which is VERIFIED. B-011, B-014, and B-023 remain IMPLEMENTED with explicit
+caller partial/recompute, live policy/DST, and external-media restore/adapter
+acceptance still open. The Category-B ledger is now 10 VERIFIED, 5
+IMPLEMENTED, 5 PARTIAL, and 5 NOT STARTED.
+
+No subsequent Category-B tranche is started by this source synchronization.
+Future work remains dependency-gated and begins only after its interface and
+evidence boundary are accepted.
 
 Near-term release work includes:
 

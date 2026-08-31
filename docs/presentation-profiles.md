@@ -5,8 +5,8 @@
 This is the canonical design and validation contract for versioned
 presentation profiles. The 0.1.0 binary packages Modern 1.0.1, Minimal
 Terminal 1.0.1, and Classic SPITFIRE-inspired 1.1.1. Current post-0.1.0 source
-advances those packages to Modern 1.4.0, Minimal 1.4.0, and Classic 1.5.0 for
-the independently authored post-preview menu/help surfaces through Tranche 5.
+advances those packages to Modern 1.5.0, Minimal 1.5.0, and Classic 1.6.0 for
+the independently authored post-preview menu/help surfaces through Tranche 6.
 Their project-authored metadata is licensed under `MIT OR Apache-2.0`; no
 profile imports historical assets. Profile format/resource API 1 are unchanged.
 
@@ -63,6 +63,11 @@ Classic 1.5.0 add independently authored R/V text/ZIP mappings. Profiles may
 style inspection and request outcomes, but cannot alter file visibility,
 lifecycle, integrity, transfer authority, request privacy, or maintenance
 state.
+
+Tranche 6 also retains format/resource API 1. Modern and Minimal 1.5.0 and
+Classic 1.6.0 add queue, protocol, policy, cancellation, and storage-result
+framing. Profile choice cannot alter protocol bytes, authorization, queue
+ownership, reservation/settlement, or storage resolution.
 
 ## Architectural boundary
 

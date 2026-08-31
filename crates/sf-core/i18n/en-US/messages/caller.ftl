@@ -87,7 +87,9 @@ file-search-empty = No matching files are available.
 file-new-area-prompt = New Files - File Area Number (Enter = all areas; C = current; Q = quit): { " " }
 file-new-area-invalid = That file-area selection is not valid.
 file-new-date-prompt = New Files Since <L>ast Check or Date (MM-DD-YY; Q = quit) [L]: { " " }
-file-download-prompt = File to download (comma-separate a batch): { " " }
+file-download-prompt = File to tag (comma-separate a batch; Enter uses queue; /C clears): { " " }
+file-download-queue-cleared = The session download queue is empty.
+file-download-queue-summary = Download queue: { $files } file(s), { $bytes } byte(s).
 file-download-no-batch = That protocol does not support batch downloads.
 file-download-unavailable = A requested file is unavailable for download.
 file-preview-download-denied = This is a preview area; downloads are not permitted.
@@ -118,6 +120,18 @@ file-upload-ascii-txt-only = ASCII upload accepts .TXT files only.
 file-upload-unauthorized = You are not authorized to upload to this area.
 file-upload-discarded = Upload canceled; staged data was discarded.
 file-transfer-canceled = Transfer canceled.
+file-transfer-preview-denied = Preview access permits inspection but not transfer.
+file-transfer-daily-limit = This batch exceeds your board-day download limit.
+file-transfer-ratio-denied = Upload/download ratio policy currently denies this transfer.
+file-transfer-storage-unavailable = The file's storage source is temporarily unavailable.
+file-transfer-stale-queue = A queued file changed; review or clear the queue and recompute it.
+file-transfer-protocol-unsupported = The selected protocol cannot transfer this queue.
+file-transfer-unauthorized = Current caller access does not authorize this transfer.
+file-transfer-conflict = The transfer conflicted with another current operation; retry safely.
+file-transfer-recovery-required = Transfer recovery requires operator review.
+file-transfer-resource-limit = The transfer queue exceeds a configured safety bound.
+file-transfer-unavailable = This transfer cannot start safely.
+file-upload-time-credit = Upload time credit applied: { $seconds } second(s).
 
 message-selection-invalid = Invalid or unavailable selection.
 message-sysop-conference-unavailable = Conference 1 is unavailable for a Sysop comment.

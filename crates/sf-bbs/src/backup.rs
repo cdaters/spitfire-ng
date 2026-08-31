@@ -121,6 +121,9 @@ pub fn backup_board(
     if database.schema_version()? >= 15 && !database.file_operations_ready_for_cold_backup()? {
         return Err(BoardBackupError::UnnormalizedFileOperations.into());
     }
+    if database.schema_version()? >= 16 && !database.transfer_operations_ready_for_cold_backup()? {
+        return Err(BoardBackupError::UnnormalizedTransferOperations.into());
+    }
 
     let parent = destination.parent().expect("validated destination parent");
     let temporary = tempfile::Builder::new()
@@ -958,6 +961,8 @@ pub enum BoardBackupError {
     DestinationExists(PathBuf),
     #[error("cold backup requires all file-maintenance operations to be committed or rolled back")]
     UnnormalizedFileOperations,
+    #[error("cold backup requires active transfers and quota reservations to be drained")]
+    UnnormalizedTransferOperations,
     #[error("restore target already exists; pass --replace only after verifying the target: {0}")]
     RestoreTargetExists(PathBuf),
     #[error("--replace requires an existing board target: {0}")]
@@ -1051,9 +1056,10 @@ pub enum BoardBackupError {
 mod tests {
     use super::*;
     use sf_core::{
-        CallerState, CopyRecipient, CredentialHasher, InMemoryTerminal, MessageActor,
-        MessageBackend, MessageKind, MessageRecipient, MessageVisibility, NewMessage,
-        PasswordHashConfig, SecurityLevel,
+        CallerState, CopyRecipient, CredentialHasher, FileActor, InMemoryTerminal, MessageActor,
+        MessageBackend, MessageKind, MessageRecipient, MessageVisibility, NewMessage, NodeId,
+        PasswordHashConfig, SecurityLevel, TransferMethod, TransferProtocol, TransferQueue,
+        TransferRuntimeState,
     };
 
     use crate::{setup_board, BoardRuntime, ConnectionReport, SetupPlan, BOARD_CONFIG_FILE};
@@ -1180,6 +1186,170 @@ mod tests {
         RuntimeDatabase::open_read_only(paths.database()).unwrap()
     }
 
+    fn downgrade_schema_17_to_16(connection: &rusqlite::Connection) {
+        let has_schema_17: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=17)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if !has_schema_17 {
+            return;
+        }
+        connection.execute_batch(r#"
+            PRAGMA foreign_keys=OFF;
+            PRAGMA legacy_alter_table=ON;
+            DROP INDEX files_area_filename_live;
+            DROP INDEX files_area_listing;
+            DROP INDEX files_upload_time;
+            ALTER TABLE files RENAME TO files_schema_17;
+            CREATE TABLE files (
+                file_id INTEGER PRIMARY KEY,
+                area_id INTEGER NOT NULL REFERENCES file_areas(area_id) ON DELETE RESTRICT,
+                filename TEXT NOT NULL CHECK (length(filename) BETWEEN 1 AND 64),
+                normalized_filename TEXT NOT NULL CHECK (length(normalized_filename) BETWEEN 1 AND 64),
+                description TEXT NOT NULL CHECK (length(CAST(description AS BLOB)) BETWEEN 1 AND 4096),
+                size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+                sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+                uploaded_at INTEGER NOT NULL,
+                uploader_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                uploader_name TEXT NOT NULL CHECK (length(uploader_name) BETWEEN 1 AND 60),
+                download_count INTEGER NOT NULL DEFAULT 0 CHECK (download_count >= 0),
+                lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active','offline','pending-review','disabled','tombstoned')),
+                integrity_state TEXT NOT NULL DEFAULT 'unknown' CHECK (integrity_state IN ('unknown','present','missing','digest-mismatch')),
+                state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+                description_source TEXT NOT NULL DEFAULT 'legacy-import' CHECK (description_source IN ('caller','operator','file-id-diz','legacy-import','system')),
+                description_source_digest TEXT CHECK (description_source_digest IS NULL OR (length(description_source_digest)=64 AND description_source_digest NOT GLOB '*[^0-9a-f]*')),
+                review_submitted_at INTEGER CHECK (review_submitted_at IS NULL OR review_submitted_at >= 0),
+                reviewed_by_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                reviewed_at INTEGER CHECK (reviewed_at IS NULL OR reviewed_at >= 0),
+                tombstoned_at INTEGER CHECK (tombstoned_at IS NULL OR tombstoned_at >= 0),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO files SELECT * FROM files_schema_17;
+            DROP TABLE files_schema_17;
+            CREATE UNIQUE INDEX files_area_filename_live ON files(area_id,normalized_filename) WHERE lifecycle<>'tombstoned';
+            CREATE INDEX files_area_listing ON files(area_id,normalized_filename,lifecycle,integrity_state);
+            CREATE INDEX files_upload_time ON files(uploaded_at,area_id,lifecycle);
+            DELETE FROM schema_migrations WHERE version=17;
+            PRAGMA legacy_alter_table=OFF;
+            PRAGMA foreign_keys=ON;
+        "#).unwrap();
+    }
+
+    fn downgrade_schema_16_to_15(connection: &rusqlite::Connection) {
+        downgrade_schema_17_to_16(connection);
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA foreign_keys = OFF;
+            DROP TRIGGER transfer_events_no_delete;
+            DROP TRIGGER transfer_events_no_update;
+            DROP TABLE transfer_events;
+            DROP TABLE file_storage_locators;
+            DROP TABLE file_storage_roots;
+            DROP TABLE transfer_settlements;
+            DROP TABLE transfer_quota_reservation_items;
+            DROP TABLE transfer_quota_reservations;
+            DROP TABLE transfer_records;
+            DROP TABLE transfer_daily_usage;
+            DROP TABLE transfer_policies;
+            DROP TABLE transfer_timezone_policy;
+
+            CREATE TEMP TABLE schema_15_caller_access_events AS
+            SELECT * FROM caller_access_events;
+            CREATE TEMP TABLE schema_15_caller_security_adjustments AS
+            SELECT * FROM caller_security_adjustments;
+            DROP TRIGGER caller_access_events_no_update;
+            DROP TRIGGER caller_access_events_no_delete;
+            DROP INDEX caller_security_adjustments_one_active_kind;
+            DROP TABLE caller_security_adjustments;
+            DROP TABLE caller_access_events;
+
+            CREATE TABLE caller_access_events (
+                event_id INTEGER PRIMARY KEY,
+                occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+                operation TEXT NOT NULL CHECK (operation IN (
+                    'caller-created', 'security-changed', 'disabled', 'enabled',
+                    'tombstoned', 'restored', 'purge-protection-changed',
+                    'subscription-updated', 'subscription-expired',
+                    'subscription-adjustment-resolved', 'subscription-warning',
+                    'joker-denied'
+                )),
+                outcome TEXT NOT NULL DEFAULT 'committed' CHECK (outcome IN ('committed', 'denied')),
+                subject_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                actor_kind TEXT NOT NULL CHECK (actor_kind IN ('caller', 'threshold-sysop', 'local-operator', 'system-policy')),
+                actor_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                prior_lifecycle TEXT CHECK (prior_lifecycle IS NULL OR prior_lifecycle IN ('active', 'disabled', 'deleted')),
+                new_lifecycle TEXT CHECK (new_lifecycle IS NULL OR new_lifecycle IN ('active', 'disabled', 'deleted')),
+                prior_state_version INTEGER CHECK (prior_state_version IS NULL OR prior_state_version >= 0),
+                new_state_version INTEGER CHECK (new_state_version IS NULL OR new_state_version >= 0),
+                prior_base_security INTEGER CHECK (prior_base_security IS NULL OR prior_base_security BETWEEN 0 AND 9999),
+                new_base_security INTEGER CHECK (new_base_security IS NULL OR new_base_security BETWEEN 0 AND 9999),
+                adjustment_kind TEXT CHECK (adjustment_kind IS NULL OR adjustment_kind = 'subscription-expired'),
+                policy_generation INTEGER CHECK (policy_generation IS NULL OR policy_generation > 0)
+            );
+            INSERT INTO caller_access_events SELECT * FROM schema_15_caller_access_events;
+
+            CREATE TABLE caller_security_adjustments (
+                adjustment_id INTEGER PRIMARY KEY,
+                caller_id INTEGER NOT NULL REFERENCES callers(caller_id) ON DELETE RESTRICT,
+                kind TEXT NOT NULL CHECK (kind = 'subscription-expired'),
+                target_security_level INTEGER NOT NULL CHECK (target_security_level BETWEEN 0 AND 9999),
+                status TEXT NOT NULL CHECK (status IN ('active', 'resolved')),
+                applied_at INTEGER NOT NULL CHECK (applied_at >= 0),
+                resolved_at INTEGER CHECK (
+                    (status = 'active' AND resolved_at IS NULL)
+                    OR (status = 'resolved' AND resolved_at IS NOT NULL AND resolved_at >= applied_at)
+                ),
+                state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+                applied_event_id INTEGER NOT NULL REFERENCES caller_access_events(event_id) ON DELETE RESTRICT,
+                resolved_event_id INTEGER REFERENCES caller_access_events(event_id) ON DELETE RESTRICT
+            );
+            INSERT INTO caller_security_adjustments SELECT * FROM schema_15_caller_security_adjustments;
+            CREATE UNIQUE INDEX caller_security_adjustments_one_active_kind
+                ON caller_security_adjustments (caller_id, kind) WHERE status = 'active';
+            CREATE INDEX caller_access_events_subject
+                ON caller_access_events (subject_caller_id, event_id);
+            CREATE TRIGGER caller_access_events_no_update
+            BEFORE UPDATE ON caller_access_events BEGIN
+                SELECT RAISE(ABORT, 'caller access events are append-only');
+            END;
+            CREATE TRIGGER caller_access_events_no_delete
+            BEFORE DELETE ON caller_access_events BEGIN
+                SELECT RAISE(ABORT, 'caller access events are append-only');
+            END;
+            DROP TABLE schema_15_caller_security_adjustments;
+            DROP TABLE schema_15_caller_access_events;
+            DELETE FROM schema_migrations WHERE version = 16;
+            PRAGMA foreign_keys = ON;
+            "#,
+            )
+            .unwrap();
+    }
+
+    fn rewrite_backup_database_as_schema_15(backup: &Path) {
+        let database_path = backup.join(DATABASE_BACKUP_PATH);
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_16_to_15(&connection);
+        drop(connection);
+        let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+        let mut manifest: BackupManifest =
+            toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest.schema_version = 15;
+        let (size_bytes, sha256) = hash_file(&database_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == BackupEntryKind::Database)
+            .unwrap();
+        entry.size_bytes = size_bytes;
+        entry.sha256 = sha256;
+        fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
     fn downgrade_schema_15_to_14(connection: &rusqlite::Connection) {
         connection.execute_batch(r#"
             PRAGMA foreign_keys = OFF;
@@ -1231,6 +1401,7 @@ mod tests {
     fn rewrite_backup_database_as_schema_10(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_16_to_15(&connection);
         downgrade_schema_15_to_14(&connection);
         connection
             .execute_batch(
@@ -1358,6 +1529,7 @@ mod tests {
     fn rewrite_backup_database_as_schema_11(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_16_to_15(&connection);
         downgrade_schema_15_to_14(&connection);
         connection
             .execute_batch(
@@ -1413,6 +1585,7 @@ mod tests {
     fn rewrite_backup_database_as_schema_13(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_16_to_15(&connection);
         downgrade_schema_15_to_14(&connection);
         connection
             .execute_batch(
@@ -1450,6 +1623,7 @@ mod tests {
     fn rewrite_backup_database_as_schema_14(backup: &Path) {
         let database_path = backup.join(DATABASE_BACKUP_PATH);
         let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_16_to_15(&connection);
         downgrade_schema_15_to_14(&connection);
         drop(connection);
         let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
@@ -1654,11 +1828,11 @@ mod tests {
             fs::read(source.join("system/language-packs/en-US/language.toml")).unwrap()
         );
         let restored_status = crate::board_status(&restore.config_path).unwrap();
-        assert!(restored_status.contains("Active: classic-spitfire 1.5.0"));
-        assert!(restored_status.contains("Base: modern-ng 1.4.0"));
+        assert!(restored_status.contains("Active: classic-spitfire 1.6.0"));
+        assert!(restored_status.contains("Base: modern-ng 1.5.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.6.1"));
+        assert!(restored_status.contains("Package: en-US 1.7.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
@@ -1778,6 +1952,7 @@ mod tests {
 
         let backup = temp.path().join("schema-15-file-backup");
         backup_board(&config_path, &backup).unwrap();
+        rewrite_backup_database_as_schema_15(&backup);
         let restored = temp.path().join("schema-15-file-restored");
         let report = restore_board(&backup, &restored, false).unwrap();
         assert_eq!(report.schema_version, 15);
@@ -1786,7 +1961,18 @@ mod tests {
             .validate()
             .unwrap();
         let restored_paths = LogicalPaths::resolve(&restored, &restored_config).unwrap();
-        let restored_database = RuntimeDatabase::open(restored_paths.database()).unwrap();
+        let snapshot = RuntimeDatabase::open_read_only(restored_paths.database()).unwrap();
+        snapshot.validate_snapshot_at_version(15).unwrap();
+        drop(snapshot);
+        let mut restored_database = RuntimeDatabase::open(restored_paths.database()).unwrap();
+        assert_eq!(
+            restored_database.migrate().unwrap(),
+            sf_core::MigrationReport {
+                starting_version: 15,
+                ending_version: SCHEMA_VERSION,
+                applied: 2,
+            }
+        );
         let restored_requests = restored_database
             .pending_file_requests(sf_core::FileAdminActor::LocalOperator)
             .unwrap();
@@ -1804,6 +1990,62 @@ mod tests {
             .unwrap()
             .1;
         assert_eq!(restored_file.lifecycle, sf_core::FileLifecycle::Offline);
+    }
+
+    #[test]
+    fn schema_17_backup_and_new_root_restore_preserve_zero_byte_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-17-zero-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let config = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&source, &config).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let (area, _) = database.all_cataloged_files().unwrap().remove(0);
+        let storage = FileStorage::new(&paths).unwrap();
+        let empty = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "EMPTY.BIN",
+                "Valid empty backup fixture",
+                b"",
+                1_777_000_020,
+            )
+            .unwrap();
+        drop(database);
+
+        let backup = temp.path().join("schema-17-zero-backup");
+        backup_board(&config_path, &backup).unwrap();
+        let restored = temp.path().join("schema-17-zero-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 17);
+        let restored_config = RuntimeConfig::load(&report.config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let restored_paths = LogicalPaths::resolve(&restored, &restored_config).unwrap();
+        let restored_database = RuntimeDatabase::open_read_only(restored_paths.database()).unwrap();
+        restored_database.validate_current_snapshot().unwrap();
+        let (restored_area, restored_empty) = restored_database
+            .all_cataloged_files()
+            .unwrap()
+            .into_iter()
+            .find(|(_, file)| file.id == empty.id)
+            .unwrap();
+        assert_eq!(restored_empty.size_bytes, 0);
+        let restored_storage = FileStorage::open_existing(&restored_paths).unwrap();
+        assert_eq!(
+            restored_storage
+                .open_download(&restored_area, &restored_empty)
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
@@ -1878,6 +2120,62 @@ mod tests {
     }
 
     #[test]
+    fn schema_16_backup_rejects_active_transfer_reservations_until_released() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-16-transfer-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let config = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&source, &config).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let caller = database.caller_by_name(b"Backup Caller").unwrap().unwrap();
+        let actor = FileActor::new(
+            caller.id,
+            SecurityLevel::new(config.caller.sysop_security).unwrap(),
+        );
+        let (_, file) = database.all_cataloged_files().unwrap().remove(0);
+        let mut queue = TransferQueue::default();
+        queue.tag(&file, false).unwrap();
+        let reservation = database
+            .reserve_download_queue(
+                actor,
+                NodeId::new(1).unwrap(),
+                config.timezone,
+                TransferMethod::Binary(TransferProtocol::YmodemBatch),
+                &queue,
+                1_777_000_010,
+            )
+            .unwrap();
+        drop(database);
+
+        let rejected = temp.path().join("schema-16-active-transfer-rejected");
+        assert!(matches!(
+            backup_board(&config_path, &rejected),
+            Err(ApplicationError::Backup(
+                BoardBackupError::UnnormalizedTransferOperations
+            ))
+        ));
+        assert!(!rejected.exists());
+
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        database
+            .release_transfer(
+                &reservation.id,
+                TransferRuntimeState::Cancelled,
+                Some(sf_core::TransferCancelSource::Operator),
+                Some("backup-drain"),
+                1_777_000_011,
+            )
+            .unwrap();
+        drop(database);
+        let normalized = temp.path().join("schema-16-transfer-normalized");
+        backup_board(&config_path, &normalized).unwrap();
+        assert!(normalized.is_dir());
+    }
+
+    #[test]
     fn schema_10_backup_restores_exactly_and_migrates_only_on_writable_startup() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "schema-10-source");
@@ -1898,7 +2196,7 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 5);
+        assert_eq!(migration.applied, 7);
         migrated.validate_current_snapshot().unwrap();
     }
 
@@ -1924,7 +2222,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 6,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -1935,7 +2233,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_13_backup_restores_exactly_then_migrates_privately_to_schema_14() {
+    fn schema_13_backup_restores_exactly_then_migrates_to_current_schema() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "schema-13-source");
         let backup = temp.path().join("schema-13-snapshot");
@@ -1955,8 +2253,8 @@ mod tests {
             database.migrate().unwrap(),
             sf_core::MigrationReport {
                 starting_version: 13,
-                ending_version: 15,
-                applied: 2
+                ending_version: SCHEMA_VERSION,
+                applied: 4
             }
         );
         assert!(!database.public_directory_policy().unwrap().enabled);
@@ -1969,7 +2267,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_14_backup_restores_exactly_then_migrates_to_schema_15() {
+    fn schema_14_backup_restores_exactly_then_migrates_to_current_schema() {
         let temp = tempfile::tempdir().unwrap();
         let source = installed_board(temp.path(), "schema-14-source");
         let backup = temp.path().join("schema-14-snapshot");
@@ -1989,8 +2287,8 @@ mod tests {
             database.migrate().unwrap(),
             sf_core::MigrationReport {
                 starting_version: 14,
-                ending_version: 15,
-                applied: 1,
+                ending_version: SCHEMA_VERSION,
+                applied: 3,
             }
         );
         database.validate_current_snapshot().unwrap();

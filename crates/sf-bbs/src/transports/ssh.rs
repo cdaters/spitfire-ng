@@ -255,6 +255,7 @@ struct SshHandler {
     channel: Option<ChannelId>,
     input_tx: mpsc::SyncSender<InputEvent>,
     input_rx: Option<mpsc::Receiver<InputEvent>>,
+    input_closed: Arc<AtomicBool>,
     info: Arc<Mutex<TerminalInfo>>,
     shell_started: bool,
     completed: Arc<AtomicUsize>,
@@ -302,6 +303,7 @@ impl SshHandler {
             channel: None,
             input_tx,
             input_rx: Some(input_rx),
+            input_closed: Arc::new(AtomicBool::new(false)),
             info: Arc::new(Mutex::new(info)),
             shell_started: false,
             completed,
@@ -441,6 +443,7 @@ impl Handler for SshHandler {
         let mut terminal = SshTerminal {
             input,
             pending: VecDeque::new(),
+            input_closed: Arc::clone(&self.input_closed),
             info: Arc::clone(&self.info),
             grant: Some(grant),
             handle: session.handle(),
@@ -480,6 +483,7 @@ impl Handler for SshHandler {
                 .try_send(InputEvent::Data(data.to_vec()))
                 .is_err()
         {
+            self.input_closed.store(true, Ordering::Release);
             warn!(
                 caller_id = self.verified.map(|grant| grant.caller_id.get()),
                 "SSH input rejected at resource boundary"
@@ -495,6 +499,7 @@ impl Handler for SshHandler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         if self.channel == Some(channel) {
+            self.input_closed.store(true, Ordering::Release);
             let _ = self.input_tx.try_send(InputEvent::Eof);
         }
         Ok(())
@@ -506,6 +511,7 @@ impl Handler for SshHandler {
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
         if self.channel == Some(channel) {
+            self.input_closed.store(true, Ordering::Release);
             let _ = self.input_tx.try_send(InputEvent::Eof);
         }
         Ok(())
@@ -568,9 +574,16 @@ impl Handler for SshHandler {
     }
 }
 
+impl Drop for SshHandler {
+    fn drop(&mut self) {
+        self.input_closed.store(true, Ordering::Release);
+    }
+}
+
 struct SshTerminal {
     input: mpsc::Receiver<InputEvent>,
     pending: VecDeque<u8>,
+    input_closed: Arc<AtomicBool>,
     info: Arc<Mutex<TerminalInfo>>,
     grant: Option<VerifiedCallerGrant>,
     handle: russh::server::Handle,
@@ -583,16 +596,12 @@ struct SshTerminal {
 
 impl SshTerminal {
     fn receive_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
-        loop {
-            if let Some(byte) = self.pending.pop_front() {
-                return Ok(Some(byte));
-            }
-            match self.input.recv_timeout(timeout) {
-                Ok(InputEvent::Data(bytes)) => self.pending.extend(bytes),
-                Ok(InputEvent::Eof) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
-                Err(mpsc::RecvTimeoutError::Timeout) => return Err(TerminalError::TimedOut),
-            }
-        }
+        receive_ssh_byte(
+            &self.input,
+            &mut self.pending,
+            self.input_closed.as_ref(),
+            timeout,
+        )
     }
 
     fn read_line_inner(
@@ -640,6 +649,32 @@ impl SshTerminal {
                     }
                 }
             }
+        }
+    }
+}
+
+fn receive_ssh_byte(
+    input: &mpsc::Receiver<InputEvent>,
+    pending: &mut VecDeque<u8>,
+    input_closed: &AtomicBool,
+    timeout: Duration,
+) -> Result<Option<u8>, TerminalError> {
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(byte) = pending.pop_front() {
+            return Ok(Some(byte));
+        }
+        if input_closed.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(TerminalError::TimedOut);
+        }
+        match input.recv_timeout(remaining.min(Duration::from_millis(100))) {
+            Ok(InputEvent::Data(bytes)) => pending.extend(bytes),
+            Ok(InputEvent::Eof) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
 }
@@ -762,5 +797,18 @@ mod tests {
                 & 0o777;
             assert_eq!(mode, 0o600);
         }
+    }
+
+    #[test]
+    fn saturated_ssh_input_queue_still_observes_peer_disconnect_promptly() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender.try_send(InputEvent::Data(vec![0x43])).unwrap();
+        let closed = AtomicBool::new(true);
+        let mut pending = VecDeque::new();
+        assert_eq!(
+            receive_ssh_byte(&receiver, &mut pending, &closed, Duration::from_secs(60)).unwrap(),
+            None
+        );
+        assert!(pending.is_empty());
     }
 }

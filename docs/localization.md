@@ -38,7 +38,7 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.6.1 baseline is project-authored and embedded for
+The canonical `en-US` 1.7.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
 copy. It contains the complete schema-15 caller/operator catalog, including
 the schema-14 public-information catalog, across shared, caller, and operator
@@ -65,6 +65,13 @@ explicit localized Preview-area upload/download denials.
 Original project-authored catalog/package
 bytes remain `MIT OR Apache-2.0`. External language packages retain their own
 compatible package-level license and provenance.
+
+Tranche 6 advances en-US to 1.7.0 for queue, protocol, quota/ratio,
+no-charge, Preview denial, upload-credit, storage-availability, cancellation,
+partial-result, and recovery outcomes. Modern and Minimal advance to 1.5.0
+and Classic to 1.6.0 for their project-authored transfer menu/help framing.
+Profiles never change queue, authorization, accounting, storage resolution,
+or protocol semantics.
 
 ## Why Fluent
 

@@ -97,6 +97,8 @@ pub enum ApplicationError {
     #[error(transparent)]
     File(#[from] sf_core::FileError),
     #[error(transparent)]
+    TransferRuntime(#[from] sf_core::TransferRuntimeError),
+    #[error(transparent)]
     Credential(#[from] sf_core::CredentialError),
     #[error(transparent)]
     Node(#[from] sf_core::NodeError),

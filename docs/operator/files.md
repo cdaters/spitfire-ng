@@ -72,19 +72,23 @@ does not.
 
 ## Storage boundary
 
-SQLite schema 15 stores file-area policy, stable identities, lifecycle and
+SQLite schema 17 stores file-area policy, stable identities, lifecycle and
 integrity, private requests/review, upload policy, versions, operation journal,
 legacy publication state, audit, SHA-256, attribution, and counters. File bytes remain under the configured external
-storage root. Every download reauthorizes the caller and revalidates the byte
-size/hash before transfer. Do not place a file into that directory manually;
+storage root. Schema 16 adds versioned logical roots and explicit per-file
+locators; schema 17 permits valid zero-byte regular files. Every download
+reauthorizes the caller and revalidates current integrity before transfer. Do
+not place a file into a root manually;
 uncataloged bytes are neither caller-visible nor native-backup content.
 
 The native maintenance domain now implements bounded FILE_ID.DIZ review,
 private requests, move/tombstone/reconcile, denial policy, and legacy-listing
 publication. A future sfconfig/sfmonitor/CLI must call these typed, versioned
 commands; there is intentionally no direct online SQLite or managed-root edit.
-Ratios, batch-queue redesign, file networking, persisted extended roots, and
-the broader enhanced file UI remain outside this tranche. See the
+Session-ephemeral stable-ID queues, ratios/daily limits, logical read-only
+roots, and bounded transfer streaming are implemented in current source.
+Their remaining caller/policy/storage acceptance and the broader enhanced file
+UI remain separate. See the
 [implementation report](../research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md)
 and [verification report](../research/m039-tranche-5-verification.md).
 See [Native SPITFIRE NG File System](../sfng-file-system.md).

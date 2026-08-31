@@ -1,16 +1,18 @@
-use std::io::Read;
+use std::time::Instant;
 
 use chrono::{LocalResult, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use tracing::{info, warn};
 
 use crate::{
-    receive_binary_files, render_display, render_generated_menu, send_binary_files, AsciiTransfer,
-    AuthenticatedCaller, CallerConfig, DisplayContext, FileAccess, FileActor, FileArea,
-    FileBackend, FileError, FileSearch, FileStorage, FileTransfer, MenuSection, ProtocolFile,
-    RuntimeDatabase, SecurityLevel, Session, SessionError, SessionId, SessionStatusObserver,
-    StockResources, StockSessionContext, Terminal, TerminalError, TextEncodingPolicy,
-    TransferDirection, TransferPreference, TransferProtocol,
+    receive_binary_files, render_display, render_generated_menu, send_binary_streams,
+    AsciiTransfer, AuthenticatedCaller, CallerConfig, DisplayContext, FileAccess, FileActor,
+    FileArea, FileBackend, FileError, FileSearch, FileStorage, FileTransfer, MenuSection,
+    ProtocolStreamFile, QuotaReservation, RuntimeDatabase, SecurityLevel, Session, SessionError,
+    SessionId, SessionStatusObserver, StockResources, StockSessionContext, Terminal, TerminalError,
+    TextEncodingPolicy, TransferCancelSource, TransferDirection, TransferMethod,
+    TransferPreference, TransferProtocol, TransferProtocolError, TransferQueue,
+    TransferRuntimeError, TransferRuntimeState, TransferStateChange, UploadCreditRequest,
 };
 
 const MAX_AREA_NUMBER_INPUT: usize = 10;
@@ -57,6 +59,9 @@ pub(crate) fn run_file_menu(
         });
     };
     let menu = resources.menu(MenuSection::File)?;
+    // Historical tags are caller-session state, not durable caller records.
+    // The queue intentionally disappears on return from Files or disconnect.
+    let mut download_queue = TransferQueue::default();
     let mut commands = 0;
     loop {
         if !*expert {
@@ -160,6 +165,8 @@ pub(crate) fn run_file_menu(
                     authenticated.caller.preferences.transfer_protocol,
                     stock.timezone,
                     session.id(),
+                    session.node_id(),
+                    &mut download_queue,
                 )?;
             }
             b'I' => {
@@ -174,6 +181,9 @@ pub(crate) fn run_file_menu(
                     &current,
                     access,
                     authenticated.caller.preferences.transfer_protocol,
+                    stock.timezone,
+                    session.node_id(),
+                    authenticated,
                 )?;
             }
             b'E' => {
@@ -899,6 +909,8 @@ fn download_file(
     preference: TransferPreference,
     timezone: Tz,
     session_id: SessionId,
+    node_id: crate::NodeId,
+    queue: &mut TransferQueue,
 ) -> Result<(), SessionError> {
     if access != FileAccess::Full {
         write_key_line(
@@ -916,31 +928,31 @@ fn download_file(
     let Some(input) = terminal.read_line(64)? else {
         return Ok(());
     };
+    if input.eq_ignore_ascii_case(b"/C") {
+        queue.clear();
+        write_key_line(
+            terminal,
+            "file-download-queue-cleared",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    }
     let requested = String::from_utf8_lossy(&input)
         .split(',')
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if requested.is_empty() {
+    if requested.is_empty() && queue.is_empty() {
         return Ok(());
     }
-    let protocol = choose_transfer_protocol(terminal, preference)?;
-    if protocol == SelectedProtocol::Canceled {
-        return Ok(());
-    }
-    if requested.len() > 1 && !protocol.is_batch() {
-        write_key_line(
-            terminal,
-            "file-download-no-batch",
-            &crate::LocalizationArgs::new(),
-        )?;
-        return Ok(());
-    }
-    let mut files = Vec::with_capacity(requested.len());
     for filename in requested {
         match backend.file(actor, area.id, &filename, true) {
-            Ok(file) => files.push(file),
+            Ok(file) => {
+                queue
+                    .tag(&file, area.no_charge)
+                    .map_err(transfer_runtime_session_error)?;
+            }
             Err(FileError::FileNotFound(_) | FileError::DownloadDenied(_)) => {
                 write_key_line(
                     terminal,
@@ -984,6 +996,32 @@ fn download_file(
             Err(error) => return Err(error.into()),
         }
     }
+    write_key_line(
+        terminal,
+        "file-download-queue-summary",
+        &crate::LocalizationArgs::new()
+            .with("files", u64::try_from(queue.len()).unwrap_or(u64::MAX))
+            .with("bytes", queue.total_bytes()),
+    )?;
+    let protocol = choose_transfer_protocol(terminal, preference)?;
+    if protocol == SelectedProtocol::Canceled {
+        return Ok(());
+    }
+    if queue.len() > 1 && !protocol.is_batch() {
+        write_key_line(
+            terminal,
+            "file-download-no-batch",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    }
+    let mut files = Vec::with_capacity(queue.len());
+    for item in queue.items() {
+        let file = backend
+            .load_file_by_id(item.file_id)?
+            .ok_or_else(|| FileError::FileNotFound(item.filename.clone()))?;
+        files.push(file);
+    }
     if protocol == SelectedProtocol::Ascii && files.len() != 1 {
         write_key_line(
             terminal,
@@ -992,6 +1030,21 @@ fn download_file(
         )?;
         return Ok(());
     }
+    let now = crate::session::unix_seconds()?;
+    let reservation = match backend.reserve_download_queue(
+        actor,
+        node_id,
+        timezone,
+        protocol.method().expect("canceled protocol returned above"),
+        queue,
+        now,
+    ) {
+        Ok(reservation) => reservation,
+        Err(error) => {
+            write_transfer_runtime_error(terminal, &error)?;
+            return Ok(());
+        }
+    };
     let mut uses = Vec::with_capacity(files.len());
     for file in &files {
         match backend.begin_file_download_use(actor, file.id, session_id) {
@@ -1000,6 +1053,13 @@ fn download_file(
                 for token in uses {
                     let _ = backend.finish_file_use(token);
                 }
+                let _ = backend.release_transfer(
+                    &reservation.id,
+                    TransferRuntimeState::Failed,
+                    None,
+                    Some("active-use-conflict"),
+                    crate::session::unix_seconds()?,
+                );
                 write_key_line(
                     terminal,
                     "file-download-unavailable",
@@ -1010,22 +1070,72 @@ fn download_file(
         }
     }
     let transfer_result = (|| -> Result<(), SessionError> {
+        let mut state_version = backend
+            .set_transfer_state(
+                &reservation.transfer_id,
+                TransferStateChange {
+                    expected_version: 1,
+                    state: TransferRuntimeState::Negotiating,
+                    bytes_transferred: 0,
+                    error_class: None,
+                    cancel_source: None,
+                    occurred_at: crate::session::unix_seconds()?,
+                },
+            )
+            .map_err(transfer_runtime_session_error)?;
         if protocol == SelectedProtocol::Ascii {
-            return download_ascii(terminal, backend, storage, status, actor, area, &files[0]);
+            let (root, locator) = backend
+                .resolve_file_storage(files[0].id)
+                .map_err(transfer_runtime_session_error)?;
+            state_version = backend
+                .set_transfer_state(
+                    &reservation.transfer_id,
+                    TransferStateChange {
+                        expected_version: state_version,
+                        state: TransferRuntimeState::Transferring,
+                        bytes_transferred: 0,
+                        error_class: None,
+                        cancel_source: None,
+                        occurred_at: crate::session::unix_seconds()?,
+                    },
+                )
+                .map_err(transfer_runtime_session_error)?;
+            let completed = download_ascii(terminal, storage, status, &root, &locator, &files[0])?;
+            if completed {
+                settle_download(
+                    backend,
+                    &reservation,
+                    queue,
+                    state_version,
+                    files[0].size_bytes,
+                )?;
+                queue.clear();
+            } else {
+                backend
+                    .release_transfer(
+                        &reservation.id,
+                        TransferRuntimeState::Cancelled,
+                        Some(TransferCancelSource::Caller),
+                        Some("incomplete"),
+                        crate::session::unix_seconds()?,
+                    )
+                    .map_err(transfer_runtime_session_error)?;
+            }
+            return Ok(());
         }
         let Some(binary) = protocol.binary() else {
             return Ok(());
         };
         let mut payloads = Vec::with_capacity(files.len());
         for file in &files {
-            let mut input = storage.open_download(area, file)?;
-            let mut bytes = Vec::new();
-            input
-                .read_to_end(&mut bytes)
-                .map_err(FileError::TransferIo)?;
-            payloads.push(ProtocolFile {
+            let (root, locator) = backend
+                .resolve_file_storage(file.id)
+                .map_err(transfer_runtime_session_error)?;
+            let input = storage.open_resolved_download(&root, &locator, file)?;
+            payloads.push(ProtocolStreamFile {
                 name: file.filename.clone(),
-                bytes,
+                size: file.size_bytes,
+                source: Box::new(input),
                 modified_unix: u64::try_from(file.uploaded_at).ok(),
             });
         }
@@ -1034,13 +1144,31 @@ fn download_file(
             &format!("Beginning {} download.", binary.stock_name()),
         )?;
         status.transfer_started(TransferDirection::Download, &files[0].filename)?;
-        let result = send_binary_files(terminal, binary, &payloads);
+        let state_version = backend
+            .set_transfer_state(
+                &reservation.transfer_id,
+                TransferStateChange {
+                    expected_version: state_version,
+                    state: TransferRuntimeState::Transferring,
+                    bytes_transferred: 0,
+                    error_class: None,
+                    cancel_source: None,
+                    occurred_at: crate::session::unix_seconds()?,
+                },
+            )
+            .map_err(transfer_runtime_session_error)?;
+        let result = send_binary_streams(terminal, binary, &mut payloads);
         status.transfer_finished()?;
         match result {
             Ok(()) => {
-                for file in &files {
-                    backend.record_download(actor, file.id)?;
-                }
+                settle_download(
+                    backend,
+                    &reservation,
+                    queue,
+                    state_version,
+                    files.iter().map(|file| file.size_bytes).sum(),
+                )?;
+                queue.clear();
                 write_line(
                     terminal,
                     "Binary download complete; returning to SPITFIRE Files.",
@@ -1058,6 +1186,16 @@ fn download_file(
                     terminal,
                     "Transfer failed or was canceled; statistics were not changed.",
                 )?;
+                let (state, source, class) = transfer_failure_class(&error);
+                backend
+                    .release_transfer(
+                        &reservation.id,
+                        state,
+                        source,
+                        Some(class),
+                        crate::session::unix_seconds()?,
+                    )
+                    .map_err(transfer_runtime_session_error)?;
             }
         }
         Ok(())
@@ -1067,26 +1205,34 @@ fn download_file(
             warn!(error = %error, "file-use lease cleanup failed");
         }
     }
+    if transfer_result.is_err() {
+        let _ = backend.release_transfer(
+            &reservation.id,
+            TransferRuntimeState::Failed,
+            None,
+            Some("local-io-failure"),
+            crate::session::unix_seconds()?,
+        );
+    }
     transfer_result
 }
 
 fn download_ascii(
     terminal: &mut dyn Terminal,
-    backend: &mut dyn FileBackend,
     storage: &FileStorage,
     status: &dyn SessionStatusObserver,
-    actor: FileActor,
-    area: &FileArea,
+    root: &crate::StorageRoot,
+    locator: &crate::FileStorageLocator,
     file: &crate::FileEntry,
-) -> Result<(), SessionError> {
-    let mut input = match storage.open_ascii_download(area, file) {
+) -> Result<bool, SessionError> {
+    let mut input = match storage.open_resolved_ascii_download(root, locator, file) {
         Ok(input) => input,
         Err(FileError::NotAsciiText) => {
             write_line(
                 terminal,
                 "This initial ASCII protocol can transfer only 7-bit text files.",
             )?;
-            return Ok(());
+            return Ok(false);
         }
         Err(error) => return Err(error.into()),
     };
@@ -1102,23 +1248,24 @@ fn download_ascii(
     status.transfer_finished()?;
     match result {
         Ok(report) if report.completed && report.bytes == file.size_bytes => {
-            backend.record_download(actor, file.id)?;
             write_key_line(
                 terminal,
                 "file-download-complete",
                 &crate::LocalizationArgs::new(),
             )?;
             info!(
-                caller_id = actor.caller_id().get(),
                 filename = file.filename,
                 bytes = report.bytes,
                 "caller completed file download"
             );
         }
-        Ok(_) => write_line(
-            terminal,
-            "Download did not complete; statistics were not changed.",
-        )?,
+        Ok(_) => {
+            write_line(
+                terminal,
+                "Download did not complete; statistics were not changed.",
+            )?;
+            return Ok(false);
+        }
         Err(FileError::NotAsciiText) => {
             write_line(
                 terminal,
@@ -1127,7 +1274,105 @@ fn download_ascii(
         }
         Err(error) => return Err(error.into()),
     }
+    Ok(true)
+}
+
+fn settle_download(
+    backend: &mut RuntimeDatabase,
+    reservation: &QuotaReservation,
+    queue: &TransferQueue,
+    state_version: u64,
+    bytes_transferred: u64,
+) -> Result<(), SessionError> {
+    let now = crate::session::unix_seconds()?;
+    let state_version = backend
+        .set_transfer_state(
+            &reservation.transfer_id,
+            TransferStateChange {
+                expected_version: state_version,
+                state: TransferRuntimeState::Settling,
+                bytes_transferred,
+                error_class: None,
+                cancel_source: None,
+                occurred_at: now,
+            },
+        )
+        .map_err(transfer_runtime_session_error)?;
+    for item in queue.items() {
+        backend
+            .settle_download_item(&reservation.id, &item.item_id, item.bytes, now)
+            .map_err(transfer_runtime_session_error)?;
+    }
+    backend
+        .set_transfer_state(
+            &reservation.transfer_id,
+            TransferStateChange {
+                expected_version: state_version,
+                state: TransferRuntimeState::Completed,
+                bytes_transferred,
+                error_class: None,
+                cancel_source: None,
+                occurred_at: now,
+            },
+        )
+        .map_err(transfer_runtime_session_error)?;
     Ok(())
+}
+
+fn transfer_runtime_session_error(error: TransferRuntimeError) -> SessionError {
+    FileError::Maintenance(error.to_string()).into()
+}
+
+fn transfer_failure_class(
+    error: &TransferProtocolError,
+) -> (
+    TransferRuntimeState,
+    Option<TransferCancelSource>,
+    &'static str,
+) {
+    match error {
+        TransferProtocolError::Canceled(_) => (
+            TransferRuntimeState::Cancelled,
+            Some(TransferCancelSource::Caller),
+            "caller-cancelled",
+        ),
+        TransferProtocolError::Disconnected(_) => (
+            TransferRuntimeState::Cancelled,
+            Some(TransferCancelSource::Disconnect),
+            "disconnected",
+        ),
+        TransferProtocolError::TimedOut(_) | TransferProtocolError::RetryLimit(_) => (
+            TransferRuntimeState::Failed,
+            Some(TransferCancelSource::Timeout),
+            "timeout",
+        ),
+        _ => (TransferRuntimeState::Failed, None, "protocol-failure"),
+    }
+}
+
+fn write_transfer_runtime_error(
+    terminal: &mut dyn Terminal,
+    error: &TransferRuntimeError,
+) -> Result<(), TerminalError> {
+    let key = match error {
+        TransferRuntimeError::PreviewDenied => "file-transfer-preview-denied",
+        TransferRuntimeError::DailyLimitExceeded => "file-transfer-daily-limit",
+        TransferRuntimeError::RatioDenied => "file-transfer-ratio-denied",
+        TransferRuntimeError::StorageUnavailable => "file-transfer-storage-unavailable",
+        TransferRuntimeError::StaleQueueItem(_) => "file-transfer-stale-queue",
+        TransferRuntimeError::ProtocolUnsupported
+        | TransferRuntimeError::ProtocolUnsupportedForBatch => "file-transfer-protocol-unsupported",
+        TransferRuntimeError::Unauthorized => "file-transfer-unauthorized",
+        TransferRuntimeError::Conflict | TransferRuntimeError::StaleVersion { .. } => {
+            "file-transfer-conflict"
+        }
+        TransferRuntimeError::RecoveryRequired => "file-transfer-recovery-required",
+        TransferRuntimeError::QueueFull | TransferRuntimeError::ResourceLimit => {
+            "file-transfer-resource-limit"
+        }
+        _ => "file-transfer-unavailable",
+    };
+    write_key_line(terminal, key, &crate::LocalizationArgs::new())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1141,6 +1386,9 @@ fn upload_file(
     area: &FileArea,
     access: FileAccess,
     preference: TransferPreference,
+    timezone: Tz,
+    node_id: crate::NodeId,
+    authenticated: &mut AuthenticatedCaller,
 ) -> Result<(), SessionError> {
     if access != FileAccess::Full {
         write_key_line(
@@ -1218,6 +1466,11 @@ fn upload_file(
     if protocol == SelectedProtocol::Canceled {
         return Ok(());
     }
+    let method = protocol.method().expect("canceled protocol returned above");
+    if let Err(error) = backend.authorize_upload_protocol(actor, method) {
+        write_transfer_runtime_error(terminal, &error)?;
+        return Ok(());
+    }
     if protocol == SelectedProtocol::Ascii {
         if !filename.to_ascii_uppercase().ends_with(".TXT") {
             write_key_line(
@@ -1237,6 +1490,9 @@ fn upload_file(
             area,
             &filename,
             &description,
+            timezone,
+            node_id,
+            authenticated,
         );
     }
     let Some(binary) = protocol.binary() else {
@@ -1247,6 +1503,7 @@ fn upload_file(
         &format!("Ready to receive with {}.", binary.stock_name()),
     )?;
     status.transfer_started(TransferDirection::Upload, &filename)?;
+    let active_started = Instant::now();
     let result = receive_binary_files(
         terminal,
         binary,
@@ -1266,8 +1523,46 @@ fn upload_file(
             return Ok(());
         }
     };
+    let active_seconds = active_started.elapsed().as_secs();
+    let received_total_bytes = received.iter().fold(0_u64, |total, file| {
+        total.saturating_add(file.bytes.len() as u64)
+    });
     let mut committed = 0;
     for received in received {
+        let item_active_seconds = active_seconds
+            .saturating_mul(received.bytes.len() as u64)
+            .checked_div(received_total_bytes)
+            .unwrap_or(0);
+        match backend.upload_duplicate_warnings(actor, area.id, &received.name) {
+            Ok(warnings) if !warnings.is_empty() => {
+                write_key(
+                    terminal,
+                    "file-upload-duplicate-warning",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                if !terminal
+                    .read_line(1)?
+                    .is_some_and(|answer| answer.eq_ignore_ascii_case(b"Y"))
+                {
+                    write_key_line(
+                        terminal,
+                        "file-upload-canceled",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    continue;
+                }
+            }
+            Ok(_) => {}
+            Err(crate::FileMaintenanceError::File(FileError::DuplicateFilename(_))) => {
+                write_key_line(
+                    terminal,
+                    "file-upload-duplicate-conflict",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                continue;
+            }
+            Err(error) => return Err(FileError::Maintenance(error.to_string()).into()),
+        }
         let mut staged = match storage.begin_upload(session_id, &received.name) {
             Ok(staged) => staged,
             Err(FileError::InvalidFilename(_) | FileError::UploadAlreadyStaged(_)) => {
@@ -1290,6 +1585,18 @@ fn upload_file(
         ) {
             Ok(file) => {
                 committed += 1;
+                let credit = apply_live_upload_credit(
+                    backend,
+                    authenticated,
+                    actor,
+                    node_id,
+                    TransferMethod::Binary(binary),
+                    &file,
+                    item_active_seconds,
+                    timezone,
+                    session_id,
+                    committed,
+                )?;
                 write_line(
                     terminal,
                     &format!(
@@ -1302,6 +1609,13 @@ fn upload_file(
                         terminal,
                         "file-upload-pending-review",
                         &crate::LocalizationArgs::new(),
+                    )?;
+                }
+                if credit != 0 {
+                    write_key_line(
+                        terminal,
+                        "file-upload-time-credit",
+                        &crate::LocalizationArgs::new().with("seconds", credit),
                     )?;
                 }
             }
@@ -1350,6 +1664,9 @@ fn upload_ascii(
     area: &FileArea,
     filename: &str,
     description: &str,
+    timezone: Tz,
+    node_id: crate::NodeId,
+    authenticated: &mut AuthenticatedCaller,
 ) -> Result<(), SessionError> {
     let mut staged = match storage.begin_upload(session_id, filename) {
         Ok(staged) => staged,
@@ -1367,6 +1684,7 @@ fn upload_ascii(
         "Send ASCII text now. Enter /S on a line by itself to finish or /A to cancel.",
     )?;
     status.transfer_started(TransferDirection::Upload, filename)?;
+    let active_started = Instant::now();
     let result = AsciiTransfer.upload(terminal, &mut staged, area.maximum_upload_bytes);
     status.transfer_finished()?;
     match result {
@@ -1379,6 +1697,18 @@ fn upload_ascii(
             crate::session::unix_seconds()?,
         ) {
             Ok(file) => {
+                let credit = apply_live_upload_credit(
+                    backend,
+                    authenticated,
+                    actor,
+                    node_id,
+                    TransferMethod::Ascii,
+                    &file,
+                    active_started.elapsed().as_secs(),
+                    timezone,
+                    session_id,
+                    1,
+                )?;
                 write_line(
                     terminal,
                     &format!(
@@ -1391,6 +1721,13 @@ fn upload_ascii(
                         terminal,
                         "file-upload-pending-review",
                         &crate::LocalizationArgs::new(),
+                    )?;
+                }
+                if credit != 0 {
+                    write_key_line(
+                        terminal,
+                        "file-upload-time-credit",
+                        &crate::LocalizationArgs::new().with("seconds", credit),
                     )?;
                 }
                 info!(
@@ -1442,6 +1779,40 @@ fn upload_ascii(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn apply_live_upload_credit(
+    backend: &mut RuntimeDatabase,
+    authenticated: &mut AuthenticatedCaller,
+    actor: FileActor,
+    node_id: crate::NodeId,
+    method: TransferMethod,
+    file: &crate::FileEntry,
+    active_seconds: u64,
+    timezone: Tz,
+    session_id: SessionId,
+    sequence: usize,
+) -> Result<u64, SessionError> {
+    let transfer_id = crate::TransferId::generated(
+        i64::try_from(session_id.get()).map_err(|_| SessionError::ClockOverflow)?,
+    );
+    let item_id = format!("upload-{sequence}-{}", file.id.get());
+    let credit = backend
+        .apply_upload_credit(UploadCreditRequest {
+            transfer_id: &transfer_id,
+            item_id: &item_id,
+            actor,
+            node_id,
+            method,
+            file_id: file.id,
+            active_seconds,
+            timezone,
+            occurred_at: crate::session::unix_seconds()?,
+        })
+        .map_err(transfer_runtime_session_error)?;
+    authenticated.allowance = authenticated.allowance.credit_seconds(credit);
+    Ok(credit)
+}
+
 fn first_command(input: &[u8]) -> Option<u8> {
     input
         .iter()
@@ -1469,6 +1840,14 @@ impl SelectedProtocol {
         match self {
             Self::Canceled | Self::Ascii => false,
             Self::Binary(protocol) => protocol.is_batch(),
+        }
+    }
+
+    const fn method(self) -> Option<TransferMethod> {
+        match self {
+            Self::Canceled => None,
+            Self::Ascii => Some(TransferMethod::Ascii),
+            Self::Binary(protocol) => Some(TransferMethod::Binary(protocol)),
         }
     }
 }

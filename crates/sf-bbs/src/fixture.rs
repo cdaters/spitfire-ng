@@ -225,7 +225,7 @@ pub(crate) fn write_default_resources(
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Modern SPITFIRE NG 1.4.0\n\nThe default project-authored presentation. Version 1.4.0 adds bounded text/archive inspection and private file-request framing while board-owned file authority remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
+        b"# Modern SPITFIRE NG 1.5.0\n\nThe default project-authored presentation. Version 1.5.0 adds localized session-queue, transfer-policy, cancellation, and storage-status framing while daemon-owned authority remains common to every profile. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&system.join("SFMAIN.MNU"), MAIN_MENU)?;
@@ -447,7 +447,7 @@ fn write_minimal_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Minimal Terminal 1.4.0\n\nThe project-authored text-first presentation. Version 1.4.0 adds bounded text/archive inspection and private file-request framing while board-owned file authority remains authoritative. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
+        b"# Minimal Terminal 1.5.0\n\nThe project-authored text-first presentation. Version 1.5.0 adds localized session-queue, transfer-policy, cancellation, and storage-status framing while daemon-owned authority remains common to every profile. The package declares MIT OR Apache-2.0 provenance; no Buffalo Creek resource bytes are included.\n",
     )?;
     write_new(&licenses.join("ASSET-LICENSE.txt"), PROJECT_ASSET_LICENSE)?;
     write_new(&help_directory.join("SPITFIRE.HLP"), &minimal_help_bytes()?)?;
@@ -621,7 +621,7 @@ fn write_classic_profile(paths: &LogicalPaths, fixture: bool) -> Result<(), Appl
     write_new(&profile.join(DISPLAY_NOTICE_FILE), notice)?;
     write_new(
         &profile.join("README.md"),
-        b"# Classic SPITFIRE-Inspired 1.5.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.5.0 adds bounded text/archive inspection and private file-request framing; modern SPITFIRE NG authorization, privacy, storage, and transport behavior remain authoritative.\n",
+        b"# Classic SPITFIRE-Inspired 1.6.0\n\nAn independently authored presentation for SPITFIRE NG. It is not an original SPITFIRE 3.7 package or an official Buffalo Creek Software release. Version 1.6.0 adds localized batch-transfer, accounting, cancellation, and storage-status framing; modern SPITFIRE NG authorization, privacy, and daemon authority remain authoritative.\n",
     )?;
     write_new(
         &licenses.join("ASSET-LICENSE.txt"),
@@ -789,7 +789,7 @@ fn classic_display_plan() -> &'static [(&'static str, &'static str, &'static [&'
                 "Copyright (C) 1987-2010 Mike Woltz",
                 "Buffalo Creek Software",
                 "",
-                "Classic SPITFIRE-Inspired presentation 1.5.0",
+                "Classic SPITFIRE-Inspired presentation 1.6.0",
                 "Not an official Buffalo Creek Software release or endorsement.",
             ],
             false,

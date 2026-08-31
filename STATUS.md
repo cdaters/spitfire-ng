@@ -10,14 +10,16 @@ checks.
 The public `main` branch is now ahead of that binary release. Current source
 adds post-0.1.0 advanced message discovery, auditable message mutation, an
 auditable caller-access lifecycle, schema-13 caller identity, secure SSH caller
-transport, and schema-14 privacy-bounded public information; the downloadable
-0.1.0 archive is unchanged and does not contain those additions or schema-15
-Tranche 5 source.
+transport, schema-14 privacy-bounded public information, schema-15 file
+inspection/maintenance, schema-16 transfer policy and storage, and the
+schema-17 zero-byte invariant; the downloadable 0.1.0 archive is unchanged and
+does not contain those additions.
 
 ## Current source additions
 
-The Category-B ledger now records 9 VERIFIED, 2 IMPLEMENTED, 7 PARTIAL, and
-7 NOT STARTED rows.
+The Category-B ledger now records 10 VERIFIED, 5 IMPLEMENTED, 5 PARTIAL, and
+5 NOT STARTED rows. B-024 is VERIFIED. B-011, B-014, and B-023 remain
+IMPLEMENTED.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -93,6 +95,20 @@ The Category-B ledger now records 9 VERIFIED, 2 IMPLEMENTED, 7 PARTIAL, and
   authority
 - Schema-15 cold backup and restore, including safe rejection of nonterminal
   operations and exact schema-14 restore followed by writable migration
+- Transactional schema-15→16 transfer policy, board-day usage, atomic quota
+  reservation, idempotent settlement, transfer history, storage roots, and
+  per-file locators
+- Session-ephemeral stable-FileId queues, multi-file YMODEM/YMODEM-g/ZMODEM,
+  cancellation, per-item reauthorization, and multinode-safe accounting
+- Native file-count/byte ratios, DAILYLMT policy, no-charge accounting,
+  Preview denial before negotiation, and capped completed-upload time credit
+- Managed and external read-only storage, versioned rebind/probe,
+  StorageUnavailable distinct from Missing, active-use conflicts, and bounded
+  seekable large-source streaming
+- All nine B-024 choices: ASCII, XMODEM Checksum, XMODEM CRC, 1K-XMODEM,
+  1K-XMODEM-g, YMODEM Batch, YMODEM-g Batch, ZMODEM Batch, and TeLink
+- Transactional schema-16→17 migration with rollback and exact zero-byte
+  catalog, upload, protocol, backup, and restore support
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -120,7 +136,9 @@ selection, visibility, or result presentation.
 - Schema-15 bounded text/ZIP inspection, Preview inspection, private requests,
   PendingReview, and staged maintenance when built from current post-0.1.0
   source. B-013 is VERIFIED; B-015 and B-012 remain IMPLEMENTED.
-- ASCII, XMODEM, YMODEM, and ZMODEM-family transfer support as documented
+- Schema-16/17 transfer, batch-policy, accounting, and extended-storage source.
+  B-024 is VERIFIED; B-011, B-014, and B-023 remain IMPLEMENTED.
+- ASCII, XMODEM, YMODEM, ZMODEM, and TeLink transfer support as documented
 - Multinode runtime and session isolation
 - Operator configuration, status, and renderer diagnostics
 - Cold backup, restore, upgrade-preservation, and rollback procedures
@@ -166,8 +184,8 @@ until they are built and tested.
 - RIP graphics and RIP terminal behavior
 - Caller-selectable presentation profiles
 - Production non-English translations and caller locale selection
-- Remaining advanced Category-B commands and resources, including Tranche 6
-  batch policy and extended storage
+- Remaining advanced Category-B commands and resources, plus the incomplete
+  B-011/B-014/B-023 caller/policy/storage acceptance matrices
 - QWK/LAKOTA and other offline-mail ecosystems
 - SMB/DOVE-Net, FidoNet, and CircuitNet interoperability
 - Web administration
@@ -188,7 +206,6 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary. The next dependency-ordered
-Category-B work is a separate M039 Tranche 6 gate: B-024, then
-B-011/B-014/B-023. Tranche 6 has not begun. B-015 and B-012 remain
-IMPLEMENTED until their explicitly documented verification matrices close.
+Preserve the accepted 0.1.0 release boundary. B-024 is publicly VERIFIED;
+B-011, B-014, B-023, B-015, and B-012 remain IMPLEMENTED until their explicit
+verification matrices close. No subsequent Category-B tranche has begun.

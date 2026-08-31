@@ -577,6 +577,15 @@ are not implemented by current source.
 
 ## 37. Resource Limits
 
+### Active transfer authority
+
+Schema 16 associates each transfer with stable caller, node, file, queue-item,
+and reservation IDs. Whole-batch reservation is atomic across nodes;
+settlement is per item and idempotent. Active-use prevents move, remove, or
+root-disable from invalidating an in-flight source. Disconnect, timeout,
+operator cancellation, and daemon restart release transient authority without
+persisting raw protocol state.
+
 Configurable limits may include:
 
     maximum sessions

@@ -9,7 +9,8 @@ use thiserror::Error;
 
 use crate::{
     Caller, CallerError, CallerId, CallerState, DatabaseError, LogicalPath, LogicalPaths,
-    RuntimeDatabase, SecurityLevel, SessionId, Terminal, TerminalError,
+    RuntimeDatabase, SecurityLevel, SessionId, StorageAvailability, StorageRoot, StorageRootKind,
+    Terminal, TerminalError,
 };
 
 pub const MAX_FILE_AREAS: u16 = u16::MAX;
@@ -377,6 +378,7 @@ impl RuntimeDatabase {
         let area = self
             .load_area_by_number_including_disabled(definition.number)?
             .ok_or(FileError::AreaNotFound(definition.number))?;
+        self.ensure_primary_storage_root(&area)?;
         self.ensure_area_privileged_levels(area.id, &definition.privileged_security_levels)?;
         self.load_area_by_number_including_disabled(definition.number)?
             .ok_or(FileError::AreaNotFound(definition.number))
@@ -425,8 +427,11 @@ impl RuntimeDatabase {
         let id = FileAreaId::new(transaction.last_insert_rowid())?;
         replace_privileged_levels(&transaction, id, &definition.privileged_security_levels)?;
         transaction.commit().map_err(FileError::Sqlite)?;
-        self.load_area_by_number_including_disabled(definition.number)?
-            .ok_or(FileError::AreaNotFound(definition.number))
+        let area = self
+            .load_area_by_number_including_disabled(definition.number)?
+            .ok_or(FileError::AreaNotFound(definition.number))?;
+        self.ensure_primary_storage_root(&area)?;
+        Ok(area)
     }
 
     pub fn update_file_area(
@@ -561,6 +566,7 @@ impl RuntimeDatabase {
     pub fn insert_file_entry(&mut self, entry: &NewFileEntry) -> Result<FileEntry, FileError> {
         validate_new_file(entry)?;
         let normalized = normalize_filename(&entry.filename)?;
+        let schema = self.schema_version()?;
         let transaction = self.connection.transaction().map_err(FileError::Sqlite)?;
         transaction
             .execute(
@@ -592,6 +598,19 @@ impl RuntimeDatabase {
             )
             .map_err(|error| duplicate_file_error(error, &entry.filename))?;
         let id = FileId::new(transaction.last_insert_rowid())?;
+        if schema >= 16 {
+            let mapped = transaction
+                .execute(
+                    "INSERT INTO file_storage_locators(file_id,storage_root_id,relative_path) SELECT ?1,storage_root_id,?2 FROM file_storage_roots WHERE area_id=?3 AND priority=0",
+                    params![id.get(), entry.filename, entry.area_id.get()],
+                )
+                .map_err(FileError::Sqlite)?;
+            if mapped != 1 {
+                return Err(FileError::Maintenance(
+                    "primary storage locator is unavailable".to_owned(),
+                ));
+            }
+        }
         transaction
             .execute(
                 "UPDATE file_areas SET state_version=state_version+1,updated_at=CURRENT_TIMESTAMP WHERE area_id=?1",
@@ -612,6 +631,19 @@ impl RuntimeDatabase {
         transaction.commit().map_err(FileError::Sqlite)?;
         self.load_file_by_id(id)?
             .ok_or(FileError::FileIdNotFound(id.get()))
+    }
+
+    fn ensure_primary_storage_root(&self, area: &FileArea) -> Result<(), FileError> {
+        if self.schema_version()? < 16 {
+            return Ok(());
+        }
+        self.connection
+            .execute(
+                "INSERT INTO file_storage_roots(area_id,stable_key,label,root_kind,access_mode,priority,configured_locator,configured_state,availability,staging_policy) VALUES(?1,?2,?3,'managed','read-write',0,?4,'enabled','available','direct-if-safe') ON CONFLICT(area_id,priority) DO NOTHING",
+                params![area.id.get(), format!("area-{}-primary", area.id.get()), format!("{} primary", area.name), area.storage_key],
+            )
+            .map_err(FileError::Sqlite)?;
+        Ok(())
     }
 
     fn ensure_area_privileged_levels(
@@ -1138,9 +1170,6 @@ fn validate_new_file(entry: &NewFileEntry) -> Result<(), FileError> {
     {
         return Err(FileError::InvalidDescription);
     }
-    if entry.size_bytes == 0 {
-        return Err(FileError::EmptyUpload);
-    }
     if entry.sha256.len() != 64 || !entry.sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(FileError::InvalidSha256);
     }
@@ -1410,9 +1439,6 @@ impl FileStorage {
         uploaded_at: i64,
     ) -> Result<FileEntry, FileError> {
         normalize_filename(filename)?;
-        if bytes.is_empty() {
-            return Err(FileError::EmptyUpload);
-        }
         let directory = self.ensure_area(area)?;
         let path = directory.join(filename);
         let mut output = OpenOptions::new()
@@ -1485,6 +1511,112 @@ impl FileStorage {
         Ok(input)
     }
 
+    /// Opens bytes through schema-16 logical storage authority. Caller input
+    /// never participates in root or path selection.
+    pub fn open_resolved_download(
+        &self,
+        root: &StorageRoot,
+        locator: &crate::FileStorageLocator,
+        file: &FileEntry,
+    ) -> Result<File, FileError> {
+        if locator.file_id != file.id
+            || locator.storage_root_id != root.id
+            || root.area_id != file.area_id
+            || root.availability != StorageAvailability::Available
+        {
+            return Err(FileError::StorageUnavailable(file.filename.clone()));
+        }
+        let base = match root.kind {
+            StorageRootKind::Managed => {
+                validate_storage_key(&root.configured_locator)?;
+                self.files_root.join(&root.configured_locator)
+            }
+            StorageRootKind::External => {
+                let configured = PathBuf::from(&root.configured_locator);
+                if !configured.is_absolute() {
+                    return Err(FileError::StorageEscape(configured));
+                }
+                configured
+            }
+        };
+        let base_metadata = fs::symlink_metadata(&base).map_err(|source| FileError::StorageIo {
+            path: base.clone(),
+            source,
+        })?;
+        if base_metadata.file_type().is_symlink() || !base_metadata.is_dir() {
+            return Err(FileError::UnsafeStorageObject(base));
+        }
+        let canonical_base = base.canonicalize().map_err(|source| FileError::StorageIo {
+            path: base.clone(),
+            source,
+        })?;
+        let relative = Path::new(&locator.relative_path);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(FileError::StorageEscape(relative.to_path_buf()));
+        }
+        let path = canonical_base.join(relative);
+        let metadata = fs::symlink_metadata(&path).map_err(|source| FileError::StorageIo {
+            path: path.clone(),
+            source,
+        })?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(FileError::UnsafeStorageObject(path));
+        }
+        let canonical = path.canonicalize().map_err(|source| FileError::StorageIo {
+            path: path.clone(),
+            source,
+        })?;
+        if !canonical.starts_with(&canonical_base) {
+            return Err(FileError::StorageEscape(path));
+        }
+        let mut input = File::open(&canonical).map_err(|source| FileError::StorageIo {
+            path: canonical.clone(),
+            source,
+        })?;
+        let (size, hash) = hash_reader(&mut input)?;
+        if size != file.size_bytes || hash != file.sha256 {
+            return Err(FileError::ContentMismatch(file.filename.clone()));
+        }
+        input
+            .seek(SeekFrom::Start(0))
+            .map_err(|source| FileError::StorageIo {
+                path: canonical,
+                source,
+            })?;
+        Ok(input)
+    }
+
+    /// Performs the filesystem half of an operator-directed storage-root
+    /// probe.  The returned observation is not authoritative until the daemon
+    /// records it through the versioned storage-root command.
+    pub fn probe_storage_root(&self, root: &StorageRoot) -> StorageAvailability {
+        let base = match root.kind {
+            StorageRootKind::Managed => {
+                if validate_storage_key(&root.configured_locator).is_err() {
+                    return StorageAvailability::Unavailable;
+                }
+                self.files_root.join(&root.configured_locator)
+            }
+            StorageRootKind::External => {
+                let configured = PathBuf::from(&root.configured_locator);
+                if !configured.is_absolute() {
+                    return StorageAvailability::Unavailable;
+                }
+                configured
+            }
+        };
+        match fs::symlink_metadata(base) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                StorageAvailability::Available
+            }
+            _ => StorageAvailability::Unavailable,
+        }
+    }
+
     /// Opens a verified file only when the complete payload is suitable for
     /// the initial stock ASCII transfer. Validating before the first terminal
     /// write prevents a binary file from being partially emitted.
@@ -1500,10 +1632,9 @@ impl FileStorage {
             if read == 0 {
                 break;
             }
-            if buffer[..read]
-                .iter()
-                .any(|byte| !byte.is_ascii() || *byte == 0)
-            {
+            if buffer[..read].iter().any(|byte| {
+                *byte >= 0x7f || (*byte < 0x20 && !matches!(*byte, b'\r' | b'\n' | b'\t'))
+            }) {
                 return Err(FileError::NotAsciiText);
             }
         }
@@ -1574,9 +1705,6 @@ impl FileStorage {
                 source,
             })?;
         let (size, hash) = hash_reader(&mut staged_file)?;
-        if size == 0 {
-            return Err(FileError::EmptyUpload);
-        }
         if size > current_area.maximum_upload_bytes {
             return Err(FileError::UploadTooLarge {
                 actual: size,
@@ -1726,6 +1854,29 @@ impl FileStorage {
         let _ = fs::remove_dir(&staged.session_directory);
         Ok(file)
     }
+
+    /// Opens a resolved download only when every byte is evidence-supported
+    /// seven-bit text and therefore safe for the bounded ASCII engine.
+    pub fn open_resolved_ascii_download(
+        &self,
+        root: &crate::StorageRoot,
+        locator: &crate::FileStorageLocator,
+        entry: &FileEntry,
+    ) -> Result<fs::File, FileError> {
+        let mut file = self.open_resolved_download(root, locator, entry)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(FileError::TransferIo)?;
+        if bytes
+            .iter()
+            .any(|byte| *byte >= 0x7f || (*byte < 0x20 && !matches!(*byte, b'\r' | b'\n' | b'\t')))
+        {
+            return Err(FileError::NotAsciiText);
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(FileError::TransferIo)?;
+        Ok(file)
+    }
 }
 
 fn create_real_directory(path: &Path) -> Result<(), FileError> {
@@ -1873,7 +2024,7 @@ impl FileTransfer for AsciiTransfer {
                 return Ok(TransferReport {
                     direction: TransferDirection::Upload,
                     bytes: total,
-                    completed: total > 0,
+                    completed: true,
                 });
             }
             if line.iter().any(|byte| !byte.is_ascii() || *byte == 0) {
@@ -1989,8 +2140,6 @@ pub enum FileError {
     CounterOverflow(u64),
     #[error("authorized file statistics exceed the supported range")]
     FileStatisticsOverflow,
-    #[error("upload contains no data")]
-    EmptyUpload,
     #[error("upload contains {actual} bytes; maximum is {maximum}")]
     UploadTooLarge { actual: u64, maximum: u64 },
     #[error("upload for {0:?} is already staged in this session")]
@@ -2001,6 +2150,8 @@ pub enum FileError {
     NotAsciiText,
     #[error("stored file content does not match catalog size/hash: {0:?}")]
     ContentMismatch(String),
+    #[error("the storage source for file {0:?} is unavailable")]
+    StorageUnavailable(String),
     #[error("unsafe symlink or non-file storage object: {0}")]
     UnsafeStorageObject(PathBuf),
     #[error("file storage path escaped its configured root: {0}")]
@@ -2416,6 +2567,53 @@ mod tests {
     }
 
     #[test]
+    fn zero_byte_files_are_valid_catalog_and_upload_objects() {
+        let (_temp, mut database, storage, actor, _caller_id) = test_board();
+        let area = database.create_file_area(&area(1, "empty", 5)).unwrap();
+        let seeded = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "EMPTY.BIN",
+                "Valid empty file",
+                b"",
+                300,
+            )
+            .unwrap();
+        assert_eq!(seeded.size_bytes, 0);
+        assert_eq!(
+            seeded.sha256,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            storage
+                .open_download(&area, &seeded)
+                .unwrap()
+                .metadata()
+                .unwrap()
+                .len(),
+            0
+        );
+
+        let staged = storage
+            .begin_upload(SessionId::new(12).unwrap(), "EMPTYUP.BIN")
+            .unwrap();
+        let uploaded = storage
+            .commit_upload(
+                staged,
+                &mut database,
+                actor,
+                &area,
+                "Uploaded empty file",
+                301,
+            )
+            .unwrap();
+        assert_eq!(uploaded.size_bytes, 0);
+        assert_eq!(uploaded.sha256, seeded.sha256);
+        assert_eq!(database.file_count(area.id).unwrap(), 2);
+    }
+
+    #[test]
     fn canceled_staging_cleans_up_and_filename_traversal_is_rejected() {
         let (_temp, _database, storage, _actor, _caller) = test_board();
         assert!(normalize_filename("../escape.txt").is_err());
@@ -2532,6 +2730,29 @@ mod tests {
     }
 
     #[test]
+    fn ascii_transfer_supports_an_explicit_empty_file() {
+        let (_temp, _database, storage, _actor, _caller) = test_board();
+        let mut source = std::io::Cursor::new(Vec::<u8>::new());
+        let mut download_terminal = crate::InMemoryTerminal::default();
+        let download = AsciiTransfer
+            .download(&mut download_terminal, &mut source)
+            .unwrap();
+        assert!(download.completed);
+        assert_eq!(download.bytes, 0);
+        assert!(download_terminal.output().is_empty());
+
+        let mut upload_terminal = crate::InMemoryTerminal::with_lines([b"/S".to_vec()]);
+        let mut staged = storage
+            .begin_upload(SessionId::new(13).unwrap(), "EMPTY.TXT")
+            .unwrap();
+        let upload = AsciiTransfer
+            .upload(&mut upload_terminal, &mut staged, 1024)
+            .unwrap();
+        assert!(upload.completed);
+        assert_eq!(upload.bytes, 0);
+    }
+
+    #[test]
     fn ascii_download_preflight_rejects_binary_before_transfer() {
         let (_temp, mut database, storage, actor, _caller) = test_board();
         let area = database.create_file_area(&area(1, "binary", 5)).unwrap();
@@ -2549,6 +2770,25 @@ mod tests {
             storage.open_ascii_download(&area, &entry),
             Err(FileError::NotAsciiText)
         ));
+        for (name, bytes) in [
+            ("ESCAPE.TXT", b"safe\x1b[2Junsafe".as_slice()),
+            ("DELETE.TXT", b"safe\x7funsafe".as_slice()),
+        ] {
+            let unsafe_entry = storage
+                .write_seed_file(
+                    &mut database,
+                    &area,
+                    name,
+                    "Synthetic terminal-control fixture",
+                    bytes,
+                    201,
+                )
+                .unwrap();
+            assert!(matches!(
+                storage.open_ascii_download(&area, &unsafe_entry),
+                Err(FileError::NotAsciiText)
+            ));
+        }
         assert_eq!(
             database
                 .file(actor, area.id, "BINARY.DAT", true)
@@ -2680,5 +2920,51 @@ mod tests {
         database.set_file_area_enabled(1, false).unwrap();
         assert_eq!(database.file_count(stored_area.id).unwrap(), 1);
         assert!(!database.all_file_areas().unwrap()[0].active);
+    }
+
+    #[test]
+    fn storage_probe_distinguishes_available_missing_and_symlink_roots() {
+        let (temp, _database, storage, _actor, _caller) = test_board();
+        let available = temp.path().join("probe-available");
+        fs::create_dir(&available).unwrap();
+        let root = StorageRoot {
+            id: crate::StorageRootId::new(1).unwrap(),
+            area_id: FileAreaId::new(1).unwrap(),
+            stable_key: "probe".to_owned(),
+            label: "Probe".to_owned(),
+            kind: StorageRootKind::External,
+            mode: crate::StorageRootMode::ReadOnly,
+            priority: 1,
+            configured_locator: available.to_string_lossy().into_owned(),
+            configured_state: crate::StorageRootState::Enabled,
+            availability: StorageAvailability::Unknown,
+            staging_always: true,
+            state_version: 1,
+        };
+        assert_eq!(
+            storage.probe_storage_root(&root),
+            StorageAvailability::Available
+        );
+        let mut missing = root.clone();
+        missing.configured_locator = temp
+            .path()
+            .join("probe-missing")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            storage.probe_storage_root(&missing),
+            StorageAvailability::Unavailable
+        );
+        #[cfg(unix)]
+        {
+            let link = temp.path().join("probe-link");
+            std::os::unix::fs::symlink(&available, &link).unwrap();
+            let mut symlink = root;
+            symlink.configured_locator = link.to_string_lossy().into_owned();
+            assert_eq!(
+                storage.probe_storage_root(&symlink),
+                StorageAvailability::Unavailable
+            );
+        }
     }
 }

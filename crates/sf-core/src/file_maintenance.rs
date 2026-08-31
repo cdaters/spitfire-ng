@@ -669,10 +669,13 @@ impl RuntimeDatabase {
     fn open_and_record_integrity(
         &mut self,
         storage: &FileStorage,
-        area: &FileArea,
+        _area: &FileArea,
         file: &FileEntry,
     ) -> Result<File, FileMaintenanceError> {
-        match storage.open_download(area, file) {
+        let (root, locator) = self
+            .resolve_file_storage(file.id)
+            .map_err(|_| FileMaintenanceError::FileUnavailable)?;
+        match storage.open_resolved_download(&root, &locator, file) {
             Ok(input) => {
                 if file.integrity != FileIntegrity::Present {
                     self.set_integrity_observation(file.id, FileIntegrity::Present)?;
@@ -1243,6 +1246,14 @@ impl RuntimeDatabase {
             FileMaintenanceError::Sqlite(error)
         })?;
         let file_id = FileId::new(transaction.last_insert_rowid())?;
+        let locator_added = transaction.execute(
+            "INSERT INTO file_storage_locators(file_id,storage_root_id,relative_path) SELECT ?1,storage_root_id,?2 FROM file_storage_roots WHERE area_id=?3 AND priority=0",
+            params![file_id.get(), filename, area_id.get()],
+        )?;
+        if locator_added != 1 {
+            let _ = fs::remove_file(&destination);
+            return Err(FileMaintenanceError::FileUnavailable);
+        }
         let changed = transaction.execute(
             "UPDATE file_areas SET state_version=state_version+1,updated_at=CURRENT_TIMESTAMP WHERE area_id=?1 AND state_version=?2",
             params![area_id.get(), expected_area_version as i64],
@@ -1417,6 +1428,12 @@ impl RuntimeDatabase {
         let file = self
             .load_file_by_id(file_id)?
             .ok_or(FileMaintenanceError::FileUnavailable)?;
+        let (source_root, _) = self
+            .resolve_file_storage(file_id)
+            .map_err(|_| FileMaintenanceError::FileUnavailable)?;
+        if source_root.mode == crate::StorageRootMode::ReadOnly {
+            return Err(FileMaintenanceError::ReadOnlyStorage);
+        }
         if file.state_version != expected_file_version
             || file.lifecycle == FileLifecycle::Tombstoned
             || file.area_id == destination_area_id
@@ -1491,6 +1508,13 @@ impl RuntimeDatabase {
         if changed != 1 {
             return Err(FileMaintenanceError::StaleConflict);
         }
+        let locator_changed = transaction.execute(
+            "UPDATE file_storage_locators SET storage_root_id=(SELECT storage_root_id FROM file_storage_roots WHERE area_id=?2 AND priority=0),relative_path=?3,state_version=state_version+1,updated_at=CURRENT_TIMESTAMP WHERE file_id=?1",
+            params![file_id.get(), destination_area_id.get(), file.filename],
+        )?;
+        if locator_changed != 1 {
+            return Err(FileMaintenanceError::FileUnavailable);
+        }
         let area_changed = transaction.execute(
             "UPDATE file_areas SET state_version=state_version+1,updated_at=CURRENT_TIMESTAMP WHERE area_id=?1 AND state_version=?2",
             params![destination_area_id.get(), expected_destination_version as i64],
@@ -1552,6 +1576,12 @@ impl RuntimeDatabase {
         let file = self
             .load_file_by_id(file_id)?
             .ok_or(FileMaintenanceError::FileUnavailable)?;
+        let (source_root, _) = self
+            .resolve_file_storage(file_id)
+            .map_err(|_| FileMaintenanceError::FileUnavailable)?;
+        if source_root.mode == crate::StorageRootMode::ReadOnly {
+            return Err(FileMaintenanceError::ReadOnlyStorage);
+        }
         if file.state_version != expected_version || file.lifecycle == FileLifecycle::Tombstoned {
             return Err(FileMaintenanceError::StaleConflict);
         }
@@ -2291,6 +2321,8 @@ pub enum FileMaintenanceError {
     DigestVerificationFailed,
     #[error("file-maintenance path escaped managed storage")]
     StorageEscape,
+    #[error("the file is owned by read-only storage")]
+    ReadOnlyStorage,
     #[error("native metadata cannot be represented safely in a historical SFFILES publication")]
     LegacyPublicationUnrepresentable,
     #[error("synthetic failure injected for recovery testing")]

@@ -38,9 +38,15 @@ post-0.1.0 source improvements, including advanced caller/text message
 discovery, auditable message mutation, an auditable caller-access lifecycle,
 schema-13 caller identity separation, secure SSH caller transport, and
 schema-14 privacy-bounded public information. Current source also includes
-schema-15 safe file inspection, private file requests and review, and staged
-file maintenance. Those improvements are not present in the published 0.1.0
-archive.
+schema-15 safe file inspection, private file requests and review, staged file
+maintenance, schema-16 batch transfer policy and logical storage, and the
+schema-17 zero-byte file invariant. Those improvements are not present in the
+published 0.1.0 archive.
+
+The public Category-B ledger is now **10 VERIFIED, 5 IMPLEMENTED, 5 PARTIAL,
+and 5 NOT STARTED**. B-024 transfer interoperability is VERIFIED. B-011 batch
+queues, B-014 transfer policy/accounting, and B-023 extended storage are
+IMPLEMENTED with their remaining acceptance matrices documented separately.
 
 Available today:
 
@@ -69,9 +75,12 @@ Available today:
 - file areas, uploads, downloads, new-file checks, and supported transfer
   protocols plus—when built from current source—bounded text/ZIP inspection,
   Preview inspection without transfer, private Offline/Missing requests,
-  PendingReview uploads, and versioned staged file maintenance;
+  PendingReview uploads, versioned staged file maintenance, session-ephemeral
+  stable-ID batch queues, atomic daily/ratio accounting, logical read-only
+  storage roots, bounded large-source streaming, and all nine B-024 transfer
+  choices including TeLink;
 - multinode operation, operator status, cold backup, and restore, including
-  schema-15 file state, schema-14 public-information state, caller
+  schema-17 file/transfer/storage state, schema-14 public-information state, caller
   identity/access state, SSH configuration, and SSH host-key continuity when
   built from current source;
 - an en-US localization baseline and versioned language-pack interface; and
@@ -142,9 +151,12 @@ explains listener configuration, first calls, messages, files, and backups.
 - [Caller access lifecycle and security](docs/sfng-caller-access.md)
 - [Secure SSH caller transport](docs/sfng-secure-ssh-transport.md)
 - [Privacy-bounded public information](docs/sfng-public-information.md)
-- [Native file system and schema-15 authority](docs/sfng-file-system.md)
+- [Native file system and schema-17 authority](docs/sfng-file-system.md)
 - [Tranche 5 implementation](docs/research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md)
 - [Tranche 5 verification](docs/research/m039-tranche-5-verification.md)
+- [Tranche 6 implementation](docs/research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md)
+- [Tranche 6 verification](docs/research/m039-tranche-6-verification.md)
+- [Independent transfer interoperability](docs/research/m039-tranche-6-transfer-interoperability.md)
 - [Roadmap](ROADMAP.md)
 
 ## Custom ANSI screens
@@ -175,10 +187,11 @@ behavior maps to the modern implementation.
 
 The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
-advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
+advanced Category-B command set, remaining B-011/B-014/B-023 acceptance,
+QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
-also predates SSH, schemas 13–15, public-information additions, and Tranche 5
-file inspection/request/maintenance source.
+also predates SSH, schemas 13–17, public-information additions, Tranche 5 file
+inspection/request/maintenance, and Tranche 6 transfer/storage source.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

@@ -137,6 +137,15 @@ impl BoardRuntime {
             database.observe_public_resource(kind, &digest, resource_observed_at)?;
         }
         let schema_version = database.schema_version()?;
+        if schema_version >= 16 {
+            let recovered = database.reconcile_interrupted_transfers(current_unix_seconds()?)?;
+            if recovered != 0 {
+                warn!(
+                    recovered,
+                    "released nonterminal transfer reservations after daemon restart"
+                );
+            }
+        }
         let credential_hasher = CredentialHasher::new(&validated.caller.password)?;
         let timezone = validated.timezone;
         let board_access = validated.board_access;
@@ -5540,6 +5549,185 @@ mod tests {
             .unwrap();
         assert_eq!(requests.len(), 3);
         println!("TRANCHE5_ACCEPTANCE_COMPLETE requests={}", requests.len());
+    }
+
+    #[test]
+    #[ignore = "manual Qodem, SyncTERM, and macOS OpenSSH Tranche 6 interoperability server"]
+    fn tranche_6_real_client_acceptance_server() {
+        let root = PathBuf::from(
+            std::env::var("SPITFIRE_TRANCHE6_ACCEPTANCE_ROOT")
+                .expect("set SPITFIRE_TRANCHE6_ACCEPTANCE_ROOT to a new disposable directory"),
+        );
+        let telnet_address: SocketAddr = std::env::var("SPITFIRE_TRANCHE6_TELNET")
+            .unwrap_or_else(|_| "127.0.0.1:24241".to_owned())
+            .parse()
+            .unwrap();
+        let ssh_address: SocketAddr = std::env::var("SPITFIRE_TRANCHE6_SSH")
+            .unwrap_or_else(|_| "127.0.0.1:24242".to_owned())
+            .parse()
+            .unwrap();
+        let raw_address: SocketAddr = std::env::var("SPITFIRE_TRANCHE6_RAW")
+            .unwrap_or_else(|_| "127.0.0.1:24243".to_owned())
+            .parse()
+            .unwrap();
+        let maximum_sessions = std::env::var("SPITFIRE_TRANCHE6_MAX_SESSIONS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(3);
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        let password = b"test-only tranche-six password";
+        for caller in [
+            b"Qodem Transfer".as_slice(),
+            b"SyncTERM Transfer".as_slice(),
+            b"OpenSSH Transfer".as_slice(),
+            b"Binkley TeLink".as_slice(),
+        ] {
+            seed_caller(&root, caller, password, CallerState::Active);
+        }
+        seed_caller(&root, b"BT", b"TELINKTEST", CallerState::Active);
+
+        let config_path = root.join(FIXTURE_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&root, &validated).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let storage = FileStorage::new(&paths).unwrap();
+        let operator = database.caller_by_name(b"Qodem Transfer").unwrap().unwrap();
+        let actor = FileActor::new(operator.id, SecurityLevel::new(10).unwrap());
+        let area = database.file_area(actor, 1).unwrap().0;
+        for (name, description, bytes, timestamp) in [
+            (
+                "ONE.BIN",
+                "Synthetic first batch member",
+                (0_u8..=255).collect::<Vec<_>>(),
+                1_777_100_000,
+            ),
+            (
+                "TWO.BIN",
+                "Synthetic second batch member",
+                (0_u8..=255).rev().cycle().take(2049).collect::<Vec<_>>(),
+                1_777_100_001,
+            ),
+        ] {
+            storage
+                .write_seed_file(&mut database, &area, name, description, &bytes, timestamp)
+                .unwrap();
+        }
+        let external_bytes = (0_u8..=255).cycle().take(128 * 1024).collect::<Vec<_>>();
+        let external_file = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "EXTERNAL.BIN",
+                "Synthetic read-only external member",
+                &external_bytes,
+                1_777_100_003,
+            )
+            .unwrap();
+        let external_root_path = root.join("test-external-read-only");
+        fs::create_dir(&external_root_path).unwrap();
+        fs::write(external_root_path.join("EXTERNAL.BIN"), &external_bytes).unwrap();
+        let external_root = database
+            .add_storage_root(
+                actor,
+                sf_core::StorageRootDefinition {
+                    area_id: area.id,
+                    stable_key: "acceptance-read-only",
+                    label: "Acceptance Read Only",
+                    configured_locator: external_root_path.to_str().unwrap(),
+                    priority: 1,
+                    mode: sf_core::StorageRootMode::ReadOnly,
+                    occurred_at: 1_777_100_004,
+                },
+            )
+            .unwrap();
+        database
+            .set_storage_availability(
+                actor,
+                external_root.id,
+                external_root.state_version,
+                sf_core::StorageAvailability::Available,
+                1_777_100_005,
+            )
+            .unwrap();
+        database
+            .set_file_storage_locator(
+                actor,
+                external_file.id,
+                external_root.id,
+                "EXTERNAL.BIN",
+                external_file.state_version,
+                1,
+                1_777_100_006,
+            )
+            .unwrap();
+        drop(database);
+
+        let upload_directory = root.join("client-upload");
+        fs::create_dir(&upload_directory).unwrap();
+        fs::write(
+            upload_directory.join("UPLOAD1.BIN"),
+            (0_u8..=255).cycle().take(1025).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        fs::write(
+            upload_directory.join("UPLOAD2.BIN"),
+            b"synthetic second upload member",
+        )
+        .unwrap();
+
+        let mut config = RuntimeConfig::load(&config_path).unwrap();
+        config.node = None;
+        config.nodes = Some(NodePoolConfig {
+            count: 4,
+            overrides: Vec::new(),
+        });
+        config.transports = vec![
+            listener_config(
+                "tranche6-telnet",
+                TransportAdapterConfig::Telnet {
+                    listen: telnet_address,
+                    terminal: NetworkTerminalDefaults::default(),
+                },
+            ),
+            listener_config(
+                "tranche6-ssh",
+                TransportAdapterConfig::Ssh {
+                    listen: ssh_address,
+                    host_key: PathBuf::from("ssh/host-ed25519"),
+                    terminal: NetworkTerminalDefaults::default(),
+                    maximum_unauthenticated_connections: 4,
+                    maximum_authentication_attempts: 3,
+                    handshake_timeout_seconds: 10,
+                },
+            ),
+            listener_config(
+                "tranche6-raw",
+                TransportAdapterConfig::Raw {
+                    listen: raw_address,
+                    terminal: NetworkTerminalDefaults::default(),
+                },
+            ),
+        ];
+        config.save_atomic(&config_path).unwrap();
+        println!("TRANCHE6_ACCEPTANCE_READY root={}", root.display());
+        println!("TELNET={telnet_address} SSH={ssh_address} RAW={raw_address}");
+        println!("PASSWORD=test-only tranche-six password");
+        println!("UPLOAD_DIRECTORY={}", upload_directory.display());
+        let report = serve_with_shutdown(
+            &config_path,
+            Some(maximum_sessions),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        assert_eq!(report.completed_sessions, maximum_sessions);
+        println!(
+            "TRANCHE6_ACCEPTANCE_COMPLETE sessions={}",
+            report.completed_sessions
+        );
     }
 
     fn available_address() -> SocketAddr {

@@ -4,6 +4,7 @@
 //! duration of a transfer. File authorization, path confinement, staging, and
 //! catalog mutation remain in the file service.
 
+use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use std::time::Duration;
 
 use thiserror::Error;
@@ -68,6 +69,28 @@ pub struct ProtocolFile {
     pub modified_unix: Option<u64>,
 }
 
+pub trait ProtocolSource: Read + Seek {}
+
+impl<T: Read + Seek> ProtocolSource for T {}
+
+pub struct ProtocolStreamFile {
+    pub name: String,
+    pub size: u64,
+    pub source: Box<dyn ProtocolSource + Send>,
+    pub modified_unix: Option<u64>,
+}
+
+impl std::fmt::Debug for ProtocolStreamFile {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProtocolStreamFile")
+            .field("name", &self.name)
+            .field("size", &self.size)
+            .field("modified_unix", &self.modified_unix)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReceivedProtocolFile {
     pub name: String,
@@ -100,6 +123,8 @@ pub enum TransferProtocolError {
     SingleFileOnly(&'static str),
     #[error("ZMODEM engine failed: {0}")]
     Zmodem(String),
+    #[error("{0} transfer source I/O failed")]
+    SourceIo(&'static str, #[source] io::Error),
 }
 
 pub fn send_binary_files(
@@ -107,19 +132,36 @@ pub fn send_binary_files(
     protocol: TransferProtocol,
     files: &[ProtocolFile],
 ) -> Result<(), TransferProtocolError> {
+    let mut streams = files
+        .iter()
+        .map(|file| ProtocolStreamFile {
+            name: file.name.clone(),
+            size: file.bytes.len() as u64,
+            source: Box::new(Cursor::new(file.bytes.clone())),
+            modified_unix: file.modified_unix,
+        })
+        .collect::<Vec<_>>();
+    send_binary_streams(terminal, protocol, &mut streams)
+}
+
+pub fn send_binary_streams(
+    terminal: &mut dyn Terminal,
+    protocol: TransferProtocol,
+    files: &mut [ProtocolStreamFile],
+) -> Result<(), TransferProtocolError> {
     if !protocol.is_batch() && files.len() != 1 {
         return Err(TransferProtocolError::SingleFileOnly(protocol.stock_name()));
     }
     terminal.begin_binary_mode()?;
     let result = match protocol {
-        TransferProtocol::XmodemChecksum => send_xmodem(terminal, &files[0].bytes, XMode::Checksum),
-        TransferProtocol::XmodemCrc => send_xmodem(terminal, &files[0].bytes, XMode::Crc),
-        TransferProtocol::Xmodem1k => send_xmodem(terminal, &files[0].bytes, XMode::OneK),
-        TransferProtocol::Xmodem1kG => send_xmodem(terminal, &files[0].bytes, XMode::OneKG),
+        TransferProtocol::XmodemChecksum => send_xmodem(terminal, &mut files[0], XMode::Checksum),
+        TransferProtocol::XmodemCrc => send_xmodem(terminal, &mut files[0], XMode::Crc),
+        TransferProtocol::Xmodem1k => send_xmodem(terminal, &mut files[0], XMode::OneK),
+        TransferProtocol::Xmodem1kG => send_xmodem(terminal, &mut files[0], XMode::OneKG),
         TransferProtocol::YmodemBatch => send_ymodem(terminal, files, false),
         TransferProtocol::YmodemGBatch => send_ymodem(terminal, files, true),
         TransferProtocol::ZmodemBatch => send_zmodem(terminal, files),
-        TransferProtocol::Telink => send_telink(terminal, &files[0]),
+        TransferProtocol::Telink => send_telink(terminal, &mut files[0]),
     };
     finish_binary_mode(terminal, result)
 }
@@ -199,7 +241,7 @@ impl XMode {
 
 fn send_xmodem(
     terminal: &mut dyn Terminal,
-    bytes: &[u8],
+    file: &mut ProtocolStreamFile,
     mode: XMode,
 ) -> Result<(), TransferProtocolError> {
     let protocol = mode_name(mode);
@@ -225,20 +267,20 @@ fn send_xmodem(
     }
 
     let mut block = 1_u8;
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let remaining = bytes.len().saturating_sub(offset);
+    let mut offset = 0_u64;
+    while offset < file.size {
+        let remaining = file.size.saturating_sub(offset);
         let block_size = if matches!(mode, XMode::OneK | XMode::OneKG) && remaining > 128 {
             1024
         } else {
             128
         };
-        let count = remaining.min(block_size);
+        let count = usize::try_from(remaining.min(block_size as u64)).expect("block fits usize");
         let mut payload = vec![CPM_EOF; block_size];
-        payload[..count].copy_from_slice(&bytes[offset..offset + count]);
+        read_source_exact(file, offset, &mut payload[..count], protocol)?;
         let packet = encode_block(block, &payload, uses_crc);
         send_block_with_retry(terminal, protocol, &packet, mode.streaming())?;
-        offset += count;
+        offset += count as u64;
         block = block.wrapping_add(1);
     }
     send_eot(terminal, protocol)
@@ -353,7 +395,7 @@ fn receive_xmodem(
 
 fn send_ymodem(
     terminal: &mut dyn Terminal,
-    files: &[ProtocolFile],
+    files: &mut [ProtocolStreamFile],
     streaming: bool,
 ) -> Result<(), TransferProtocolError> {
     let protocol = if streaming { "YMODEM-g" } else { "YMODEM" };
@@ -377,7 +419,7 @@ fn send_ymodem(
                 return Err(malformed(protocol, "receiver did not initiate file data"));
             }
         }
-        send_ymodem_data(terminal, protocol, &file.bytes, streaming)?;
+        send_ymodem_data(terminal, protocol, file, streaming)?;
         finish_ymodem_file_send(terminal, protocol)?;
         let next_request = read_control_with_retries(terminal, protocol)?;
         if next_request
@@ -454,24 +496,24 @@ fn drain_repeated_control(
 fn send_ymodem_data(
     terminal: &mut dyn Terminal,
     protocol: &'static str,
-    bytes: &[u8],
+    file: &mut ProtocolStreamFile,
     streaming: bool,
 ) -> Result<(), TransferProtocolError> {
     let mut block = 1_u8;
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let remaining = bytes.len() - offset;
+    let mut offset = 0_u64;
+    while offset < file.size {
+        let remaining = file.size - offset;
         let size = if remaining > 128 { 1024 } else { 128 };
-        let count = remaining.min(size);
+        let count = usize::try_from(remaining.min(size as u64)).expect("block fits usize");
         let mut payload = vec![CPM_EOF; size];
-        payload[..count].copy_from_slice(&bytes[offset..offset + count]);
+        read_source_exact(file, offset, &mut payload[..count], protocol)?;
         send_block_with_retry(
             terminal,
             protocol,
             &encode_block(block, &payload, true),
             streaming,
         )?;
-        offset += count;
+        offset += count as u64;
         block = block.wrapping_add(1);
     }
     Ok(())
@@ -602,7 +644,7 @@ fn receive_ymodem_data(
 
 fn send_zmodem(
     terminal: &mut dyn Terminal,
-    files: &[ProtocolFile],
+    files: &mut [ProtocolStreamFile],
 ) -> Result<(), TransferProtocolError> {
     let mut sender = Sender::new().map_err(zmodem_error)?;
     sender.set_streaming_window(usize::MAX);
@@ -620,11 +662,13 @@ fn send_zmodem(
                 sender.wire_written(bytes.len());
             }
             Action::ReadFile { offset, max_len } => {
-                let start = offset.get() as usize;
-                let end = start.saturating_add(max_len).min(files[index].bytes.len());
-                sender
-                    .submit_file(&files[index].bytes[start..end])
-                    .map_err(zmodem_error)?;
+                let start = u64::from(offset.get());
+                let remaining = files[index].size.saturating_sub(start);
+                let count = usize::try_from(remaining.min(max_len as u64))
+                    .expect("ZMODEM chunk fits usize");
+                let mut chunk = vec![0_u8; count];
+                read_source_exact(&mut files[index], start, &mut chunk, "ZMODEM")?;
+                sender.submit_file(&chunk).map_err(zmodem_error)?;
             }
             Action::Event(Event::FileCompleted) => {
                 index += 1;
@@ -640,11 +684,10 @@ fn send_zmodem(
                 if index < files.len() && !started {
                     let file = &files[index];
                     validate_remote_filename(&file.name)?;
-                    let size = u32::try_from(file.bytes.len()).map_err(|_| {
-                        TransferProtocolError::TooLarge {
+                    let size =
+                        u32::try_from(file.size).map_err(|_| TransferProtocolError::TooLarge {
                             maximum: u32::MAX as u64,
-                        }
-                    })?;
+                        })?;
                     sender
                         .start_file(FileInfo::new(
                             file.name.as_bytes(),
@@ -772,7 +815,7 @@ fn receive_zmodem(
 
 fn send_telink(
     terminal: &mut dyn Terminal,
-    file: &ProtocolFile,
+    file: &mut ProtocolStreamFile,
 ) -> Result<(), TransferProtocolError> {
     validate_remote_filename(&file.name)?;
     let request = read_control_with_retries(terminal, "Telink")?;
@@ -780,11 +823,12 @@ fn send_telink(
         return Err(malformed("Telink", "unexpected receiver initiation"));
     }
     let mut header = [0_u8; 128];
-    let size = u32::try_from(file.bytes.len()).map_err(|_| TransferProtocolError::TooLarge {
+    let size = u32::try_from(file.size).map_err(|_| TransferProtocolError::TooLarge {
         maximum: u32::MAX as u64,
     })?;
     header[..4].copy_from_slice(&size.to_le_bytes());
     let name = file.name.as_bytes();
+    header[8..24].fill(b' ');
     header[8..8 + name.len().min(15)].copy_from_slice(&name[..name.len().min(15)]);
     header[24] = 0;
     header[25..36].copy_from_slice(b"SPITFIRE NG");
@@ -792,13 +836,21 @@ fn send_telink(
     let mut packet = Vec::with_capacity(134);
     packet.extend_from_slice(&[TELINK_HEADER, 0, 0xff]);
     packet.extend_from_slice(&header);
-    if request == CRC_REQUEST {
-        packet.extend_from_slice(&crc16_xmodem(&header).to_be_bytes());
-    } else {
-        packet.push(checksum(&header));
-    }
+    // FTS-0007 block zero is always protected by the one-byte checksum.
+    // The descriptor's `crcmode` byte selects CRC for the following data
+    // blocks; it does not change the descriptor trailer itself.
+    packet.push(checksum(&header));
     send_block_with_retry(terminal, "Telink", &packet, false)?;
-    send_xmodem_data_after_handshake(terminal, &file.bytes, request == CRC_REQUEST, "Telink")
+    send_xmodem_data_after_handshake(terminal, file, request == CRC_REQUEST, "Telink")?;
+
+    // Historical TeLink peers use the batch wrapper even for one file. After
+    // the file-level EOT/ACK, the receiver requests another descriptor and
+    // the sender answers with a final EOT to terminate the batch cleanly.
+    let next_request = read_control_with_retries(terminal, "Telink")?;
+    if !matches!(next_request, NAK | CRC_REQUEST) {
+        return Err(malformed("Telink", "unexpected batch-finish request"));
+    }
+    send_eot(terminal, "Telink")
 }
 
 fn receive_telink(
@@ -808,7 +860,7 @@ fn receive_telink(
     if request_control_with_retries(terminal, "Telink", CRC_REQUEST)? != TELINK_HEADER {
         return Err(malformed("Telink", "missing TeLink descriptor block"));
     }
-    let (sequence, header) = read_and_validate_block(terminal, "Telink", 128, true)?;
+    let (sequence, header) = read_and_validate_block(terminal, "Telink", 128, false)?;
     if sequence != 0 {
         return Err(malformed("Telink", "descriptor sequence must be zero"));
     }
@@ -825,12 +877,17 @@ fn receive_telink(
     }
     let end = header[8..24]
         .iter()
-        .position(|byte| *byte == 0)
+        .position(|byte| matches!(*byte, 0 | b' '))
         .unwrap_or(16);
     let name = String::from_utf8_lossy(&header[8..8 + end]).into_owned();
     validate_remote_filename(&name)?;
     terminal.write_binary(&[ACK])?;
-    let mut result = receive_xmodem_data_after_handshake(terminal, size, true, "Telink")?;
+    let mut result =
+        receive_xmodem_data_after_handshake(terminal, size, header[41] != 0, "Telink")?;
+    if request_control_with_retries(terminal, "Telink", CRC_REQUEST)? != EOT {
+        return Err(malformed("Telink", "missing batch terminator"));
+    }
+    terminal.write_binary(&[ACK])?;
     result.truncate(size as usize);
     Ok(vec![ReceivedProtocolFile {
         name,
@@ -841,20 +898,23 @@ fn receive_telink(
 
 fn send_xmodem_data_after_handshake(
     terminal: &mut dyn Terminal,
-    bytes: &[u8],
+    file: &mut ProtocolStreamFile,
     crc: bool,
     protocol: &'static str,
 ) -> Result<(), TransferProtocolError> {
     let mut block = 1_u8;
-    for chunk in bytes.chunks(128) {
+    let mut offset = 0_u64;
+    while offset < file.size {
+        let count = usize::try_from((file.size - offset).min(128)).expect("block fits usize");
         let mut payload = [CPM_EOF; 128];
-        payload[..chunk.len()].copy_from_slice(chunk);
+        read_source_exact(file, offset, &mut payload[..count], protocol)?;
         send_block_with_retry(
             terminal,
             protocol,
             &encode_block(block, &payload, crc),
             false,
         )?;
+        offset += count as u64;
         block = block.wrapping_add(1);
     }
     send_eot(terminal, protocol)
@@ -896,13 +956,13 @@ fn receive_xmodem_data_after_handshake(
     }
 }
 
-fn ymodem_metadata(file: &ProtocolFile) -> Result<Vec<u8>, TransferProtocolError> {
+fn ymodem_metadata(file: &ProtocolStreamFile) -> Result<Vec<u8>, TransferProtocolError> {
     if file.name.len() + 2 >= 128 {
         return Err(TransferProtocolError::UnsafeFilename(file.name.clone()));
     }
     let mut metadata = vec![0_u8; 128];
     metadata[..file.name.len()].copy_from_slice(file.name.as_bytes());
-    let mut fields = file.bytes.len().to_string();
+    let mut fields = file.size.to_string();
     if let Some(modified) = file.modified_unix {
         fields.push(' ');
         fields.push_str(&format!("{modified:o}"));
@@ -939,6 +999,20 @@ fn parse_ymodem_metadata(
         .transpose()
         .map_err(|_| malformed("YMODEM", "modification date is invalid"))?;
     Ok((name, size, modified))
+}
+
+fn read_source_exact(
+    file: &mut ProtocolStreamFile,
+    offset: u64,
+    output: &mut [u8],
+    protocol: &'static str,
+) -> Result<(), TransferProtocolError> {
+    file.source
+        .seek(SeekFrom::Start(offset))
+        .map_err(|error| TransferProtocolError::SourceIo(protocol, error))?;
+    file.source
+        .read_exact(output)
+        .map_err(|error| TransferProtocolError::SourceIo(protocol, error))
 }
 
 fn finish_ymodem_file_send(
@@ -1161,7 +1235,8 @@ fn zmodem_error(error: zmodem2::Error) -> TransferProtocolError {
 mod tests {
     use super::*;
     use std::collections::VecDeque;
-    use std::sync::mpsc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
 
     struct DuplexTerminal {
         sender: mpsc::Sender<Vec<u8>>,
@@ -1251,6 +1326,49 @@ mod tests {
         received
     }
 
+    fn stream_file(name: &str, bytes: Vec<u8>) -> ProtocolStreamFile {
+        ProtocolStreamFile {
+            name: name.to_owned(),
+            size: bytes.len() as u64,
+            source: Box::new(Cursor::new(bytes)),
+            modified_unix: None,
+        }
+    }
+
+    struct GeneratedReader {
+        length: u64,
+        position: u64,
+        largest_read: Arc<AtomicUsize>,
+    }
+
+    impl Read for GeneratedReader {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            self.largest_read.fetch_max(output.len(), Ordering::Relaxed);
+            let count = usize::try_from((self.length - self.position).min(output.len() as u64))
+                .expect("bounded generated read");
+            for (index, byte) in output[..count].iter_mut().enumerate() {
+                *byte = ((self.position + index as u64) & 0xff) as u8;
+            }
+            self.position += count as u64;
+            Ok(count)
+        }
+    }
+
+    impl Seek for GeneratedReader {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            let next = match position {
+                SeekFrom::Start(value) => i128::from(value),
+                SeekFrom::End(value) => i128::from(self.length) + i128::from(value),
+                SeekFrom::Current(value) => i128::from(self.position) + i128::from(value),
+            };
+            if !(0..=i128::from(self.length)).contains(&next) {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid seek"));
+            }
+            self.position = next as u64;
+            Ok(self.position)
+        }
+    }
+
     #[test]
     fn crc16_matches_published_check_value() {
         assert_eq!(crc16_xmodem(b"123456789"), 0x31c3);
@@ -1272,9 +1390,79 @@ mod tests {
     }
 
     #[test]
+    fn retry_metadata_and_size_failures_are_bounded_before_authority_changes() {
+        let mut retry_input = vec![CRC_REQUEST];
+        retry_input.extend(std::iter::repeat_n(NAK, MAX_RETRIES));
+        let mut retrying = crate::InMemoryTerminal::with_binary_input(retry_input);
+        assert!(matches!(
+            send_xmodem(
+                &mut retrying,
+                &mut stream_file("RETRY.BIN", vec![0x42]),
+                XMode::Crc
+            ),
+            Err(TransferProtocolError::RetryLimit("XMODEM CRC"))
+        ));
+        assert!(retrying.output().len() <= MAX_RETRIES * 133);
+
+        let mut unsafe_name = crate::InMemoryTerminal::with_binary_input([CRC_REQUEST]);
+        assert!(matches!(
+            send_binary_files(
+                &mut unsafe_name,
+                TransferProtocol::YmodemBatch,
+                &[ProtocolFile {
+                    name: "A".repeat(MAX_FILE_NAME_BYTES + 1),
+                    bytes: vec![0x42],
+                    modified_unix: None,
+                }]
+            ),
+            Err(TransferProtocolError::UnsafeFilename(_))
+        ));
+
+        let metadata = ymodem_metadata(&stream_file("BIG.BIN", vec![0x42; 2])).unwrap();
+        let wire = encode_block(0, &metadata, true);
+        let mut oversized = crate::InMemoryTerminal::with_binary_input(wire);
+        assert!(matches!(
+            receive_binary_files(
+                &mut oversized,
+                TransferProtocol::YmodemBatch,
+                "IGNORED.BIN",
+                1,
+                1,
+            ),
+            Err(TransferProtocolError::TooLarge { maximum: 1 })
+        ));
+
+        let mut single = crate::InMemoryTerminal::default();
+        assert!(matches!(
+            send_binary_files(
+                &mut single,
+                TransferProtocol::XmodemCrc,
+                &[
+                    ProtocolFile {
+                        name: "ONE.BIN".to_owned(),
+                        bytes: vec![1],
+                        modified_unix: None,
+                    },
+                    ProtocolFile {
+                        name: "TWO.BIN".to_owned(),
+                        bytes: vec![2],
+                        modified_unix: None,
+                    },
+                ],
+            ),
+            Err(TransferProtocolError::SingleFileOnly("Xmodem CRC"))
+        ));
+    }
+
+    #[test]
     fn crc_sender_honors_checksum_fallback_request() {
         let mut terminal = crate::InMemoryTerminal::with_binary_input([NAK, ACK, ACK]);
-        send_xmodem(&mut terminal, &[0x42], XMode::Crc).unwrap();
+        send_xmodem(
+            &mut terminal,
+            &mut stream_file("TEST.BIN", vec![0x42]),
+            XMode::Crc,
+        )
+        .unwrap();
         let wire = terminal.output();
         assert_eq!(wire.len(), 133);
         assert_eq!(wire[0], SOH);
@@ -1285,17 +1473,43 @@ mod tests {
     #[test]
     fn empty_xmodem_transfer_sends_only_end_of_transmission() {
         let mut terminal = crate::InMemoryTerminal::with_binary_input([CRC_REQUEST, ACK]);
-        send_xmodem(&mut terminal, &[], XMode::Crc).unwrap();
+        send_xmodem(
+            &mut terminal,
+            &mut stream_file("EMPTY.BIN", Vec::new()),
+            XMode::Crc,
+        )
+        .unwrap();
         assert_eq!(terminal.output(), &[EOT]);
     }
 
     #[test]
+    fn every_binary_protocol_represents_an_empty_file_without_fabricated_bytes() {
+        let empty = vec![ProtocolFile {
+            name: "EMPTY.BIN".to_owned(),
+            bytes: Vec::new(),
+            modified_unix: None,
+        }];
+        for protocol in [
+            TransferProtocol::XmodemChecksum,
+            TransferProtocol::XmodemCrc,
+            TransferProtocol::Xmodem1k,
+            TransferProtocol::Xmodem1kG,
+            TransferProtocol::YmodemBatch,
+            TransferProtocol::YmodemGBatch,
+            TransferProtocol::ZmodemBatch,
+            TransferProtocol::Telink,
+        ] {
+            let received = round_trip(protocol, empty.clone());
+            assert_eq!(received.len(), 1, "{}", protocol.stock_name());
+            assert_eq!(received[0].name, "EMPTY.BIN", "{}", protocol.stock_name());
+            assert!(received[0].bytes.is_empty(), "{}", protocol.stock_name());
+        }
+    }
+
+    #[test]
     fn ymodem_metadata_round_trips_exact_size_and_date() {
-        let file = ProtocolFile {
-            name: "TEST.BIN".to_owned(),
-            bytes: vec![0; 1025],
-            modified_unix: Some(1_700_000_000),
-        };
+        let mut file = stream_file("TEST.BIN", vec![0; 1025]);
+        file.modified_unix = Some(1_700_000_000);
         let metadata = ymodem_metadata(&file).unwrap();
         assert_eq!(
             parse_ymodem_metadata(&metadata).unwrap(),
@@ -1375,6 +1589,40 @@ mod tests {
     }
 
     #[test]
+    fn large_zmodem_download_reads_a_bounded_stream_instead_of_buffering_the_source() {
+        const LENGTH: u64 = 2 * 1024 * 1024 + 17;
+        let largest_read = Arc::new(AtomicUsize::new(0));
+        let source = GeneratedReader {
+            length: LENGTH,
+            position: 0,
+            largest_read: Arc::clone(&largest_read),
+        };
+        let mut files = vec![ProtocolStreamFile {
+            name: "LARGE.BIN".to_owned(),
+            size: LENGTH,
+            source: Box::new(source),
+            modified_unix: None,
+        }];
+        let (mut sending, mut receiving) = duplex();
+        let sender = std::thread::spawn(move || {
+            send_binary_streams(&mut sending, TransferProtocol::ZmodemBatch, &mut files)
+        });
+        let received = receive_binary_files(
+            &mut receiving,
+            TransferProtocol::ZmodemBatch,
+            "LARGE.BIN",
+            LENGTH,
+            1,
+        )
+        .unwrap();
+        sender.join().unwrap().unwrap();
+        assert_eq!(received[0].bytes.len() as u64, LENGTH);
+        assert_eq!(received[0].bytes[0], 0);
+        assert_eq!(received[0].bytes[LENGTH as usize - 1], 16);
+        assert!(largest_read.load(Ordering::Relaxed) <= 4096);
+    }
+
+    #[test]
     fn concurrent_protocol_engines_keep_session_state_isolated() {
         let all_bytes = (0_u8..=255).collect::<Vec<_>>();
         let x_bytes = all_bytes.clone();
@@ -1428,7 +1676,11 @@ mod tests {
 
         let mut canceled = crate::InMemoryTerminal::with_binary_input([CAN]);
         assert!(matches!(
-            send_xmodem(&mut canceled, &[0x42], XMode::Crc),
+            send_xmodem(
+                &mut canceled,
+                &mut stream_file("CANCEL.BIN", vec![0x42]),
+                XMode::Crc
+            ),
             Err(TransferProtocolError::Canceled("XMODEM CRC"))
         ));
 
@@ -1450,5 +1702,102 @@ mod tests {
         };
         let received = round_trip(TransferProtocol::Telink, vec![file.clone()]);
         assert_eq!(received[0].bytes, file.bytes);
+    }
+
+    #[test]
+    fn telink_interoperates_with_independent_fts_0007_vectors() {
+        fn reference_crc(bytes: &[u8]) -> u16 {
+            let mut crc = 0_u16;
+            for byte in bytes {
+                crc ^= u16::from(*byte) << 8;
+                for _ in 0..8 {
+                    crc = if crc & 0x8000 != 0 {
+                        (crc << 1) ^ 0x1021
+                    } else {
+                        crc << 1
+                    };
+                }
+            }
+            crc
+        }
+        fn reference_block(control: u8, sequence: u8, payload: &[u8; 128], crc: bool) -> Vec<u8> {
+            let mut block = vec![control, sequence, 0xff_u8.wrapping_sub(sequence)];
+            block.extend_from_slice(payload);
+            if crc {
+                block.extend_from_slice(&reference_crc(payload).to_be_bytes());
+            } else {
+                block.push(payload.iter().copied().fold(0_u8, u8::wrapping_add));
+            }
+            block
+        }
+
+        // The receive vector is constructed from FTS-0007 fields without
+        // calling the production encoder.
+        let payload = b"independent-telink-vector";
+        let mut descriptor = [0_u8; 128];
+        descriptor[..4].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        descriptor[8..24].fill(b' ');
+        descriptor[8..18].copy_from_slice(b"VECTOR.TXT");
+        descriptor[41] = 1;
+        let mut data = [CPM_EOF; 128];
+        data[..payload.len()].copy_from_slice(payload);
+        let mut wire = reference_block(TELINK_HEADER, 0, &descriptor, false);
+        wire.extend(reference_block(SOH, 1, &data, true));
+        wire.push(EOT);
+        wire.push(EOT);
+        let mut receiver = crate::InMemoryTerminal::with_binary_input(wire);
+        let received = receive_binary_files(
+            &mut receiver,
+            TransferProtocol::Telink,
+            "IGNORED.BIN",
+            4096,
+            1,
+        )
+        .unwrap();
+        assert_eq!(received[0].name, "VECTOR.TXT");
+        assert_eq!(received[0].bytes, payload);
+
+        // Conversely, independently decode and verify the production sender
+        // descriptor and data block rather than feeding them back to it.
+        let mut sender = crate::InMemoryTerminal::with_binary_input([
+            CRC_REQUEST,
+            ACK,
+            ACK,
+            ACK,
+            CRC_REQUEST,
+            ACK,
+        ]);
+        send_binary_files(
+            &mut sender,
+            TransferProtocol::Telink,
+            &[ProtocolFile {
+                name: "VECTOR.TXT".to_owned(),
+                bytes: payload.to_vec(),
+                modified_unix: None,
+            }],
+        )
+        .unwrap();
+        let output = sender.output();
+        assert_eq!(output[0], TELINK_HEADER);
+        let descriptor = &output[3..131];
+        assert_eq!(
+            descriptor.iter().copied().fold(0_u8, u8::wrapping_add),
+            output[131]
+        );
+        assert_eq!(
+            u32::from_le_bytes(descriptor[..4].try_into().unwrap()),
+            payload.len() as u32
+        );
+        assert_eq!(&descriptor[8..18], b"VECTOR.TXT");
+        let data_start = 132;
+        assert_eq!(output[data_start], SOH);
+        let sent_data = &output[data_start + 3..data_start + 131];
+        assert_eq!(&sent_data[..payload.len()], payload);
+        assert_eq!(
+            reference_crc(sent_data).to_be_bytes(),
+            output[data_start + 131..data_start + 133]
+        );
+        assert_eq!(output[data_start + 133], EOT);
+        assert_eq!(output[data_start + 134], EOT);
     }
 }

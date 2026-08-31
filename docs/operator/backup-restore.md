@@ -44,6 +44,8 @@ The snapshot contains:
   Other BBS state, public-resource generations, and public-information audit;
   schema-15 file lifecycle/integrity, requests/review, upload policy,
   normalized operation state, publications, and semantic file audit;
+  schema-16 transfer policy, board-day usage, terminal reservation/settlement
+  history, storage-root/locator authority, and transfer audit;
 - complete SYSTEM (including presentation and language package descriptors,
   catalogs/assets, licenses, provenance, JOKER policy, and any generated SSH
   host key) plus DISPLAY override resources;
@@ -66,7 +68,7 @@ spitfire status /path/to/restored-board/spitfire.toml
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
 
-Current source restores exact supported schema-10 through schema-15 backups.
+Current source restores exact supported schema-10 through schema-17 backups.
 An older snapshot remains at its exact schema during restore and migrates
 transactionally only on the first normal writable startup. Keep the old
 executable and pre-upgrade backup for rollback; there is no in-place schema

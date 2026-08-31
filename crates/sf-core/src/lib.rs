@@ -24,6 +24,7 @@ pub mod resources;
 pub mod session;
 pub mod terminal;
 pub mod transfer;
+pub mod transfer_runtime;
 
 /// Authoritative runtime version sourced from Cargo package metadata.
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -97,6 +98,16 @@ pub use terminal::{
     VerifiedCallerGrant,
 };
 pub use transfer::{
-    receive_binary_files, send_binary_files, ProtocolFile, ReceivedProtocolFile, TransferProtocol,
-    TransferProtocolError,
+    receive_binary_files, send_binary_files, send_binary_streams, ProtocolFile, ProtocolStreamFile,
+    ReceivedProtocolFile, TransferProtocol, TransferProtocolError,
+};
+pub use transfer_runtime::{
+    ActiveTransferSummary, DailyTransferUsage, FileStorageLocator, LegacyDailyLimitDocument,
+    LegacyDailyLimitRecord, LegacyExtendedStorageDocument, QueuedFile, QuotaReservation,
+    ReservationId, StorageAvailability, StorageRoot, StorageRootDefinition, StorageRootId,
+    StorageRootKind, StorageRootMode, StorageRootState, TransferCancelSource,
+    TransferDirectionKind, TransferId, TransferMethod, TransferPolicy, TransferQueue,
+    TransferRuntimeError, TransferRuntimeState, TransferStateChange, UploadCreditRequest,
+    ALL_PROTOCOLS_MASK, MAX_BATCH_QUEUE_BYTES, MAX_BATCH_QUEUE_ITEMS, MAX_LEGACY_POLICY_BYTES,
+    MAX_LEGACY_POLICY_LINES, MAX_LEGACY_STORAGE_ROOTS,
 };

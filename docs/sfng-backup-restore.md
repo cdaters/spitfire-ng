@@ -220,7 +220,7 @@ one; clients will correctly report a changed host fingerprint. See
 
 ## Schema-14 public-information recovery boundary
 
-M043 schema-14 state remains preserved within current schema 15. Cold backup preserves directory policy, each
+M043 schema-14 state remains preserved within current schema 17. Cold backup preserves directory policy, each
 caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
 contributors/versions, recognized resource generations/digests, semantic
 events, and authoritative bulletin/newsletter/native-thought bytes under the
@@ -229,3 +229,17 @@ A schema-13 backup restores exactly and migrates with private defaults only on
 later normal writable startup.
 
 See [Public Information](sfng-public-information.md).
+
+## Schema-16/17 transfer and storage recovery boundary
+
+Cold backup preserves transfer policy, board-day usage, terminal/reviewable
+history, logical roots, per-file locators, and managed bytes. It rejects an
+active transfer or reservation rather than snapshotting ambiguous accounting.
+Protocol sockets, frames, byte streams, and session queues are excluded.
+
+External roots restore as configured expectations and may require a versioned
+private rebind plus confined probe. Temporary absence is
+`StorageUnavailable`, not file `Missing`. Schema 17 additionally preserves
+valid zero-byte catalog objects and their empty SHA-256 through new-root
+restore. Schema-15 and schema-16 backups restore exactly, then migrate only on
+normal writable startup.

@@ -361,20 +361,31 @@ serial/modem transfer remains hardware-unverified. Actual SyncTERM 1.9rc4 and
 specification for the exact matrix and the narrowly blocked ZMODEM batch UI
 path.
 
+## Tranche 6 transfer and storage authority
+
+Schema 16 adds bounded session-ephemeral stable-`FileId` queues, atomic
+board-day quota reservations, idempotent settlement, and stable logical
+storage roots/locators. Downloads resolve an explicit locator and stream a
+confined seekable source in bounded chunks under active-use authority.
+Read-only or temporarily unavailable roots remain distinct from catalog
+integrity state. Schema 17 separately permits valid zero-byte regular files.
+
+B-024 is VERIFIED across all nine required protocol choices and independent
+peers. B-011, B-014, and B-023 remain IMPLEMENTED pending their complete
+caller, policy, and external-media acceptance matrices.
+
 ## Known Fidelity Gaps and Follow-Up
 
-- second-client evidence for Telink and 1K-XMODEM-g, external YMODEM-g upload/
-  batch evidence, ZMODEM multi-file client selection, tag queues, and external
-  protocol drivers;
-- historical file/KB ratios, daily limits, transfer-time credit, and disk-free
-  threshold behavior;
+- complete caller-visible partial/recompute queue behavior and real multinode
+  queue journeys;
+- complete live DST/no-DST, quota, ratio, and upload-credit acceptance;
 - tagging and optional content-hash duplicate policy;
 - exhaustive original-runtime duplicate-family edge behavior;
 - exact legacy `FILE_ID.DIZ` utility edge behavior;
 - `SFFILES.BBS` import/round trip, historical dynamic colorization,
   comma-sensitive size recognition, and historical file-area records;
-- persisted B-023 multi-root configuration, read-only transfer staging, and
-  legacy metadata import.
+- external-media loss, restored-root rebind/probe, and legacy FA/
+  `SFFILES.<x>` adapter acceptance.
 
 These are preserved in the parity checklist as Category A gaps or Category B/C
 follow-up rather than being implied complete.
@@ -384,10 +395,11 @@ follow-up rather than being implied complete.
 Increment 5 proved a functioning native file library over the same caller and
 multinode session engine used by messages. Metadata began at SQLite schema 4;
 schema 6 adds transfer preference state; schema 9 adds only the caller's
-dedicated new-file checkpoint; the current schema 15 adds file lifecycle,
+dedicated new-file checkpoint; schema 15 adds file lifecycle,
 integrity, requests/review, policy, versions, operation journal, publication,
 and semantic audit while retaining later caller-access, identity, and
-public-information state described in
+public-information state; schema 16 adds transfer/accounting/storage authority
+and schema 17 accepts zero-byte files. Caller identity and privacy are described in
 [Caller Authentication](sfng-caller-authentication.md); bytes
 are confined under logical `EXTERNAL`; in-progress uploads are confined under
 logical `WORK`; security is enforced below menus; and only successful verified

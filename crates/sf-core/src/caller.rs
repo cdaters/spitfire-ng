@@ -731,6 +731,14 @@ impl SessionAllowance {
         self.limit_seconds
     }
 
+    /// Applies a bounded, already-authorized upload-time credit to this live
+    /// session. Durable policy/accounting remains the database's authority.
+    pub const fn credit_seconds(self, seconds: u64) -> Self {
+        Self {
+            limit_seconds: self.limit_seconds.saturating_add(seconds),
+        }
+    }
+
     pub fn remaining(self, elapsed: Duration) -> Duration {
         Duration::from_secs(self.limit_seconds.saturating_sub(elapsed.as_secs()))
     }
@@ -901,8 +909,8 @@ mod tests {
     #[test]
     fn caller_names_are_ascii_case_insensitive_and_space_normalized() {
         assert_eq!(
-            canonicalize_caller_name(b"  Alex   Caller ").unwrap(),
-            ("Alex Caller".to_owned(), "alex caller".to_owned())
+            canonicalize_caller_name(b"  Craig   Daters ").unwrap(),
+            ("Craig Daters".to_owned(), "craig daters".to_owned())
         );
         assert!(canonicalize_caller_name(&[0x80]).is_err());
         assert!(canonicalize_caller_name(&[b'X'; 31]).is_err());
@@ -917,7 +925,10 @@ mod tests {
         assert!(canonicalize_login_identifier(b"not valid").is_err());
         assert!(canonicalize_login_identifier(b"-leading").is_err());
         assert!(canonicalize_login_identifier(&[b'x'; 33]).is_err());
-        assert_eq!(derive_login_identifier_base("alex  caller"), "alex-caller");
+        assert_eq!(
+            derive_login_identifier_base("craig  daters"),
+            "craig-daters"
+        );
         assert_eq!(derive_login_identifier_base("***"), "caller");
     }
 
