@@ -138,10 +138,15 @@ After verifying and extracting the package:
 Setup creates a self-contained board with configuration, data directories,
 presentation profiles, and the en-US language package. The operator guide
 explains listener configuration, first calls, messages, files, and backups.
+For the complete, verified current-source journey, use the
+[SPITFIRE NG Quick Start](docs/manual/quick-start.md).
 
 ## Documentation
 
 - [Documentation index](docs/README.md)
+- [Sysop Reference Manual](docs/manual/README.md)
+- [Caller Guide](docs/caller-guide/README.md)
+- [Technical Reference](docs/technical/README.md)
 - [Operator guide](docs/operator/README.md)
 - [Configuration](docs/operator/configuration.md)
 - [Architecture](docs/04-system-architecture.md)
@@ -201,6 +206,8 @@ features. Use them only on networks where that risk is understood.
 Contributions are welcome from BBS developers, Sysops, preservationists, and
 retro-computing enthusiasts. Read [CONTRIBUTING.md](CONTRIBUTING.md) before
 submitting code, format research, documentation, or presentation resources.
+Project-source changes can be checked with
+[`tools/verify-source-headers.rb`](tools/verify-source-headers.rb).
 
 Historical compatibility claims need evidence. Never commit proprietary
 software, private caller data, registered binaries, or unlicensed artwork.

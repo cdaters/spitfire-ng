@@ -3,6 +3,21 @@
 Choose the section that matches what you want to do. You do not need to read
 the historical or architectural material to set up a board.
 
+## Human documentation
+
+- [SPITFIRE NG Sysop Reference Manual](manual/README.md) — Install,
+  configure, operate, secure, back up, and troubleshoot a board. For the
+  shortest verified current-source path, go directly to the
+  [Quick Start](manual/quick-start.md).
+- [SPITFIRE NG Caller Guide](caller-guide/README.md) — Connect, navigate,
+  use messages and files, transfer files, change preferences, and log off.
+- [SPITFIRE NG Technical Reference](technical/README.md) — Architecture,
+  persistence, transports, security, protocols, storage, recovery,
+  compatibility, and testing specifications.
+- [Documentation Architecture and Source-Header Policy](documentation-policy.md)
+  — Audiences, writing standards, source/release labels, publication strategy,
+  and the project-source header policy.
+
 ## Getting started
 
 - [Development Preview Package](operator/development-preview-package.md) —
@@ -119,6 +134,9 @@ legal preservation downloads and original manuals.
 
 - [Contributing](../CONTRIBUTING.md) — Build, test, compatibility, provenance,
   issue, and pull-request expectations.
+- [Source-header validator](../tools/verify-source-headers.rb) — Checks the
+  reviewed public project-source scopes without relabeling generated,
+  third-party, resource, or historical material.
 - [Licensing and Provenance](licensing-and-provenance.md) — What the project
   license covers and what remains external.
 - [Security Policy](../SECURITY.md)
