@@ -43,10 +43,10 @@ maintenance, schema-16 batch transfer policy and logical storage, and the
 schema-17 zero-byte file invariant. Those improvements are not present in the
 published 0.1.0 archive.
 
-The public Category-B ledger is now **10 VERIFIED, 5 IMPLEMENTED, 5 PARTIAL,
-and 5 NOT STARTED**. B-024 transfer interoperability is VERIFIED. B-011 batch
-queues, B-014 transfer policy/accounting, and B-023 extended storage are
-IMPLEMENTED with their remaining acceptance matrices documented separately.
+The public Category-B ledger is now **13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL,
+and 5 NOT STARTED**. B-024 transfer interoperability, B-011 batch queues,
+B-014 transfer policy/accounting, and B-023 extended storage are VERIFIED;
+M039 Tranche 6 is semantically closed.
 
 Available today:
 
@@ -157,6 +157,7 @@ explains listener configuration, first calls, messages, files, and backups.
 - [Tranche 6 implementation](docs/research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md)
 - [Tranche 6 verification](docs/research/m039-tranche-6-verification.md)
 - [Independent transfer interoperability](docs/research/m039-tranche-6-transfer-interoperability.md)
+- [Cross-project reference policy](docs/cross-project-reference-policy.md)
 - [Roadmap](ROADMAP.md)
 
 ## Custom ANSI screens
@@ -187,8 +188,7 @@ behavior maps to the modern implementation.
 
 The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
-advanced Category-B command set, remaining B-011/B-014/B-023 acceptance,
-QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
+advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
 also predates SSH, schemas 13–17, public-information additions, Tranche 5 file
 inspection/request/maintenance, and Tranche 6 transfer/storage source.

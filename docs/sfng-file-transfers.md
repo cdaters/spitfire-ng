@@ -247,6 +247,15 @@ caller session; bounded mid-negotiation disconnect releases reservation and
 active-use state. Schema 17 recognizes zero-byte catalog objects and all nine
 required choices preserve an exact zero logical length.
 
-The implementation and remaining semantic/interoperability blockers are
-recorded in the [Tranche 6 implementation report](research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md)
-and the subsequent [verification record](research/m039-tranche-6-verification.md).
+The implementation boundary is recorded in the
+[Tranche 6 implementation report](research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md),
+and the completed semantic/interoperability matrices are recorded in the
+[verification record](research/m039-tranche-6-verification.md). B-024, B-011,
+B-014, and B-023 are VERIFIED.
+
+Batch protocol engines report their completed member prefix. The session
+settles those members exactly once, removes them from the queue, releases the
+remaining reservation, and retains failed and unstarted stable-ID items. The
+stock Files surface provides queue list, remove/skip, recompute, continue, and
+clear/cancel actions. Recompute reauthorizes each item, preserves unchanged
+order, and refreshes chargeable totals before another reservation.

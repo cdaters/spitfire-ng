@@ -1,5 +1,11 @@
 # SPITFIRE Modern System Architecture
 
+Terminal, renderer, and client-transport changes also follow the bounded
+[FireComm cross-project reference policy](cross-project-reference-policy.md).
+That policy keeps historical SPITFIRE authority and project dependencies
+independent while requiring precise encoding, terminal-protocol, graphics,
+and font-profile claims.
+
 ## 1. Purpose
 
 This document defines the proposed high-level architecture for the modern SPITFIRE Bulletin Board System.

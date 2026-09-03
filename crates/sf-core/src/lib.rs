@@ -58,8 +58,9 @@ pub use file::{
     normalize_filename, AsciiTransfer, FileAccess, FileAccessMode, FileActor, FileArea,
     FileAreaDefinition, FileAreaId, FileBackend, FileEntry, FileError, FileId, FileIntegrity,
     FileLifecycle, FileSearch, FileStatistics, FileStorage, FileTransfer, LogicalFileStorageRoot,
-    NewFileEntry, StagedUpload, StorageRootAccess, TransferDirection, TransferReport,
-    MAX_FILE_AREAS, MAX_FILE_DESCRIPTION_BYTES, MAX_FILE_DESCRIPTION_LINES, MAX_FILE_NAME_BYTES,
+    NewFileEntry, PreparedDownload, StagedUpload, StorageRootAccess, TransferDirection,
+    TransferReport, MAX_FILE_AREAS, MAX_FILE_DESCRIPTION_BYTES, MAX_FILE_DESCRIPTION_LINES,
+    MAX_FILE_NAME_BYTES,
 };
 pub use file_maintenance::*;
 pub use interaction::{
@@ -98,16 +99,17 @@ pub use terminal::{
     VerifiedCallerGrant,
 };
 pub use transfer::{
-    receive_binary_files, send_binary_files, send_binary_streams, ProtocolFile, ProtocolStreamFile,
+    receive_binary_files, send_binary_files, send_binary_streams, send_binary_streams_report,
+    ProtocolFile, ProtocolSendFailure, ProtocolSendReport, ProtocolStreamFile,
     ReceivedProtocolFile, TransferProtocol, TransferProtocolError,
 };
 pub use transfer_runtime::{
     ActiveTransferSummary, DailyTransferUsage, FileStorageLocator, LegacyDailyLimitDocument,
-    LegacyDailyLimitRecord, LegacyExtendedStorageDocument, QueuedFile, QuotaReservation,
-    ReservationId, StorageAvailability, StorageRoot, StorageRootDefinition, StorageRootId,
-    StorageRootKind, StorageRootMode, StorageRootState, TransferCancelSource,
-    TransferDirectionKind, TransferId, TransferMethod, TransferPolicy, TransferQueue,
-    TransferRuntimeError, TransferRuntimeState, TransferStateChange, UploadCreditRequest,
-    ALL_PROTOCOLS_MASK, MAX_BATCH_QUEUE_BYTES, MAX_BATCH_QUEUE_ITEMS, MAX_LEGACY_POLICY_BYTES,
-    MAX_LEGACY_POLICY_LINES, MAX_LEGACY_STORAGE_ROOTS,
+    LegacyDailyLimitRecord, LegacyExtendedStorageDocument, LegacyStorageRootMapping, QueuedFile,
+    QuotaReservation, RatioStatus, ReservationId, StorageAvailability, StorageRoot,
+    StorageRootDefinition, StorageRootId, StorageRootKind, StorageRootMode, StorageRootState,
+    TransferCancelSource, TransferDirectionKind, TransferId, TransferMethod, TransferPolicy,
+    TransferQueue, TransferRuntimeError, TransferRuntimeState, TransferStateChange,
+    UploadCreditRequest, ALL_PROTOCOLS_MASK, MAX_BATCH_QUEUE_BYTES, MAX_BATCH_QUEUE_ITEMS,
+    MAX_LEGACY_POLICY_BYTES, MAX_LEGACY_POLICY_LINES, MAX_LEGACY_STORAGE_ROOTS,
 };

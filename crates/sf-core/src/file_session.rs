@@ -5,12 +5,12 @@ use chrono_tz::Tz;
 use tracing::{info, warn};
 
 use crate::{
-    receive_binary_files, render_display, render_generated_menu, send_binary_streams,
+    receive_binary_files, render_display, render_generated_menu, send_binary_streams_report,
     AsciiTransfer, AuthenticatedCaller, CallerConfig, DisplayContext, FileAccess, FileActor,
     FileArea, FileBackend, FileError, FileSearch, FileStorage, FileTransfer, MenuSection,
-    ProtocolStreamFile, QuotaReservation, RuntimeDatabase, SecurityLevel, Session, SessionError,
-    SessionId, SessionStatusObserver, StockResources, StockSessionContext, Terminal, TerminalError,
-    TextEncodingPolicy, TransferCancelSource, TransferDirection, TransferMethod,
+    ProtocolStreamFile, QuotaReservation, RatioStatus, RuntimeDatabase, SecurityLevel, Session,
+    SessionError, SessionId, SessionStatusObserver, StockResources, StockSessionContext, Terminal,
+    TerminalError, TextEncodingPolicy, TransferCancelSource, TransferDirection, TransferMethod,
     TransferPreference, TransferProtocol, TransferProtocolError, TransferQueue,
     TransferRuntimeError, TransferRuntimeState, TransferStateChange, UploadCreditRequest,
 };
@@ -937,6 +937,41 @@ fn download_file(
         )?;
         return Ok(());
     }
+    if input.eq_ignore_ascii_case(b"/L") {
+        write_queue(terminal, queue)?;
+        return Ok(());
+    }
+    if input.eq_ignore_ascii_case(b"/U") {
+        let removed = recompute_queue(backend, actor, queue)?;
+        write_key_line(
+            terminal,
+            "file-download-queue-recomputed",
+            &crate::LocalizationArgs::new()
+                .with("files", u64::try_from(queue.len()).unwrap_or(u64::MAX))
+                .with("removed", u64::try_from(removed).unwrap_or(u64::MAX)),
+        )?;
+        write_queue(terminal, queue)?;
+        return Ok(());
+    }
+    if input.len() > 3 && input[..3].eq_ignore_ascii_case(b"/R ") {
+        let filename = String::from_utf8_lossy(&input[3..]).trim().to_owned();
+        let removed = queue
+            .items()
+            .iter()
+            .find(|item| item.filename.eq_ignore_ascii_case(&filename))
+            .map(|item| item.file_id)
+            .is_some_and(|file_id| queue.untag(file_id));
+        write_key_line(
+            terminal,
+            if removed {
+                "file-download-queue-removed"
+            } else {
+                "file-download-queue-not-found"
+            },
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(());
+    }
     let requested = String::from_utf8_lossy(&input)
         .split(',')
         .map(str::trim)
@@ -996,13 +1031,7 @@ fn download_file(
             Err(error) => return Err(error.into()),
         }
     }
-    write_key_line(
-        terminal,
-        "file-download-queue-summary",
-        &crate::LocalizationArgs::new()
-            .with("files", u64::try_from(queue.len()).unwrap_or(u64::MAX))
-            .with("bytes", queue.total_bytes()),
-    )?;
+    write_queue(terminal, queue)?;
     let protocol = choose_transfer_protocol(terminal, preference)?;
     if protocol == SelectedProtocol::Canceled {
         return Ok(());
@@ -1031,6 +1060,17 @@ fn download_file(
         return Ok(());
     }
     let now = crate::session::unix_seconds()?;
+    if backend
+        .download_ratio_status(actor)
+        .map_err(transfer_runtime_session_error)?
+        == RatioStatus::Warning
+    {
+        write_key_line(
+            terminal,
+            "file-download-ratio-warning",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
     let reservation = match backend.reserve_download_queue(
         actor,
         node_id,
@@ -1131,7 +1171,7 @@ fn download_file(
             let (root, locator) = backend
                 .resolve_file_storage(file.id)
                 .map_err(transfer_runtime_session_error)?;
-            let input = storage.open_resolved_download(&root, &locator, file)?;
+            let input = storage.prepare_resolved_download(&root, &locator, file)?;
             payloads.push(ProtocolStreamFile {
                 name: file.filename.clone(),
                 size: file.size_bytes,
@@ -1157,10 +1197,10 @@ fn download_file(
                 },
             )
             .map_err(transfer_runtime_session_error)?;
-        let result = send_binary_streams(terminal, binary, &mut payloads);
+        let result = send_binary_streams_report(terminal, binary, &mut payloads);
         status.transfer_finished()?;
         match result {
-            Ok(()) => {
+            Ok(report) if report.completed_files == queue.len() => {
                 settle_download(
                     backend,
                     &reservation,
@@ -1180,13 +1220,62 @@ fn download_file(
                     "caller completed binary file download"
                 );
             }
-            Err(error) => {
-                warn!(caller_id = actor.caller_id().get(), protocol = binary.stock_name(), error = %error, "binary file download failed");
-                write_line(
+            Ok(report) => {
+                return Err(FileError::Maintenance(format!(
+                    "protocol completed {} of {} files without a terminal result",
+                    report.completed_files,
+                    queue.len()
+                ))
+                .into());
+            }
+            Err(failure) => {
+                warn!(caller_id = actor.caller_id().get(), protocol = binary.stock_name(), error = %failure.error, completed_files = failure.completed_files, "binary file download failed");
+                let completed = failure.completed_files.min(queue.len());
+                if completed > 0 {
+                    backend
+                        .set_transfer_state(
+                            &reservation.transfer_id,
+                            TransferStateChange {
+                                expected_version: state_version,
+                                state: TransferRuntimeState::Settling,
+                                bytes_transferred: files[..completed]
+                                    .iter()
+                                    .map(|file| file.size_bytes)
+                                    .sum(),
+                                error_class: None,
+                                cancel_source: None,
+                                occurred_at: crate::session::unix_seconds()?,
+                            },
+                        )
+                        .map_err(transfer_runtime_session_error)?;
+                }
+                let settled = queue.items()[..completed]
+                    .iter()
+                    .map(|item| item.item_id.clone())
+                    .collect::<Vec<_>>();
+                for item in &queue.items()[..completed] {
+                    backend
+                        .settle_download_item(
+                            &reservation.id,
+                            &item.item_id,
+                            item.bytes,
+                            crate::session::unix_seconds()?,
+                        )
+                        .map_err(transfer_runtime_session_error)?;
+                }
+                queue.retain_unsettled(&settled);
+                write_key_line(
                     terminal,
-                    "Transfer failed or was canceled; statistics were not changed.",
+                    if completed == 0 {
+                        "file-download-failed"
+                    } else {
+                        "file-download-partial"
+                    },
+                    &crate::LocalizationArgs::new()
+                        .with("completed", u64::try_from(completed).unwrap_or(u64::MAX))
+                        .with("remaining", u64::try_from(queue.len()).unwrap_or(u64::MAX)),
                 )?;
-                let (state, source, class) = transfer_failure_class(&error);
+                let (state, source, class) = transfer_failure_class(&failure.error);
                 backend
                     .release_transfer(
                         &reservation.id,
@@ -1215,6 +1304,58 @@ fn download_file(
         );
     }
     transfer_result
+}
+
+fn write_queue(terminal: &mut dyn Terminal, queue: &TransferQueue) -> Result<(), SessionError> {
+    let (chargeable_files, chargeable_bytes) = queue.chargeable_totals();
+    write_key_line(
+        terminal,
+        "file-download-queue-summary",
+        &crate::LocalizationArgs::new()
+            .with("files", u64::try_from(queue.len()).unwrap_or(u64::MAX))
+            .with("bytes", queue.total_bytes())
+            .with("chargeable_files", chargeable_files)
+            .with("chargeable_bytes", chargeable_bytes),
+    )?;
+    for item in queue.items() {
+        write_key_line(
+            terminal,
+            "file-download-queue-item",
+            &crate::LocalizationArgs::new()
+                .with("filename", item.filename.as_str())
+                .with("bytes", item.bytes),
+        )?;
+    }
+    Ok(())
+}
+
+fn recompute_queue(
+    backend: &RuntimeDatabase,
+    actor: FileActor,
+    queue: &mut TransferQueue,
+) -> Result<usize, SessionError> {
+    let prior = queue.items().to_vec();
+    let areas = backend
+        .file_areas(actor)?
+        .into_iter()
+        .map(|(area, access)| (area.id, (area, access)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    queue.clear();
+    let mut removed = 0;
+    for item in prior {
+        let Some((area, access)) = areas.get(&item.area_id) else {
+            removed += 1;
+            continue;
+        };
+        let Some(file) = backend.load_file_by_id(item.file_id)? else {
+            removed += 1;
+            continue;
+        };
+        if *access != FileAccess::Full || queue.tag(&file, area.no_charge).is_err() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 fn download_ascii(
@@ -2195,5 +2336,82 @@ mod tests {
             database.new_file_checkpoint(actor).unwrap(),
             Some(checked_at + 60)
         );
+    }
+
+    #[test]
+    fn caller_queue_recompute_uses_stable_ids_and_removes_inaccessible_items() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = RuntimeConfig::synthetic_fixture().validate().unwrap();
+        let paths = LogicalPaths::resolve(temp.path(), &config).unwrap();
+        paths.create_directories().unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        database.migrate().unwrap();
+        let caller = database
+            .create_caller(
+                b"Queue Caller",
+                "test-only-stored-hash",
+                SecurityLevel::new(10).unwrap(),
+                CallerState::Active,
+                false,
+                100,
+            )
+            .unwrap();
+        let actor = FileActor::new(caller.id, SecurityLevel::new(50).unwrap());
+        let area = database
+            .create_file_area(&FileAreaDefinition {
+                number: 1,
+                name: "Queue".to_owned(),
+                description: "Queue recompute".to_owned(),
+                storage_key: "queue-recompute".to_owned(),
+                access_mode: FileAccessMode::AtLeast,
+                read_security: SecurityLevel::new(5).unwrap(),
+                upload_security: SecurityLevel::new(5).unwrap(),
+                preview: false,
+                no_charge: false,
+                maximum_upload_bytes: 1_048_576,
+                privileged_security_levels: Vec::new(),
+            })
+            .unwrap();
+        let storage = FileStorage::new(&paths).unwrap();
+        let first = storage
+            .write_seed_file(&mut database, &area, "ONE.BIN", "One", b"one", 100)
+            .unwrap();
+        let second = storage
+            .write_seed_file(&mut database, &area, "TWO.BIN", "Two", b"two", 101)
+            .unwrap();
+        let third = storage
+            .write_seed_file(&mut database, &area, "THREE.BIN", "Three", b"three", 102)
+            .unwrap();
+        let mut queue = TransferQueue::default();
+        queue.tag(&first, false).unwrap();
+        queue.tag(&second, false).unwrap();
+        queue.tag(&third, false).unwrap();
+        database
+            .connection
+            .execute(
+                "UPDATE files SET lifecycle='disabled',state_version=state_version+1 WHERE file_id=?1",
+                rusqlite::params![second.id.get()],
+            )
+            .unwrap();
+        database
+            .connection
+            .execute(
+                "UPDATE files SET state_version=state_version+1 WHERE file_id=?1",
+                rusqlite::params![third.id.get()],
+            )
+            .unwrap();
+        assert_eq!(recompute_queue(&database, actor, &mut queue).unwrap(), 1);
+        assert_eq!(
+            queue
+                .items()
+                .iter()
+                .map(|item| item.filename.as_str())
+                .collect::<Vec<_>>(),
+            vec!["ONE.BIN", "THREE.BIN"]
+        );
+        assert_eq!(queue.items()[0].file_id, first.id);
+        assert_eq!(queue.items()[1].file_id, third.id);
+        assert!(queue.items()[1].expected_file_version > third.state_version);
+        assert_eq!(queue.total_bytes(), 8);
     }
 }

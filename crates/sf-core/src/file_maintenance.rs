@@ -1282,6 +1282,31 @@ impl RuntimeDatabase {
         actor: FileAdminActor,
         area_id: FileAreaId,
     ) -> Result<String, FileMaintenanceError> {
+        self.publish_legacy_listing_named(storage, actor, area_id, "SFFILES.BBS")
+    }
+
+    /// Publishes the semantic catalog through the bounded historical
+    /// SFFILES.<x> filename family used by read-only/extended media adapters.
+    pub fn publish_numbered_legacy_listing(
+        &mut self,
+        storage: &FileStorage,
+        actor: FileAdminActor,
+        area_id: FileAreaId,
+        index: u16,
+    ) -> Result<String, FileMaintenanceError> {
+        if index == 0 {
+            return Err(FileMaintenanceError::LegacyPublicationUnrepresentable);
+        }
+        self.publish_legacy_listing_named(storage, actor, area_id, &format!("SFFILES.{index}"))
+    }
+
+    fn publish_legacy_listing_named(
+        &mut self,
+        storage: &FileStorage,
+        actor: FileAdminActor,
+        area_id: FileAreaId,
+        target_name: &str,
+    ) -> Result<String, FileMaintenanceError> {
         self.authorize_file_admin(actor)?;
         let area = self
             .load_area_by_id(area_id)?
@@ -1343,11 +1368,11 @@ impl RuntimeDatabase {
             return Err(FileMaintenanceError::LegacyPublicationUnrepresentable);
         };
         let directory = storage.ensure_area(&area)?;
-        let temporary = directory.join(format!("SFFILES.BBS.{operation_id}.part"));
-        let destination = directory.join("SFFILES.BBS");
+        let temporary = directory.join(format!("{target_name}.{operation_id}.part"));
+        let destination = directory.join(target_name);
         self.connection.execute(
             "UPDATE file_operations SET phase='staged',staging_path=?2,digest=?3,updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
-            params![operation_id, format!("{}/SFFILES.BBS.{operation_id}.part", area.storage_key), format!("{:x}", Sha256::digest(&encoded))],
+            params![operation_id, format!("{}/{target_name}.{operation_id}.part", area.storage_key), format!("{:x}", Sha256::digest(&encoded))],
         )?;
         let mut staged = OpenOptions::new()
             .create_new(true)
@@ -1385,8 +1410,8 @@ impl RuntimeDatabase {
             params![operation_id],
         )?;
         transaction.execute(
-            "INSERT INTO file_events(operation,actor_caller_id,area_id,operation_id,digest,detail) VALUES('listing-published',?1,?2,?3,?4,'SFFILES.BBS')",
-            params![actor.caller_id().map(CallerId::get), area_id.get(), operation_id, digest],
+            "INSERT INTO file_events(operation,actor_caller_id,area_id,operation_id,digest,detail) VALUES('listing-published',?1,?2,?3,?4,?5)",
+            params![actor.caller_id().map(CallerId::get), area_id.get(), operation_id, digest, target_name],
         )?;
         transaction.commit()?;
         Ok(digest)
@@ -4732,6 +4757,54 @@ mod tests {
         assert!(first.starts_with("LIST.TXT"));
         assert_eq!(&first[23..31], "11-14-23");
         assert!(first[33..].starts_with("First line"));
+    }
+
+    #[test]
+    fn numbered_extended_listing_is_a_bounded_semantic_publication_adapter() {
+        let mut fixture = fixture();
+        fixture
+            .storage
+            .write_seed_file(
+                &mut fixture.database,
+                &fixture.area,
+                "CDROM.TXT",
+                "Read-only publication fixture",
+                b"listing",
+                1_700_000_000,
+            )
+            .unwrap();
+        fixture
+            .database
+            .publish_numbered_legacy_listing(
+                &fixture.storage,
+                FileAdminActor::LocalOperator,
+                fixture.area.id,
+                7,
+            )
+            .unwrap();
+        let directory = fixture.storage.ensure_area(&fixture.area).unwrap();
+        let numbered = fs::read(directory.join("SFFILES.7")).unwrap();
+        assert!(String::from_utf8_lossy(&numbered).contains("CDROM.TXT"));
+        assert!(matches!(
+            fixture.database.publish_numbered_legacy_listing(
+                &fixture.storage,
+                FileAdminActor::LocalOperator,
+                fixture.area.id,
+                0,
+            ),
+            Err(FileMaintenanceError::LegacyPublicationUnrepresentable)
+        ));
+        let detail: String = fixture
+            .database
+            .connection
+            .query_row(
+                "SELECT detail FROM file_events WHERE operation='listing-published' ORDER BY event_id DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(detail, "SFFILES.7");
+        assert!(!detail.contains(fixture._temp.path().to_str().unwrap()));
     }
 
     #[test]

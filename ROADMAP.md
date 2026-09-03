@@ -52,8 +52,8 @@ outcomes rather than internal checkpoint chronology.
   settlement, bounded session queues, all nine required transfer engines,
   logical storage roots/locators, read-only media semantics, active-use, and
   bounded large-source streaming. Schema 17 separately permits valid
-  zero-byte catalog objects. B-024 is VERIFIED; B-011, B-014, and B-023 remain
-  IMPLEMENTED pending their complete caller/policy/storage acceptance.
+  zero-byte catalog objects. B-024, B-011, B-014, and B-023 are VERIFIED, and
+  M039 Tranche 6 is semantically closed.
 
 ### Modern transport interleave
 
@@ -106,11 +106,11 @@ remain IMPLEMENTED while their documented legacy-import/recovery/operator and
 caller-workflow acceptance items remain open.
 
 Tranche 6 adds B-024/B-011/B-014/B-023 on schema 16, with schema 17 correcting
-zero-byte file authority. Independent original and modern peers close B-024,
-which is VERIFIED. B-011, B-014, and B-023 remain IMPLEMENTED with explicit
-caller partial/recompute, live policy/DST, and external-media restore/adapter
-acceptance still open. The Category-B ledger is now 10 VERIFIED, 5
-IMPLEMENTED, 5 PARTIAL, and 5 NOT STARTED.
+zero-byte file authority. Independent original and modern peers close B-024;
+member-aware queue recovery, policy/DST/concurrency acceptance, and external-
+storage restore/adapter acceptance close B-011, B-014, and B-023. All four
+rows are VERIFIED and M039 Tranche 6 is semantically closed. The Category-B
+ledger is now 13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL, and 5 NOT STARTED.
 
 No subsequent Category-B tranche is started by this source synchronization.
 Future work remains dependency-gated and begins only after its interface and

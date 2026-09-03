@@ -237,9 +237,10 @@ history, logical roots, per-file locators, and managed bytes. It rejects an
 active transfer or reservation rather than snapshotting ambiguous accounting.
 Protocol sockets, frames, byte streams, and session queues are excluded.
 
-External roots restore as configured expectations and may require a versioned
-private rebind plus confined probe. Temporary absence is
-`StorageUnavailable`, not file `Missing`. Schema 17 additionally preserves
-valid zero-byte catalog objects and their empty SHA-256 through new-root
-restore. Schema-15 and schema-16 backups restore exactly, then migrate only on
-normal writable startup.
+External catalog entries and stable FileIds restore without copying external
+payloads. Restored external roots begin at Unknown and require a versioned
+private rebind plus confined probe; temporary absence is `StorageUnavailable`,
+not file `Missing`. Schema 17 additionally preserves valid zero-byte catalog
+objects and their empty SHA-256 through new-root restore. Schema-15 and
+schema-16 backups restore exactly, then migrate only on normal writable
+startup.

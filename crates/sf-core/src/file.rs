@@ -542,6 +542,31 @@ impl RuntimeDatabase {
         Ok(catalog)
     }
 
+    /// Returns only catalog entries whose authoritative schema-16 locator is
+    /// in board-managed storage. External/read-only bytes remain referenced
+    /// by the database but are deliberately not copied into a cold backup.
+    pub fn managed_cataloged_files(&self) -> Result<Vec<(FileArea, FileEntry)>, FileError> {
+        let catalog = self.all_cataloged_files()?;
+        if self.schema_version()? < 16 {
+            return Ok(catalog);
+        }
+        let mut managed = Vec::new();
+        for (area, file) in catalog {
+            let is_managed: bool = self
+                .connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM file_storage_locators l JOIN file_storage_roots r ON r.storage_root_id=l.storage_root_id WHERE l.file_id=?1 AND r.root_kind='managed')",
+                    params![file.id.get()],
+                    |row| row.get(0),
+                )
+                .map_err(FileError::Sqlite)?;
+            if is_managed {
+                managed.push((area, file));
+            }
+        }
+        Ok(managed)
+    }
+
     pub fn file_count(&self, area: FileAreaId) -> Result<u64, FileError> {
         let count: i64 = self
             .connection
@@ -1332,6 +1357,36 @@ pub struct FileStorage {
     staging_root: PathBuf,
 }
 
+/// A confined, seekable transfer source. External roots configured for
+/// staging are copied into a delete-on-drop temporary file; managed roots are
+/// streamed directly after integrity verification.
+pub struct PreparedDownload {
+    source: PreparedDownloadSource,
+}
+
+enum PreparedDownloadSource {
+    Direct(File),
+    Staged(tempfile::NamedTempFile),
+}
+
+impl Read for PreparedDownload {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        match &mut self.source {
+            PreparedDownloadSource::Direct(file) => file.read(buffer),
+            PreparedDownloadSource::Staged(file) => file.read(buffer),
+        }
+    }
+}
+
+impl Seek for PreparedDownload {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        match &mut self.source {
+            PreparedDownloadSource::Direct(file) => file.seek(position),
+            PreparedDownloadSource::Staged(file) => file.seek(position),
+        }
+    }
+}
+
 impl FileStorage {
     pub fn new(paths: &LogicalPaths) -> Result<Self, FileError> {
         let files_root = paths.get(LogicalPath::External).join("files");
@@ -1588,6 +1643,58 @@ impl FileStorage {
                 source,
             })?;
         Ok(input)
+    }
+
+    /// Prepares a bounded transfer source according to the authoritative root
+    /// policy. The temporary filename and configured host root never enter
+    /// caller-visible or audit data.
+    pub fn prepare_resolved_download(
+        &self,
+        root: &StorageRoot,
+        locator: &crate::FileStorageLocator,
+        file: &FileEntry,
+    ) -> Result<PreparedDownload, FileError> {
+        let mut source = self.open_resolved_download(root, locator, file)?;
+        if root.kind != StorageRootKind::External || !root.staging_always {
+            return Ok(PreparedDownload {
+                source: PreparedDownloadSource::Direct(source),
+            });
+        }
+        create_real_directory(&self.staging_root)?;
+        let mut staged = tempfile::Builder::new()
+            .prefix(".download-")
+            .tempfile_in(&self.staging_root)
+            .map_err(|source| FileError::StorageIo {
+                path: self.staging_root.clone(),
+                source,
+            })?;
+        let mut digest = Sha256::new();
+        let mut size = 0_u64;
+        let mut buffer = [0_u8; COPY_BUFFER_BYTES];
+        loop {
+            let read = source.read(&mut buffer).map_err(FileError::TransferIo)?;
+            if read == 0 {
+                break;
+            }
+            size = size
+                .checked_add(read as u64)
+                .ok_or(FileError::CounterOverflow(u64::MAX))?;
+            digest.update(&buffer[..read]);
+            staged
+                .write_all(&buffer[..read])
+                .map_err(FileError::TransferIo)?;
+        }
+        let sha256 = format!("{:x}", digest.finalize());
+        if size != file.size_bytes || sha256 != file.sha256 {
+            return Err(FileError::ContentMismatch(file.filename.clone()));
+        }
+        staged.as_file().sync_all().map_err(FileError::TransferIo)?;
+        staged
+            .seek(SeekFrom::Start(0))
+            .map_err(FileError::TransferIo)?;
+        Ok(PreparedDownload {
+            source: PreparedDownloadSource::Staged(staged),
+        })
     }
 
     /// Performs the filesystem half of an operator-directed storage-root
@@ -1862,20 +1969,24 @@ impl FileStorage {
         root: &crate::StorageRoot,
         locator: &crate::FileStorageLocator,
         entry: &FileEntry,
-    ) -> Result<fs::File, FileError> {
-        let mut file = self.open_resolved_download(root, locator, entry)?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)
-            .map_err(FileError::TransferIo)?;
-        if bytes
-            .iter()
-            .any(|byte| *byte >= 0x7f || (*byte < 0x20 && !matches!(*byte, b'\r' | b'\n' | b'\t')))
-        {
-            return Err(FileError::NotAsciiText);
+    ) -> Result<PreparedDownload, FileError> {
+        let mut source = self.prepare_resolved_download(root, locator, entry)?;
+        let mut buffer = [0_u8; COPY_BUFFER_BYTES];
+        loop {
+            let read = source.read(&mut buffer).map_err(FileError::TransferIo)?;
+            if read == 0 {
+                break;
+            }
+            if buffer[..read].iter().any(|byte| {
+                *byte >= 0x7f || (*byte < 0x20 && !matches!(*byte, b'\r' | b'\n' | b'\t'))
+            }) {
+                return Err(FileError::NotAsciiText);
+            }
         }
-        file.seek(SeekFrom::Start(0))
+        source
+            .seek(SeekFrom::Start(0))
             .map_err(FileError::TransferIo)?;
-        Ok(file)
+        Ok(source)
     }
 }
 
@@ -2611,6 +2722,88 @@ mod tests {
         assert_eq!(uploaded.size_bytes, 0);
         assert_eq!(uploaded.sha256, seeded.sha256);
         assert_eq!(database.file_count(area.id).unwrap(), 2);
+    }
+
+    #[test]
+    fn external_transfer_staging_is_bounded_verified_and_survives_media_loss() {
+        let (temp, mut database, storage, actor, _caller_id) = test_board();
+        database
+            .connection
+            .execute(
+                "UPDATE callers SET security_level=50 WHERE caller_id=?1",
+                params![actor.caller_id().get()],
+            )
+            .unwrap();
+        let area = database.create_file_area(&area(1, "external", 5)).unwrap();
+        let bytes = (0_u8..=255)
+            .cycle()
+            .take(4 * 1024 * 1024 + 37)
+            .collect::<Vec<_>>();
+        let entry = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "LARGE.BIN",
+                "Generated large source",
+                &bytes,
+                300,
+            )
+            .unwrap();
+        let external = temp.path().join("read-only-media");
+        fs::create_dir(&external).unwrap();
+        fs::write(external.join("LARGE.BIN"), &bytes).unwrap();
+        let root = database
+            .add_storage_root(
+                actor,
+                crate::StorageRootDefinition {
+                    area_id: area.id,
+                    stable_key: "large-media",
+                    label: "Large media",
+                    configured_locator: external.to_str().unwrap(),
+                    priority: 1,
+                    mode: crate::StorageRootMode::ReadOnly,
+                    occurred_at: 301,
+                },
+            )
+            .unwrap();
+        database
+            .set_storage_availability(
+                actor,
+                root.id,
+                root.state_version,
+                StorageAvailability::Available,
+                302,
+            )
+            .unwrap();
+        database
+            .set_file_storage_locator(
+                actor,
+                entry.id,
+                root.id,
+                "LARGE.BIN",
+                entry.state_version,
+                1,
+                303,
+            )
+            .unwrap();
+        let (root, locator) = database.resolve_file_storage(entry.id).unwrap();
+        let mut prepared = storage
+            .prepare_resolved_download(&root, &locator, &entry)
+            .unwrap();
+        fs::remove_file(external.join("LARGE.BIN")).unwrap();
+        let mut received = Vec::new();
+        prepared.read_to_end(&mut received).unwrap();
+        assert_eq!(received, bytes);
+        drop(prepared);
+        assert_eq!(fs::read_dir(&storage.staging_root).unwrap().count(), 0);
+        assert_ne!(
+            database
+                .load_file_by_id(entry.id)
+                .unwrap()
+                .unwrap()
+                .integrity,
+            FileIntegrity::Missing
+        );
     }
 
     #[test]

@@ -87,8 +87,8 @@ publication. A future sfconfig/sfmonitor/CLI must call these typed, versioned
 commands; there is intentionally no direct online SQLite or managed-root edit.
 Session-ephemeral stable-ID queues, ratios/daily limits, logical read-only
 roots, and bounded transfer streaming are implemented in current source.
-Their remaining caller/policy/storage acceptance and the broader enhanced file
-UI remain separate. See the
+All four Tranche 6 rows are VERIFIED; the broader enhanced file UI remains
+separate. See the
 [implementation report](../research/m039-tranche-5-safe-file-inspection-request-maintenance-implementation.md)
 and [verification report](../research/m039-tranche-5-verification.md).
 See [Native SPITFIRE NG File System](../sfng-file-system.md).

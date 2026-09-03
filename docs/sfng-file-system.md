@@ -370,22 +370,18 @@ confined seekable source in bounded chunks under active-use authority.
 Read-only or temporarily unavailable roots remain distinct from catalog
 integrity state. Schema 17 separately permits valid zero-byte regular files.
 
-B-024 is VERIFIED across all nine required protocol choices and independent
-peers. B-011, B-014, and B-023 remain IMPLEMENTED pending their complete
-caller, policy, and external-media acceptance matrices.
+B-024, B-011, B-014, and B-023 are VERIFIED. Acceptance covers independent
+protocol peers, caller queue recovery, policy/day/concurrency boundaries, and
+external-media restore/rebind without turning raw paths into native authority.
 
 ## Known Fidelity Gaps and Follow-Up
 
-- complete caller-visible partial/recompute queue behavior and real multinode
-  queue journeys;
-- complete live DST/no-DST, quota, ratio, and upload-credit acceptance;
 - tagging and optional content-hash duplicate policy;
 - exhaustive original-runtime duplicate-family edge behavior;
 - exact legacy `FILE_ID.DIZ` utility edge behavior;
 - `SFFILES.BBS` import/round trip, historical dynamic colorization,
   comma-sensitive size recognition, and historical file-area records;
-- external-media loss, restored-root rebind/probe, and legacy FA/
-  `SFFILES.<x>` adapter acceptance.
+- exact undocumented FA cleanup/order and `SFFILES.<x>` byte trivia.
 
 These are preserved in the parity checklist as Category A gaps or Category B/C
 follow-up rather than being implied complete.

@@ -80,6 +80,19 @@ pub struct ProtocolStreamFile {
     pub modified_unix: Option<u64>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProtocolSendReport {
+    pub completed_files: usize,
+}
+
+#[derive(Debug, Error)]
+#[error("{error}")]
+pub struct ProtocolSendFailure {
+    #[source]
+    pub error: TransferProtocolError,
+    pub completed_files: usize,
+}
+
 impl std::fmt::Debug for ProtocolStreamFile {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -149,21 +162,67 @@ pub fn send_binary_streams(
     protocol: TransferProtocol,
     files: &mut [ProtocolStreamFile],
 ) -> Result<(), TransferProtocolError> {
+    send_binary_streams_report(terminal, protocol, files)
+        .map(|_| ())
+        .map_err(|failure| failure.error)
+}
+
+pub fn send_binary_streams_report(
+    terminal: &mut dyn Terminal,
+    protocol: TransferProtocol,
+    files: &mut [ProtocolStreamFile],
+) -> Result<ProtocolSendReport, ProtocolSendFailure> {
     if !protocol.is_batch() && files.len() != 1 {
-        return Err(TransferProtocolError::SingleFileOnly(protocol.stock_name()));
+        return Err(ProtocolSendFailure {
+            error: TransferProtocolError::SingleFileOnly(protocol.stock_name()),
+            completed_files: 0,
+        });
     }
-    terminal.begin_binary_mode()?;
+    terminal
+        .begin_binary_mode()
+        .map_err(|error| ProtocolSendFailure {
+            error: error.into(),
+            completed_files: 0,
+        })?;
     let result = match protocol {
-        TransferProtocol::XmodemChecksum => send_xmodem(terminal, &mut files[0], XMode::Checksum),
-        TransferProtocol::XmodemCrc => send_xmodem(terminal, &mut files[0], XMode::Crc),
-        TransferProtocol::Xmodem1k => send_xmodem(terminal, &mut files[0], XMode::OneK),
-        TransferProtocol::Xmodem1kG => send_xmodem(terminal, &mut files[0], XMode::OneKG),
+        TransferProtocol::XmodemChecksum => send_xmodem(terminal, &mut files[0], XMode::Checksum)
+            .map(|_| 1)
+            .map_err(|error| (error, 0)),
+        TransferProtocol::XmodemCrc => send_xmodem(terminal, &mut files[0], XMode::Crc)
+            .map(|_| 1)
+            .map_err(|error| (error, 0)),
+        TransferProtocol::Xmodem1k => send_xmodem(terminal, &mut files[0], XMode::OneK)
+            .map(|_| 1)
+            .map_err(|error| (error, 0)),
+        TransferProtocol::Xmodem1kG => send_xmodem(terminal, &mut files[0], XMode::OneKG)
+            .map(|_| 1)
+            .map_err(|error| (error, 0)),
         TransferProtocol::YmodemBatch => send_ymodem(terminal, files, false),
         TransferProtocol::YmodemGBatch => send_ymodem(terminal, files, true),
         TransferProtocol::ZmodemBatch => send_zmodem(terminal, files),
-        TransferProtocol::Telink => send_telink(terminal, &mut files[0]),
+        TransferProtocol::Telink => send_telink(terminal, &mut files[0])
+            .map(|_| 1)
+            .map_err(|error| (error, 0)),
     };
-    finish_binary_mode(terminal, result)
+    let completed_files = match result {
+        Ok(count) => count,
+        Err((error, count)) => {
+            let _ = terminal.end_binary_mode();
+            return Err(ProtocolSendFailure {
+                error,
+                completed_files: count,
+            });
+        }
+    };
+    terminal
+        .end_binary_mode()
+        .map_err(|error| ProtocolSendFailure {
+            error: error.into(),
+            // A carrier cleanup failure does not provide a trustworthy
+            // durable completion boundary to the accounting layer.
+            completed_files: 0,
+        })?;
+    Ok(ProtocolSendReport { completed_files })
 }
 
 pub fn receive_binary_files(
@@ -397,45 +456,50 @@ fn send_ymodem(
     terminal: &mut dyn Terminal,
     files: &mut [ProtocolStreamFile],
     streaming: bool,
-) -> Result<(), TransferProtocolError> {
-    let protocol = if streaming { "YMODEM-g" } else { "YMODEM" };
-    let request = read_control_with_retries(terminal, protocol)?;
-    if request
-        != if streaming {
-            STREAM_REQUEST
-        } else {
-            CRC_REQUEST
-        }
-    {
-        return Err(malformed(protocol, "unexpected batch initiation"));
-    }
-    for file in files {
-        validate_remote_filename(&file.name)?;
-        let metadata = ymodem_metadata(file)?;
-        send_ymodem_metadata(terminal, protocol, &metadata, request, streaming)?;
-        if !streaming {
-            let data_request = read_control_with_retries(terminal, protocol)?;
-            if data_request != CRC_REQUEST {
-                return Err(malformed(protocol, "receiver did not initiate file data"));
-            }
-        }
-        send_ymodem_data(terminal, protocol, file, streaming)?;
-        finish_ymodem_file_send(terminal, protocol)?;
-        let next_request = read_control_with_retries(terminal, protocol)?;
-        if next_request
+) -> Result<usize, (TransferProtocolError, usize)> {
+    let mut completed = 0;
+    let send = (|| -> Result<(), TransferProtocolError> {
+        let protocol = if streaming { "YMODEM-g" } else { "YMODEM" };
+        let request = read_control_with_retries(terminal, protocol)?;
+        if request
             != if streaming {
                 STREAM_REQUEST
             } else {
                 CRC_REQUEST
             }
         {
-            return Err(malformed(
-                protocol,
-                "receiver did not request next metadata block",
-            ));
+            return Err(malformed(protocol, "unexpected batch initiation"));
         }
-    }
-    send_ymodem_metadata(terminal, protocol, &[0_u8; 128], request, streaming)
+        for file in files {
+            validate_remote_filename(&file.name)?;
+            let metadata = ymodem_metadata(file)?;
+            send_ymodem_metadata(terminal, protocol, &metadata, request, streaming)?;
+            if !streaming {
+                let data_request = read_control_with_retries(terminal, protocol)?;
+                if data_request != CRC_REQUEST {
+                    return Err(malformed(protocol, "receiver did not initiate file data"));
+                }
+            }
+            send_ymodem_data(terminal, protocol, file, streaming)?;
+            finish_ymodem_file_send(terminal, protocol)?;
+            completed += 1;
+            let next_request = read_control_with_retries(terminal, protocol)?;
+            if next_request
+                != if streaming {
+                    STREAM_REQUEST
+                } else {
+                    CRC_REQUEST
+                }
+            {
+                return Err(malformed(
+                    protocol,
+                    "receiver did not request next metadata block",
+                ));
+            }
+        }
+        send_ymodem_metadata(terminal, protocol, &[0_u8; 128], request, streaming)
+    })();
+    send.map(|_| completed).map_err(|error| (error, completed))
 }
 
 fn send_ymodem_metadata(
@@ -645,79 +709,87 @@ fn receive_ymodem_data(
 fn send_zmodem(
     terminal: &mut dyn Terminal,
     files: &mut [ProtocolStreamFile],
-) -> Result<(), TransferProtocolError> {
-    let mut sender = Sender::new().map_err(zmodem_error)?;
-    sender.set_streaming_window(usize::MAX);
+) -> Result<usize, (TransferProtocolError, usize)> {
     let mut index = 0;
-    let mut started = false;
-    let mut finishing = false;
-    let mut session_complete = false;
-    let mut wire = [0_u8; 4096];
-    let mut pending_wire = Vec::new();
-    loop {
-        match sender.poll() {
-            Action::WriteWire(bytes) => {
-                let bytes = bytes.to_vec();
-                terminal.write_binary(&bytes)?;
-                sender.wire_written(bytes.len());
-            }
-            Action::ReadFile { offset, max_len } => {
-                let start = u64::from(offset.get());
-                let remaining = files[index].size.saturating_sub(start);
-                let count = usize::try_from(remaining.min(max_len as u64))
-                    .expect("ZMODEM chunk fits usize");
-                let mut chunk = vec![0_u8; count];
-                read_source_exact(&mut files[index], start, &mut chunk, "ZMODEM")?;
-                sender.submit_file(&chunk).map_err(zmodem_error)?;
-            }
-            Action::Event(Event::FileCompleted) => {
-                index += 1;
-                started = false;
-            }
-            Action::Event(Event::SessionCompleted) => {
-                session_complete = true;
-            }
-            Action::Event(Event::Aborted) => return Err(TransferProtocolError::Canceled("ZMODEM")),
-            Action::Event(Event::FileStarted(_)) => {}
-            Action::Event(_) => {}
-            Action::Idle => {
-                if index < files.len() && !started {
-                    let file = &files[index];
-                    validate_remote_filename(&file.name)?;
-                    let size =
-                        u32::try_from(file.size).map_err(|_| TransferProtocolError::TooLarge {
-                            maximum: u32::MAX as u64,
+    let result = (|| -> Result<usize, TransferProtocolError> {
+        let mut sender = Sender::new().map_err(zmodem_error)?;
+        sender.set_streaming_window(usize::MAX);
+        let mut started = false;
+        let mut finishing = false;
+        let mut session_complete = false;
+        let mut wire = [0_u8; 4096];
+        let mut pending_wire = Vec::new();
+        loop {
+            match sender.poll() {
+                Action::WriteWire(bytes) => {
+                    let bytes = bytes.to_vec();
+                    terminal.write_binary(&bytes)?;
+                    sender.wire_written(bytes.len());
+                }
+                Action::ReadFile { offset, max_len } => {
+                    let start = u64::from(offset.get());
+                    let remaining = files[index].size.saturating_sub(start);
+                    let count = usize::try_from(remaining.min(max_len as u64))
+                        .expect("ZMODEM chunk fits usize");
+                    let mut chunk = vec![0_u8; count];
+                    read_source_exact(&mut files[index], start, &mut chunk, "ZMODEM")?;
+                    sender.submit_file(&chunk).map_err(zmodem_error)?;
+                }
+                Action::Event(Event::FileCompleted) => {
+                    index += 1;
+                    started = false;
+                }
+                Action::Event(Event::SessionCompleted) => {
+                    session_complete = true;
+                }
+                Action::Event(Event::Aborted) => {
+                    return Err(TransferProtocolError::Canceled("ZMODEM"))
+                }
+                Action::Event(Event::FileStarted(_)) => {}
+                Action::Event(_) => {}
+                Action::Idle => {
+                    if index < files.len() && !started {
+                        let file = &files[index];
+                        validate_remote_filename(&file.name)?;
+                        let size = u32::try_from(file.size).map_err(|_| {
+                            TransferProtocolError::TooLarge {
+                                maximum: u32::MAX as u64,
+                            }
                         })?;
-                    sender
-                        .start_file(FileInfo::new(
-                            file.name.as_bytes(),
-                            Some(Position::new(size)),
-                        ))
-                        .map_err(zmodem_error)?;
-                    started = true;
-                } else if index == files.len() && !finishing {
-                    sender.finish().map_err(zmodem_error)?;
-                    finishing = true;
-                } else if session_complete {
-                    return Ok(());
-                } else if !pending_wire.is_empty() {
-                    let consumed = sender.submit_wire(&pending_wire).map_err(zmodem_error)?;
-                    if consumed == 0 {
-                        return Err(malformed("ZMODEM", "sender made no input progress"));
-                    }
-                    pending_wire.drain(..consumed);
-                } else {
-                    match terminal.read_binary(&mut wire, DEFAULT_TIMEOUT) {
-                        Ok(0) => return Err(TransferProtocolError::Disconnected("ZMODEM")),
-                        Ok(count) => pending_wire.extend_from_slice(&wire[..count]),
-                        Err(TerminalError::TimedOut) => sender.timeout().map_err(zmodem_error)?,
-                        Err(error) => return Err(error.into()),
+                        sender
+                            .start_file(FileInfo::new(
+                                file.name.as_bytes(),
+                                Some(Position::new(size)),
+                            ))
+                            .map_err(zmodem_error)?;
+                        started = true;
+                    } else if index == files.len() && !finishing {
+                        sender.finish().map_err(zmodem_error)?;
+                        finishing = true;
+                    } else if session_complete {
+                        return Ok(index);
+                    } else if !pending_wire.is_empty() {
+                        let consumed = sender.submit_wire(&pending_wire).map_err(zmodem_error)?;
+                        if consumed == 0 {
+                            return Err(malformed("ZMODEM", "sender made no input progress"));
+                        }
+                        pending_wire.drain(..consumed);
+                    } else {
+                        match terminal.read_binary(&mut wire, DEFAULT_TIMEOUT) {
+                            Ok(0) => return Err(TransferProtocolError::Disconnected("ZMODEM")),
+                            Ok(count) => pending_wire.extend_from_slice(&wire[..count]),
+                            Err(TerminalError::TimedOut) => {
+                                sender.timeout().map_err(zmodem_error)?
+                            }
+                            Err(error) => return Err(error.into()),
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
-    }
+    })();
+    result.map_err(|error| (error, index))
 }
 
 fn receive_zmodem(
@@ -1567,6 +1639,32 @@ mod tests {
             assert_eq!(received[0].bytes, files[0].bytes);
             assert_eq!(received[1].bytes, files[1].bytes);
         }
+    }
+
+    #[test]
+    fn ymodem_send_report_preserves_completed_member_count_on_partial_failure() {
+        let mut terminal = crate::InMemoryTerminal::with_binary_input([
+            CRC_REQUEST,
+            ACK,
+            CRC_REQUEST,
+            ACK,
+            ACK,
+            CRC_REQUEST,
+            CAN,
+        ]);
+        let mut files = vec![
+            stream_file("ONE.BIN", vec![1]),
+            stream_file("TWO.BIN", vec![2]),
+            stream_file("THREE.BIN", vec![3]),
+        ];
+        let failure =
+            send_binary_streams_report(&mut terminal, TransferProtocol::YmodemBatch, &mut files)
+                .unwrap_err();
+        assert_eq!(failure.completed_files, 1);
+        assert!(matches!(
+            failure.error,
+            TransferProtocolError::Canceled("YMODEM")
+        ));
     }
 
     #[test]

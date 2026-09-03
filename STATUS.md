@@ -17,9 +17,9 @@ does not contain those additions.
 
 ## Current source additions
 
-The Category-B ledger now records 10 VERIFIED, 5 IMPLEMENTED, 5 PARTIAL, and
-5 NOT STARTED rows. B-024 is VERIFIED. B-011, B-014, and B-023 remain
-IMPLEMENTED.
+The Category-B ledger now records 13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL, and
+5 NOT STARTED rows. B-024, B-011, B-014, and B-023 are VERIFIED, and M039
+Tranche 6 is semantically closed.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -137,7 +137,7 @@ selection, visibility, or result presentation.
   PendingReview, and staged maintenance when built from current post-0.1.0
   source. B-013 is VERIFIED; B-015 and B-012 remain IMPLEMENTED.
 - Schema-16/17 transfer, batch-policy, accounting, and extended-storage source.
-  B-024 is VERIFIED; B-011, B-014, and B-023 remain IMPLEMENTED.
+  B-024, B-011, B-014, and B-023 are VERIFIED.
 - ASCII, XMODEM, YMODEM, ZMODEM, and TeLink transfer support as documented
 - Multinode runtime and session isolation
 - Operator configuration, status, and renderer diagnostics
@@ -184,8 +184,7 @@ until they are built and tested.
 - RIP graphics and RIP terminal behavior
 - Caller-selectable presentation profiles
 - Production non-English translations and caller locale selection
-- Remaining advanced Category-B commands and resources, plus the incomplete
-  B-011/B-014/B-023 caller/policy/storage acceptance matrices
+- Remaining advanced Category-B commands and resources
 - QWK/LAKOTA and other offline-mail ecosystems
 - SMB/DOVE-Net, FidoNet, and CircuitNet interoperability
 - Web administration
@@ -206,6 +205,6 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary. B-024 is publicly VERIFIED;
-B-011, B-014, B-023, B-015, and B-012 remain IMPLEMENTED until their explicit
-verification matrices close. No subsequent Category-B tranche has begun.
+Preserve the accepted 0.1.0 release boundary. M039 Tranche 6 is publicly
+closed with B-024, B-011, B-014, and B-023 VERIFIED. B-015 and B-012 remain
+IMPLEMENTED. No subsequent Category-B tranche has begun.

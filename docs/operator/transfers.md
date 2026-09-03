@@ -92,8 +92,8 @@ proves both directions against an independent original peer.
 
 See the [Tranche 6 implementation report](../research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md)
 and [verification record](../research/m039-tranche-6-verification.md) for
-schema-16 transfer behavior, schema-17 zero-byte authority, and explicit
-remaining B-011/B-014/B-023 blockers. External-root rebind is a versioned
+schema-16 transfer behavior, schema-17 zero-byte authority, and the completed
+B-011/B-014/B-023 acceptance matrices. External-root rebind is a versioned
 Sysop-only mutation that returns observed availability to Unknown; a separate
 safe probe must precede the daemon's availability update. The current operator
 surface is domain/CLI-testable; `sfconfig` and `sfmonitor` remain unimplemented

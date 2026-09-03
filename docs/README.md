@@ -54,6 +54,9 @@ the historical or architectural material to set up a board.
 - [Project Charter](01-project-charter.md)
 - [Compatibility Principles](02-compatibility-principles.md)
 - [System Architecture](04-system-architecture.md)
+- [FireComm and SPITFIRE NG Cross-Project Reference Policy](cross-project-reference-policy.md)
+  — Public learn-without-coupling guidance, terminal capability taxonomy,
+  optional future Sixel boundary, and platform-research safeguards.
 - [Compatibility Matrix](05-compatibility-matrix.md)
 - [Legacy Data and File Formats](06-legacy-file-formats.md)
 - [Message System](07-message-system.md)
@@ -89,8 +92,8 @@ the historical or architectural material to set up a board.
 - [Tranche 6 Implementation](research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md) —
   Schema 16 transfer/storage authority, schema 17 zero-byte correction, and
   exact current row boundaries.
-- [Tranche 6 Verification](research/m039-tranche-6-verification.md) — B-024
-  VERIFIED and the remaining B-011/B-014/B-023 acceptance items.
+- [Tranche 6 Verification](research/m039-tranche-6-verification.md) — Completed
+  B-024/B-011/B-014/B-023 semantic and interoperability matrices.
 - [Independent Transfer Interoperability](research/m039-tranche-6-transfer-interoperability.md) —
   Rights-safe peer/result summary without external binaries or payloads.
 - [Native Multinode Runtime](sfng-multinode-runtime.md)

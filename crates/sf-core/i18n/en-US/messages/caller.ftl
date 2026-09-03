@@ -87,9 +87,16 @@ file-search-empty = No matching files are available.
 file-new-area-prompt = New Files - File Area Number (Enter = all areas; C = current; Q = quit): { " " }
 file-new-area-invalid = That file-area selection is not valid.
 file-new-date-prompt = New Files Since <L>ast Check or Date (MM-DD-YY; Q = quit) [L]: { " " }
-file-download-prompt = File to tag (comma-separate a batch; Enter uses queue; /C clears): { " " }
+file-download-prompt = File to tag (comma-separate; Enter uses queue; /L lists; /R name removes; /U recomputes; /C clears): { " " }
 file-download-queue-cleared = The session download queue is empty.
-file-download-queue-summary = Download queue: { $files } file(s), { $bytes } byte(s).
+file-download-queue-summary = Download queue: { $files } file(s), { $bytes } byte(s); chargeable: { $chargeable_files } file(s), { $chargeable_bytes } byte(s).
+file-download-queue-item =   { $filename }  { $bytes } byte(s)
+file-download-queue-removed = The file was removed from this session queue.
+file-download-queue-not-found = That file is not in this session queue.
+file-download-queue-recomputed = Queue reauthorized and recomputed: { $files } remain; { $removed } removed.
+file-download-failed = Transfer failed or was canceled; no completed item was charged. The queue remains available.
+file-download-partial = Partial batch: { $completed } completed item(s) settled once; { $remaining } item(s) remain in the queue.
+file-download-ratio-warning = Your upload/download ratio is approaching the enforced limit.
 file-download-no-batch = That protocol does not support batch downloads.
 file-download-unavailable = A requested file is unavailable for download.
 file-preview-download-denied = This is a preview area; downloads are not permitted.

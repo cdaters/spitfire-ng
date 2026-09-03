@@ -172,7 +172,7 @@ pub fn backup_board(
     )?;
 
     let storage = FileStorage::open_existing(&paths)?;
-    let catalog = database.all_cataloged_files()?;
+    let catalog = database.managed_cataloged_files()?;
     for (area, file) in &catalog {
         let mut source = storage.open_download(area, file)?;
         let relative = format!("files/{}/{}", area.storage_key, file.filename);
@@ -390,7 +390,7 @@ fn validate_backup_directory(path: &Path) -> Result<ValidatedBackup, BoardBackup
     }
 
     let mut expected_catalog = BTreeMap::new();
-    for (area, file) in database.all_cataloged_files()? {
+    for (area, file) in database.managed_cataloged_files()? {
         expected_catalog.insert(
             format!("files/{}/{}", area.storage_key, file.filename),
             (file.size_bytes, file.sha256),
@@ -455,6 +455,18 @@ fn stage_restored_board(
             return Err(BoardBackupError::ChecksumMismatch(entry.path.clone()));
         }
     }
+    let mut restored_database = RuntimeDatabase::open(paths.database())?;
+    if restored_database.schema_version()? >= 16 {
+        restored_database.normalize_external_storage_after_restore(
+            i64::try_from(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| BoardBackupError::Clock)?
+                    .as_secs(),
+            )
+            .map_err(|_| BoardBackupError::Clock)?,
+        )?;
+    }
     Ok(())
 }
 
@@ -475,7 +487,7 @@ fn validate_staged_board(
         return Err(BoardBackupError::IdentityMismatch);
     }
     let storage = FileStorage::new(&paths)?;
-    for (area, file) in database.all_cataloged_files()? {
+    for (area, file) in database.managed_cataloged_files()? {
         storage.open_download(&area, &file)?;
     }
     let presentation = crate::PresentationResolver::load(&paths, &validated.presentation);
@@ -1048,6 +1060,8 @@ pub enum BoardBackupError {
     Paths(#[from] sf_core::PathError),
     #[error(transparent)]
     Database(#[from] sf_core::DatabaseError),
+    #[error(transparent)]
+    Transfer(#[from] sf_core::TransferRuntimeError),
     #[error(transparent)]
     File(#[from] sf_core::FileError),
 }
@@ -1832,7 +1846,7 @@ mod tests {
         assert!(restored_status.contains("Base: modern-ng 1.5.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.7.0"));
+        assert!(restored_status.contains("Package: en-US 1.8.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
@@ -2046,6 +2060,128 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn external_catalog_survives_restore_without_media_then_rebinds_by_stable_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "external-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let config = RuntimeConfig::load(&config_path).unwrap();
+        let paths = LogicalPaths::resolve(&source, &config.validate().unwrap()).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let storage = FileStorage::new(&paths).unwrap();
+        let sysop = database.caller_by_name(b"Sysop").unwrap().unwrap();
+        let actor = FileActor::new(
+            sysop.id,
+            SecurityLevel::new(config.caller.sysop_security).unwrap(),
+        );
+        let area = database.all_file_areas().unwrap().remove(0);
+        let bytes = b"external restore fixture";
+        let file = storage
+            .write_seed_file(
+                &mut database,
+                &area,
+                "ARCHIVE.BIN",
+                "External restore fixture",
+                bytes,
+                1_777_100_000,
+            )
+            .unwrap();
+        let external = temp.path().join("original-external-media");
+        fs::create_dir(&external).unwrap();
+        fs::write(external.join("ARCHIVE.BIN"), bytes).unwrap();
+        let root = database
+            .add_storage_root(
+                actor,
+                sf_core::StorageRootDefinition {
+                    area_id: area.id,
+                    stable_key: "external-archive",
+                    label: "External archive",
+                    configured_locator: external.to_str().unwrap(),
+                    priority: 1,
+                    mode: sf_core::StorageRootMode::ReadOnly,
+                    occurred_at: 1_777_100_001,
+                },
+            )
+            .unwrap();
+        database
+            .set_storage_availability(
+                actor,
+                root.id,
+                root.state_version,
+                sf_core::StorageAvailability::Available,
+                1_777_100_002,
+            )
+            .unwrap();
+        database
+            .set_file_storage_locator(
+                actor,
+                file.id,
+                root.id,
+                "ARCHIVE.BIN",
+                file.state_version,
+                1,
+                1_777_100_003,
+            )
+            .unwrap();
+        let backup = temp.path().join("external-backup");
+        backup_board(&config_path, &backup).unwrap();
+        fs::remove_dir_all(&external).unwrap();
+        let restored = temp.path().join("external-restored");
+        restore_board(&backup, &restored, false).unwrap();
+
+        let restored_config = RuntimeConfig::load(&restored.join(BOARD_CONFIG_FILE)).unwrap();
+        let restored_paths =
+            LogicalPaths::resolve(&restored, &restored_config.validate().unwrap()).unwrap();
+        let mut restored_database = RuntimeDatabase::open(restored_paths.database()).unwrap();
+        let restored_sysop = restored_database.caller_by_name(b"Sysop").unwrap().unwrap();
+        let restored_actor = FileActor::new(
+            restored_sysop.id,
+            SecurityLevel::new(restored_config.caller.sysop_security).unwrap(),
+        );
+        let restored_file = restored_database
+            .all_cataloged_files()
+            .unwrap()
+            .into_iter()
+            .map(|(_, file)| file)
+            .find(|candidate| candidate.id == file.id)
+            .unwrap();
+        assert_eq!(restored_file.id, file.id);
+        let (restored_root, _) = restored_database.resolve_file_storage(file.id).unwrap();
+        assert_eq!(
+            restored_root.availability,
+            sf_core::StorageAvailability::Unknown
+        );
+        let rebound = temp.path().join("rebound-external-media");
+        fs::create_dir(&rebound).unwrap();
+        fs::write(rebound.join("ARCHIVE.BIN"), bytes).unwrap();
+        let rebound_version = restored_database
+            .rebind_external_storage_root(
+                restored_actor,
+                restored_root.id,
+                restored_root.state_version,
+                rebound.to_str().unwrap(),
+                1_777_100_004,
+            )
+            .unwrap();
+        restored_database
+            .set_storage_availability(
+                restored_actor,
+                restored_root.id,
+                rebound_version,
+                sf_core::StorageAvailability::Available,
+                1_777_100_005,
+            )
+            .unwrap();
+        let (available_root, locator) = restored_database.resolve_file_storage(file.id).unwrap();
+        let restored_storage = FileStorage::new(&restored_paths).unwrap();
+        let mut input = restored_storage
+            .prepare_resolved_download(&available_root, &locator, &restored_file)
+            .unwrap();
+        let mut restored_bytes = Vec::new();
+        input.read_to_end(&mut restored_bytes).unwrap();
+        assert_eq!(restored_bytes, bytes);
     }
 
     #[test]

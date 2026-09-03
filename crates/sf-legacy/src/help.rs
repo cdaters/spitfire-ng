@@ -83,7 +83,9 @@ impl HelpFile {
             return Err(HelpError::TooManyRecords(count));
         }
         let mut records = Vec::with_capacity(count);
-        for (index, bytes) in input.chunks_exact(HELP_RECORD_SIZE).enumerate() {
+        let (record_bytes, remainder) = input.as_chunks::<HELP_RECORD_SIZE>();
+        debug_assert!(remainder.is_empty());
+        for (index, bytes) in record_bytes.iter().enumerate() {
             records.push(HelpRecord::parse(bytes, index + 1)?);
         }
         Ok(Self { records })

@@ -1,6 +1,11 @@
 # M039 Tranche 6 — Batch Transfer Policy and Extended Storage Implementation
 
-Status: **IMPLEMENTED; B-024 VERIFIED, B-011/B-014/B-023 ACCEPTANCE OPEN**
+Status at implementation checkpoint: **IMPLEMENTED; B-024 VERIFIED,
+B-011/B-014/B-023 ACCEPTANCE OPEN**
+
+Subsequent verification promoted B-011, B-014, and B-023. The current status
+is **B-024/B-011/B-014/B-023 VERIFIED; TRANCHE 6 CLOSED**. This report retains
+the earlier implementation boundary; see the verification summary for closure.
 
 ## Schema 16
 
@@ -73,7 +78,7 @@ File-domain validity is independent of protocol capability. A future adapter
 that cannot represent an empty payload must return a typed compatibility error
 before negotiation; it must not fabricate bytes or invalidate the catalog.
 
-## Current row status
+## Row status at the implementation checkpoint
 
 - B-024 — **VERIFIED**
 - B-011 — **IMPLEMENTED**; caller-visible partial/recompute and complete live

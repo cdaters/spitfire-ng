@@ -38,9 +38,10 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.7.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.8.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains the complete schema-15 caller/operator catalog, including
+copy. It contains 526 semantic messages in the complete schema-17 caller and
+operator catalog, including
 the schema-14 public-information catalog, across shared, caller, and operator
 messages. The
 embedded recovery copy does not make English a profile
@@ -72,6 +73,10 @@ partial-result, and recovery outcomes. Modern and Minimal advance to 1.5.0
 and Classic to 1.6.0 for their project-authored transfer menu/help framing.
 Profiles never change queue, authorization, accounting, storage resolution,
 or protocol semantics.
+
+Tranche 6 verification advances en-US to 1.8.0 for queue list/remove/recompute,
+chargeable totals, member-level partial results, and ratio-warning feedback;
+presentation-profile versions remain unchanged.
 
 ## Why Fluent
 

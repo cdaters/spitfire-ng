@@ -222,6 +222,13 @@ pub struct TransferPolicy {
     pub state_version: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RatioStatus {
+    Healthy,
+    Warning,
+    Denied,
+}
+
 impl TransferPolicy {
     pub fn unlimited(security_level: SecurityLevel) -> Self {
         Self {
@@ -665,6 +672,14 @@ pub struct LegacyExtendedStorageDocument {
     pub ordered_paths: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LegacyStorageRootMapping<'a> {
+    pub legacy_path: &'a str,
+    pub stable_key: &'a str,
+    pub label: &'a str,
+    pub configured_locator: &'a str,
+}
+
 impl LegacyExtendedStorageDocument {
     pub fn parse(source: &[u8]) -> Result<Self, TransferRuntimeError> {
         if source.len() > MAX_LEGACY_POLICY_BYTES || source.contains(&0) || !source.is_ascii() {
@@ -691,6 +706,28 @@ impl LegacyExtendedStorageDocument {
 }
 
 impl RuntimeDatabase {
+    /// Restore-time normalization: external media is never assumed present at
+    /// a new board root. Managed roots keep their snapshot state; external
+    /// roots require an explicit operator probe after restore.
+    pub fn normalize_external_storage_after_restore(
+        &mut self,
+        now: i64,
+    ) -> Result<usize, TransferRuntimeError> {
+        let transaction = self.connection.transaction()?;
+        let changed = transaction.execute(
+            "UPDATE file_storage_roots SET availability='unknown',state_version=state_version+1,updated_at=CURRENT_TIMESTAMP WHERE root_kind='external' AND availability!='unknown'",
+            [],
+        )?;
+        if changed != 0 {
+            transaction.execute(
+                "INSERT INTO transfer_events(occurred_at,operation,outcome,detail) VALUES(?1,'storage-root-updated','committed',?2)",
+                params![now, format!("external-roots={changed}")],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(changed)
+    }
+
     pub fn active_transfers(
         &self,
         actor: FileActor,
@@ -828,6 +865,35 @@ impl RuntimeDatabase {
                     Ok(policy)
                 },
             )
+    }
+
+    pub fn download_ratio_status(
+        &self,
+        actor: FileActor,
+    ) -> Result<RatioStatus, TransferRuntimeError> {
+        let caller = self
+            .active_file_actor(actor)
+            .map_err(|_| TransferRuntimeError::Unauthorized)?;
+        let policy = self.transfer_policy(caller.security_level)?;
+        if ratio_exceeded(
+            caller.files_downloaded,
+            caller.files_uploaded,
+            caller.download_bytes,
+            caller.upload_bytes,
+            policy.ratio_enforcement_thousandths,
+        ) {
+            Ok(RatioStatus::Denied)
+        } else if ratio_exceeded(
+            caller.files_downloaded,
+            caller.files_uploaded,
+            caller.download_bytes,
+            caller.upload_bytes,
+            policy.ratio_warning_thousandths,
+        ) {
+            Ok(RatioStatus::Warning)
+        } else {
+            Ok(RatioStatus::Healthy)
+        }
     }
 
     pub fn update_transfer_policy(
@@ -1431,6 +1497,70 @@ impl RuntimeDatabase {
             .ok_or(TransferRuntimeError::StorageUnavailable)
     }
 
+    /// Imports FA<x>.TXT ordering only through an explicit operator-approved
+    /// mapping. Legacy path text remains evidence and never becomes native
+    /// host-path authority.
+    pub fn import_legacy_extended_roots(
+        &mut self,
+        actor: FileActor,
+        area_id: FileAreaId,
+        document: &LegacyExtendedStorageDocument,
+        mappings: &[LegacyStorageRootMapping<'_>],
+        now: i64,
+    ) -> Result<Vec<StorageRoot>, TransferRuntimeError> {
+        let caller = self
+            .active_file_actor(actor)
+            .map_err(|_| TransferRuntimeError::Unauthorized)?;
+        if !caller.security_level.is_sysop(actor.sysop_security()) {
+            return Err(TransferRuntimeError::Unauthorized);
+        }
+        if mappings.len() != document.ordered_paths.len()
+            || mappings.len() > MAX_LEGACY_STORAGE_ROOTS
+        {
+            return Err(TransferRuntimeError::InvalidLegacyAdapter);
+        }
+        self.load_area_by_id(area_id)
+            .map_err(|_| TransferRuntimeError::FileUnavailable)?
+            .ok_or(TransferRuntimeError::FileUnavailable)?;
+        let mut stable_keys = BTreeSet::new();
+        for (index, mapping) in mappings.iter().enumerate() {
+            let locator = std::path::Path::new(mapping.configured_locator);
+            if mapping.legacy_path != document.ordered_paths[index]
+                || validate_identifier(mapping.stable_key).is_err()
+                || !stable_keys.insert(mapping.stable_key)
+                || mapping.label.is_empty()
+                || mapping.label.len() > 96
+                || mapping.configured_locator.is_empty()
+                || mapping.configured_locator.len() > 255
+                || !locator.is_absolute()
+            {
+                return Err(TransferRuntimeError::InvalidLegacyAdapter);
+            }
+        }
+        let transaction = self.connection.transaction()?;
+        let mut ids = Vec::with_capacity(mappings.len());
+        for (index, mapping) in mappings.iter().enumerate() {
+            let priority =
+                u8::try_from(index + 1).map_err(|_| TransferRuntimeError::ResourceLimit)?;
+            transaction.execute(
+                "INSERT INTO file_storage_roots(area_id,stable_key,label,root_kind,access_mode,priority,configured_locator,configured_state,availability,staging_policy) VALUES(?1,?2,?3,'external','read-only',?4,?5,'enabled','unknown','always-stage')",
+                params![area_id.get(), mapping.stable_key, mapping.label, priority, mapping.configured_locator],
+            )?;
+            let id = StorageRootId::new(transaction.last_insert_rowid())?;
+            ids.push(id);
+            transaction.execute(
+                "INSERT INTO transfer_events(occurred_at,operation,actor_caller_id,storage_root_id,outcome,next_version,detail) VALUES(?1,'storage-root-added',?2,?3,'committed',1,?4)",
+                params![now, caller.id.get(), id.get(), format!("stable-key={}", mapping.stable_key)],
+            )?;
+        }
+        transaction.commit()?;
+        let roots = self.storage_roots(area_id)?;
+        Ok(roots
+            .into_iter()
+            .filter(|root| ids.contains(&root.id))
+            .collect())
+    }
+
     pub fn set_storage_availability(
         &mut self,
         actor: FileActor,
@@ -2031,6 +2161,63 @@ mod tests {
     }
 
     #[test]
+    fn ratio_warning_and_enforcement_are_distinct_and_require_both_dimensions() {
+        let mut fixture = fixture();
+        let mut policy = TransferPolicy::unlimited(SecurityLevel::new(50).unwrap());
+        policy.ratio_warning_thousandths = Some(2_000);
+        policy.ratio_enforcement_thousandths = Some(3_000);
+        fixture
+            .database
+            .update_transfer_policy(fixture.actor, &policy, 0, 1_700_000_000)
+            .unwrap();
+        fixture
+            .database
+            .connection
+            .execute(
+                "UPDATE callers SET files_downloaded=5,files_uploaded=2,download_bytes=500,upload_bytes=200 WHERE caller_id=?1",
+                params![fixture.actor.caller_id().get()],
+            )
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .download_ratio_status(fixture.actor)
+                .unwrap(),
+            RatioStatus::Warning
+        );
+        fixture
+            .database
+            .connection
+            .execute(
+                "UPDATE callers SET files_downloaded=7,download_bytes=700 WHERE caller_id=?1",
+                params![fixture.actor.caller_id().get()],
+            )
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .download_ratio_status(fixture.actor)
+                .unwrap(),
+            RatioStatus::Denied
+        );
+        fixture
+            .database
+            .connection
+            .execute(
+                "UPDATE callers SET upload_bytes=1000 WHERE caller_id=?1",
+                params![fixture.actor.caller_id().get()],
+            )
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .download_ratio_status(fixture.actor)
+                .unwrap(),
+            RatioStatus::Healthy
+        );
+    }
+
+    #[test]
     fn partial_batch_retains_failed_and_unstarted_items_in_order() {
         let mut fixture = fixture();
         let second = fixture
@@ -2159,6 +2346,109 @@ mod tests {
             ),
             Err(TransferRuntimeError::DailyLimitExceeded)
         ));
+    }
+
+    #[test]
+    fn spring_forward_no_dst_midnight_and_cross_midnight_settlement_use_civil_days() {
+        let mut fixture = fixture();
+        let mut queue = TransferQueue::default();
+        queue.tag(&fixture.file, false).unwrap();
+        let before_jump = Utc
+            .with_ymd_and_hms(2026, 3, 8, 6, 59, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let after_jump = Utc
+            .with_ymd_and_hms(2026, 3, 8, 7, 1, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let first = fixture
+            .database
+            .reserve_download_queue(
+                fixture.actor,
+                NodeId::new(1).unwrap(),
+                chrono_tz::America::New_York,
+                TransferMethod::Ascii,
+                &queue,
+                before_jump,
+            )
+            .unwrap();
+        assert_eq!(first.board_day, "2026-03-08");
+        fixture
+            .database
+            .release_transfer(
+                &first.id,
+                TransferRuntimeState::Cancelled,
+                Some(TransferCancelSource::Caller),
+                Some("clock-test"),
+                after_jump,
+            )
+            .unwrap();
+        let second = fixture
+            .database
+            .reserve_download_queue(
+                fixture.actor,
+                NodeId::new(2).unwrap(),
+                chrono_tz::America::New_York,
+                TransferMethod::Ascii,
+                &queue,
+                after_jump,
+            )
+            .unwrap();
+        assert_eq!(second.board_day, first.board_day);
+        fixture
+            .database
+            .release_transfer(
+                &second.id,
+                TransferRuntimeState::Cancelled,
+                Some(TransferCancelSource::Caller),
+                Some("clock-test"),
+                after_jump + 1,
+            )
+            .unwrap();
+
+        let before_midnight = Utc
+            .with_ymd_and_hms(2026, 6, 2, 6, 59, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let after_midnight = Utc
+            .with_ymd_and_hms(2026, 6, 2, 7, 1, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let phoenix = fixture
+            .database
+            .reserve_download_queue(
+                fixture.actor,
+                NodeId::new(3).unwrap(),
+                chrono_tz::America::Phoenix,
+                TransferMethod::Ascii,
+                &queue,
+                before_midnight,
+            )
+            .unwrap();
+        assert_eq!(phoenix.board_day, "2026-06-01");
+        fixture
+            .database
+            .settle_download_item(
+                &phoenix.id,
+                &queue.items()[0].item_id,
+                fixture.file.size_bytes,
+                after_midnight,
+            )
+            .unwrap();
+        let usage: (String, i64) = fixture
+            .database
+            .connection
+            .query_row(
+                "SELECT board_day,chargeable_download_files FROM transfer_daily_usage WHERE caller_id=?1",
+                params![fixture.actor.caller_id().get()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(usage, ("2026-06-01".to_owned(), 1));
     }
 
     #[test]
@@ -2546,6 +2836,69 @@ mod tests {
             })
             .unwrap();
         assert_eq!(settlements, 1);
+
+        let pending = fixture
+            .database
+            .insert_file_entry(&NewFileEntry {
+                area_id: fixture.area_id,
+                filename: "PENDING.BIN".to_owned(),
+                description: "Pending credit fixture".to_owned(),
+                size_bytes: 4,
+                sha256: "44".repeat(32),
+                uploaded_at: 1_700_000_002,
+                uploader_caller_id: Some(fixture.actor.caller_id()),
+                uploader_name: "Transfer Caller".to_owned(),
+                lifecycle: FileLifecycle::PendingReview,
+            })
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .apply_upload_credit(UploadCreditRequest {
+                    transfer_id: &TransferId::new("upload-credit-pending").unwrap(),
+                    item_id: "item-2",
+                    actor: fixture.actor,
+                    node_id: NodeId::new(2).unwrap(),
+                    method: TransferMethod::Binary(TransferProtocol::Telink),
+                    file_id: pending.id,
+                    active_seconds: 10_000,
+                    timezone: chrono_tz::UTC,
+                    occurred_at: 1_700_000_002,
+                })
+                .unwrap(),
+            20
+        );
+        let third = fixture
+            .database
+            .insert_file_entry(&NewFileEntry {
+                area_id: fixture.area_id,
+                filename: "THIRDUP.BIN".to_owned(),
+                description: "Day cap fixture".to_owned(),
+                size_bytes: 4,
+                sha256: "55".repeat(32),
+                uploaded_at: 1_700_000_003,
+                uploader_caller_id: Some(fixture.actor.caller_id()),
+                uploader_name: "Transfer Caller".to_owned(),
+                lifecycle: FileLifecycle::Active,
+            })
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .apply_upload_credit(UploadCreditRequest {
+                    transfer_id: &TransferId::new("upload-credit-day-cap").unwrap(),
+                    item_id: "item-3",
+                    actor: fixture.actor,
+                    node_id: NodeId::new(3).unwrap(),
+                    method: TransferMethod::Binary(TransferProtocol::Telink),
+                    file_id: third.id,
+                    active_seconds: 10_000,
+                    timezone: chrono_tz::UTC,
+                    occurred_at: 1_700_000_003,
+                })
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -2787,6 +3140,120 @@ mod tests {
             )
             .unwrap();
         assert_eq!(leaked, 0);
+    }
+
+    #[test]
+    fn legacy_extended_roots_require_explicit_ordered_confined_mapping() {
+        let mut fixture = fixture();
+        let one = fixture._temp.path().join("archive-one");
+        let two = fixture._temp.path().join("archive-two");
+        std::fs::create_dir(&one).unwrap();
+        std::fs::create_dir(&two).unwrap();
+        let document = LegacyExtendedStorageDocument::parse(b"D:\\FILES\r\nE:\\MORE\r\n").unwrap();
+        let mappings = [
+            LegacyStorageRootMapping {
+                legacy_path: "D:\\FILES",
+                stable_key: "fa-one",
+                label: "Archive one",
+                configured_locator: one.to_str().unwrap(),
+            },
+            LegacyStorageRootMapping {
+                legacy_path: "E:\\MORE",
+                stable_key: "fa-two",
+                label: "Archive two",
+                configured_locator: two.to_str().unwrap(),
+            },
+        ];
+        let roots = fixture
+            .database
+            .import_legacy_extended_roots(
+                fixture.actor,
+                fixture.area_id,
+                &document,
+                &mappings,
+                1_700_000_000,
+            )
+            .unwrap();
+        assert_eq!(
+            roots
+                .iter()
+                .map(|root| (root.stable_key.as_str(), root.priority, root.mode))
+                .collect::<Vec<_>>(),
+            vec![
+                ("fa-one", 1, StorageRootMode::ReadOnly),
+                ("fa-two", 2, StorageRootMode::ReadOnly),
+            ]
+        );
+        let bad = [LegacyStorageRootMapping {
+            legacy_path: "WRONG",
+            stable_key: "bad",
+            label: "Bad",
+            configured_locator: one.to_str().unwrap(),
+        }];
+        assert!(matches!(
+            fixture.database.import_legacy_extended_roots(
+                fixture.actor,
+                fixture.area_id,
+                &document,
+                &bad,
+                1_700_000_001,
+            ),
+            Err(TransferRuntimeError::InvalidLegacyAdapter)
+        ));
+    }
+
+    #[test]
+    fn restore_normalization_never_assumes_external_media_is_present() {
+        let mut fixture = fixture();
+        let external = fixture._temp.path().join("restore-media");
+        std::fs::create_dir(&external).unwrap();
+        let root = fixture
+            .database
+            .add_storage_root(
+                fixture.actor,
+                StorageRootDefinition {
+                    area_id: fixture.area_id,
+                    stable_key: "restore-media",
+                    label: "Restore media",
+                    configured_locator: external.to_str().unwrap(),
+                    priority: 1,
+                    mode: StorageRootMode::ReadOnly,
+                    occurred_at: 1_700_000_000,
+                },
+            )
+            .unwrap();
+        fixture
+            .database
+            .set_storage_availability(
+                fixture.actor,
+                root.id,
+                root.state_version,
+                StorageAvailability::Available,
+                1_700_000_001,
+            )
+            .unwrap();
+        assert_eq!(
+            fixture
+                .database
+                .normalize_external_storage_after_restore(1_700_000_002)
+                .unwrap(),
+            1
+        );
+        let normalized = fixture
+            .database
+            .storage_roots(fixture.area_id)
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.id == root.id)
+            .unwrap();
+        assert_eq!(normalized.availability, StorageAvailability::Unknown);
+        assert_eq!(
+            fixture
+                .database
+                .normalize_external_storage_after_restore(1_700_000_003)
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
