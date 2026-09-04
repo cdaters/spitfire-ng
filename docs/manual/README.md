@@ -70,8 +70,8 @@ compatibility detail for advanced Sysops and developers.
 - **Sysop operations:** [Status, the operator console, and routine
   operation](../operator/sysop-guide.md).
 - **Board activity and statistics:** [Understand recent activity, live node
-  status, notifications, maintenance, privacy, retention, and protected
-  read-only operator attachment](board-activity.md).
+  status, notifications, maintenance, privacy, and retention](board-activity.md).
+- **Live operator monitor:** [Use sfmonitor to watch a running board](sfmonitor.md).
 - **Nodes and multinode operation:** [Node ownership and simultaneous caller
   sessions](../sfng-multinode-runtime.md).
 - **Caller accounts:** [Creation, access changes, privacy, and public caller

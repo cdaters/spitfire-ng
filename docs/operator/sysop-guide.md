@@ -54,6 +54,23 @@ cleanly stopped` means exactly that: the file may be stale. Confirm the host
 process separately. Do not delete operation-lock files; lock ownership, not
 their presence, determines whether the board is busy.
 
+## Live read-only monitor
+
+Current source also builds `sfmonitor`, a separate keyboard-first application
+for leaving the board's live status open in another terminal:
+
+```bash
+sfmonitor --board /path/to/board/spitfire.toml
+```
+
+It uses the running daemon's protected local operator service and shows the
+same board, node, activity, statistics, notification, caller, and maintenance
+facts as the typed operator client. It does not read the database or logs and
+cannot disconnect callers, grant time, acknowledge notifications, stop the
+daemon, run maintenance, or change configuration. Press `Q` to quit only the
+monitor. See [Using sfmonitor](../manual/sfmonitor.md) for the complete keyboard
+and troubleshooting guide.
+
 ## Operator console commands
 
 The console prints its command list at startup:

@@ -14,7 +14,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::num::NonZeroI64;
 use std::path::{Component, Path, PathBuf};
 
-use rusqlite::{params, OptionalExtension, Row};
+use rusqlite::{params, OptionalExtension, Row, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -1843,14 +1843,14 @@ impl FileStorage {
             .map_err(|error| FileError::Maintenance(error.to_string()))?;
         let normalized_filename = normalize_filename(&staged.filename)?;
         let operation_id = format!(
-            "upload-{}-{}-{}",
+            "upload-{}-{}-{:032x}",
             caller.id.get(),
             current_area.id.get(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+            rand::random::<u128>()
         );
         let operation = database
             .connection
-            .transaction()
+            .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(FileError::Sqlite)?;
         operation
             .execute(
@@ -1871,6 +1871,7 @@ impl FileStorage {
             )
             .map_err(|_| FileError::DuplicateFilename(staged.filename.clone()))?;
         operation.commit().map_err(FileError::Sqlite)?;
+        let mut destination_created = false;
         let publish_result = (|| {
             let mut source = File::open(&staged.path).map_err(|source| FileError::StorageIo {
                 path: staged.path.clone(),
@@ -1892,6 +1893,7 @@ impl FileStorage {
                         }
                     }
                 })?;
+            destination_created = true;
             std::io::copy(&mut source, &mut output)
                 .and_then(|_| output.sync_all())
                 .map_err(|source| FileError::StorageIo {
@@ -1901,7 +1903,9 @@ impl FileStorage {
             Ok::<(), FileError>(())
         })();
         if let Err(error) = publish_result {
-            let _ = fs::remove_file(&destination);
+            if destination_created {
+                let _ = fs::remove_file(&destination);
+            }
             let _ = database.connection.execute(
                 "UPDATE file_operations SET phase='rolled-back',error_code='byte-publish-failed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
                 params![operation_id],
@@ -3123,7 +3127,8 @@ mod tests {
                 .iter()
                 .filter(|result| matches!(result, Err(FileError::DuplicateFilename(_))))
                 .count(),
-            1
+            1,
+            "{results:?}"
         );
         let database = RuntimeDatabase::open(&database_path).unwrap();
         assert_eq!(database.file_count(area.id).unwrap(), 1);

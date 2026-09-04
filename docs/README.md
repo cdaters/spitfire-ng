@@ -20,11 +20,15 @@ the historical or architectural material to set up a board.
 - [Board Activity and System Statistics](manual/board-activity.md) — Human
   guidance for schema-18 activity and schema-19 protected read-only operator
   attachment.
+- [Using sfmonitor](manual/sfmonitor.md) — Run and navigate the read-only live
+  operator monitor.
 - [Operator Observability Technical Reference](technical/observability.md) —
   Schema-18 event, summary, query, authorization, and recovery contracts.
 - [Protected Operator Attachment](technical/operator-control.md) — Schema-19
   command receipts/audit, local IPC, UID/SID identity, protocol, client, and
   recovery contract.
+- [sfmonitor Technical Architecture](technical/sfmonitor.md) — TUI process,
+  lifecycle, refresh, layout, privacy, and read-only extension boundaries.
 - [M039 Tranche 7 Operator Observability and Reports Gate](research/m039-tranche-7-operator-observability-reports-gate.md)
   — Public-safe B-017/B-021/B-022 architecture and acceptance boundaries.
 - [M039 Tranche 7 B-017 Observability Implementation](research/m039-tranche-7-b017-observability-implementation.md)
@@ -36,6 +40,9 @@ the historical or architectural material to set up a board.
   — Schema-19 and cross-platform read-only attachment implementation record.
 - [B021-AW Windows Operator Attachment](research/m039-tranche-7-b021aw-windows-operator-attachment.md)
   — Native Windows named-pipe, DACL, peer-SID, and portability acceptance.
+- [sfmonitor 0.1 Implementation](research/m039-sfmonitor-read-only-mvp.md) —
+  Public-safe architecture, dependency decisions, acceptance, and remaining
+  B-021 boundaries.
 
 ## Getting started
 

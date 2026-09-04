@@ -1,0 +1,26 @@
+[package]
+name = "sf-monitor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "sf_monitor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sfmonitor"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+sf-bbs = { path = "../sf-bbs" }
+sf-core = { path = "../sf-core" }
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -34,6 +34,12 @@ jobs:
         shell: pwsh
         run: ./tools/verify-windows-operator.ps1
 
+      - name: Build and test the read-only sfmonitor client
+        shell: pwsh
+        run: |
+          cargo test --locked -p sf-monitor
+          cargo run --locked -p sf-monitor --bin sfmonitor -- --version
+
       - name: Build and test the Windows workspace
         # Bound concurrency so timing-sensitive transport journeys are not
         # starved by the shared hosted runner during the full regression pass.

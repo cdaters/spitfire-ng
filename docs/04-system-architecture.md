@@ -553,15 +553,15 @@ through a protected board-local Unix-domain socket or Windows named pipe,
 using verified OS peer identity, a typed host-operator allowlist, protocol and
 feature negotiation, daemon generation, and dispatch-time authorization. The
 same `OperatorService` serves the foreground console, `OperatorClient`, CLI,
-and future operator applications. See [Operator
+and the read-only `sfmonitor` application. See [Operator
 Observability](technical/observability.md), [Protected Operator
 Attachment](technical/operator-control.md), and the [B-021 operator-controls
 gate](research/m039-tranche-7-b021-operator-controls-gate.md).
 
-The current operator endpoint is read-only. Live controls, `sfmonitor`,
-`sfconfig`, and B-022 report publication remain future work. Generated
-reports, diagnostic logs, transient status files, and operator clients never
-become alternate domain authority.
+The current operator endpoint and `sfmonitor` remain read-only. Live controls,
+`sfconfig`, and B-022 report publication remain future work. Generated reports,
+diagnostic logs, transient status files, and operator clients never become
+alternate domain authority.
 
 ## 21. Implementation Language
 
@@ -641,6 +641,8 @@ generation/challenge, and retrieve B-017 projections through the same
 
 The transport owns no business state and exposes no generic RPC, database,
 log, filesystem, process, or TCP administration surface. Native Windows and
-Unix/macOS acceptance close the B021-A portability slice. All live and
-configuration mutations remain later B-021 work; B-022 publication,
-networking, doors, and scheduler domains remain separate.
+Unix/macOS acceptance close the B021-A portability slice. The separate
+`sf-monitor` crate supplies a read-only `sfmonitor` process over the same
+client, with bounded snapshot/subscription channels and no runtime/database
+authority. All live and configuration mutations remain later B-021 work;
+B-022 publication, networking, doors, and scheduler domains remain separate.

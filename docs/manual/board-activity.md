@@ -15,10 +15,12 @@ backup succeed? The history records outcomes and safe identifiers, not what a
 caller typed or the contents of messages and files.
 
 Schema 18 provides the shared activity, statistics, notification, and
-maintenance services. Schema 19 adds a protected local attachment path and
-the `spitfire operator` read-only commands. `sfmonitor` and `sfconfig` are not
-implemented yet. Do not open the SQLite database as a substitute for an
-operator client.
+maintenance services. Schema 19 adds a protected local attachment path, the
+`spitfire operator` read-only commands, and the read-only `sfmonitor`
+application. `sfconfig` is not implemented yet. Do not open the SQLite
+database as a substitute for an operator client.
+
+For the day-to-day live view, see [Using sfmonitor](sfmonitor.md).
 
 <!-- help-topic: operator.dashboard -->
 

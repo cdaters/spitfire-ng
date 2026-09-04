@@ -44,8 +44,9 @@ schema-17 zero-byte file invariant. Schema 18 adds privacy-safe operational
 events, daily statistics, retention, notifications, and board/node/maintenance
 projections. Current source schema 19 adds protected read-only operator
 attachment on Unix/macOS and Windows plus the reusable `OperatorClient` and
-`spitfire operator` CLI. Those improvements are not present in the published
-0.1.0 archive.
+`spitfire operator` CLI. Current source also includes the read-only
+`sfmonitor` 0.1 local operator application over that same client. Those
+improvements are not present in the published 0.1.0 archive.
 
 The public Category-B ledger is now **14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
 and 5 NOT STARTED**. B-024 transfer interoperability, B-011 batch queues,
@@ -93,6 +94,9 @@ Available today:
   peer identity and board allowlists, protocol/capability negotiation, and
   read-only status, node, event, notification, statistics, caller, and
   maintenance CLI commands;
+- when built from current source, the keyboard-complete, responsive,
+  read-only `sfmonitor` application for Dashboard, Nodes, Callers, Activity,
+  Statistics, Notifications, and Maintenance / Errors views;
 - multinode operation, operator status, cold backup, and restore, including
   schema-19 command/control audit, schema-18 observability state, schema-17
   file/transfer/storage state,
@@ -137,8 +141,9 @@ Start with:
 Developers can build from source with:
 
 ```sh
-cargo build --release --locked -p sf-bbs
+cargo build --release --locked -p sf-bbs -p sf-monitor
 ./target/release/spitfire --version
+./target/release/sfmonitor --version
 ```
 
 ## Quick start
@@ -183,6 +188,9 @@ For the complete, verified current-source journey, use the
 - [Tranche 7 observability gate](docs/research/m039-tranche-7-operator-observability-reports-gate.md)
 - [B-017 implementation and verification](docs/research/m039-tranche-7-b017-observability-implementation.md)
 - [Schema-19 protected operator attachment](docs/technical/operator-control.md)
+- [Using sfmonitor](docs/manual/sfmonitor.md)
+- [sfmonitor technical architecture](docs/technical/sfmonitor.md)
+- [sfmonitor 0.1 implementation](docs/research/m039-sfmonitor-read-only-mvp.md)
 - [B-021 operator-controls gate](docs/research/m039-tranche-7-b021-operator-controls-gate.md)
 - [B021-A implementation](docs/research/m039-tranche-7-b021a-protected-operator-attachment.md)
 - [B021-AW Windows acceptance](docs/research/m039-tranche-7-b021aw-windows-operator-attachment.md)
@@ -221,9 +229,9 @@ advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
 also predates SSH, schemas 13–19, public-information additions, Tranche 5 file
 inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
-observability, and B021-A protected operator attachment. `sfmonitor`,
-`sfconfig`, live attached operator controls, and B-022 report publication
-remain future current-source work.
+observability, B021-A protected operator attachment, and `sfmonitor`. The
+comprehensive `sfconfig`, live attached operator controls, and B-022 report
+publication remain future current-source work.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

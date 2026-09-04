@@ -6,9 +6,9 @@
 
 Schema 19 and B021-A provide the first protected control-plane slice for a
 running board. It is deliberately read-only. The `spitfire operator` client,
-the foreground console, and future `sfmonitor`/`sfconfig` clients share the
-daemon-owned `OperatorService`; none reads SQLite, transient status files, or
-diagnostic logs as operational authority.
+the foreground console, current read-only `sfmonitor`, and future `sfconfig`
+clients share the daemon-owned `OperatorService`; none reads SQLite, transient
+status files, or diagnostic logs as operational authority.
 
 ## Durable state
 
@@ -129,6 +129,11 @@ B021-A exposes no page, chat, time grant, disconnect, shutdown, notification
 acknowledgement, configuration, backup, maintenance, or arbitrary host action.
 Those commands require later B021-B/B021-C authorization and stale-target
 acceptance.
+
+`sfmonitor` 0.1 is the first TUI client of this same read surface. It adds no
+protocol operation: its bounded worker calls only the nine negotiated read
+features and its System Configuration destination is informational until
+`sfconfig` exists. See [sfmonitor Technical Architecture](sfmonitor.md).
 
 Native Windows tests exercise SID parsing, DACL construction,
 multi-client attachment, every read projection, dispatch-time revocation,

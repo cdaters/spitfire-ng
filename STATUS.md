@@ -15,9 +15,9 @@ inspection/maintenance, schema-16 transfer policy and storage, and the
 schema-17 zero-byte invariant. Schema 18 adds privacy-safe operational events,
 daily summaries, retention, notifications, and status/maintenance projections.
 Schema 19 adds cross-platform protected read-only operator attachment, the
-command-receipt/control-audit foundation, and the `spitfire operator` client.
-The downloadable 0.1.0 archive is unchanged and does not contain those
-additions.
+command-receipt/control-audit foundation, the `spitfire operator` client, and
+the read-only `sfmonitor` 0.1 operator application. The downloadable 0.1.0
+archive is unchanged and does not contain those additions.
 
 ## Current source additions
 
@@ -123,6 +123,10 @@ B-022 remains NOT STARTED.
 - Shared, read-only `OperatorClient` and localized `spitfire operator` status,
   nodes, events/live events, notifications, statistics, callers, and
   maintenance commands backed by the existing B-017 projections
+- Read-only `sfmonitor` 0.1 with Dashboard, Nodes/detail, Callers, Activity,
+  Statistics, Notifications, Maintenance / Errors, contextual help, typed
+  filters, visible gap recovery, manual reconnect, and responsive terminal
+  layouts over the same `OperatorClient`
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -158,6 +162,10 @@ selection, visibility, or result presentation.
 - Schema-19 protected local operator attachment on Unix/macOS and Windows,
   with the read-only operator CLI and reusable `OperatorClient`. B021-A is
   cross-platform complete; B-021 remains PARTIAL.
+- Read-only `sfmonitor` 0.1 from current source. Real visual/interaction
+  acceptance passed on Apple Silicon macOS. Interactive rendered Windows TUI
+  acceptance is deferred until a suitable real Windows environment is
+  available.
 - ASCII, XMODEM, YMODEM, ZMODEM, and TeLink transfer support as documented
 - Multinode runtime and session isolation
 - Operator configuration, status, and renderer diagnostics
@@ -207,7 +215,7 @@ until they are built and tested.
 - Remaining advanced Category-B commands and resources
 - QWK, DOVE-Net, and FidoNet networking
 - CircuitNet adapter/revival work beyond preserved compatibility knowledge
-- `sfmonitor` and comprehensive `sfconfig` operator clients
+- Comprehensive `sfconfig` and live attached operator controls
 - Web administration
 - SFDraw, the planned display-authoring companion tool
 - SFDATE and SFREG preservation tools
@@ -226,9 +234,9 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary. Schema 19 and cross-platform
-B021-A protected read-only attachment are available in current source, while
-B-021 remains PARTIAL and B-022 remains NOT STARTED. The next separately
-authorized private development step is the read-only `sfmonitor` 0.1 MVP over
-the completed `OperatorClient`; no live operator mutations belong in that
-interleave.
+Preserve the accepted 0.1.0 release boundary. Schema 19, cross-platform
+B021-A protected read-only attachment, and `sfmonitor` 0.1 are available in
+current source, while B-021 remains PARTIAL and B-022 remains NOT STARTED.
+The next separately authorized development step is B021-B stale-safe live
+operator controls through the existing daemon-authoritative command plane.
+`sfconfig` remains future B021-C work.

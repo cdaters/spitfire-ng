@@ -5,7 +5,7 @@ SPITFIRE NG presentation and language are separate. Selecting
 engine-owned prompts and generated-menu labels. Neither setting changes
 commands, security, authentication, or stored caller data.
 
-Current source setup installs `en-US` 1.11.0 under
+Current source setup installs `en-US` 1.12.0 under
 `SYSTEM/language-packs/en-US/` and writes:
 
 ```toml
@@ -22,6 +22,9 @@ authentication, authorization, protocol, timeout, restart, and live-gap
 messages used by B021-A.
 Version 1.11.0 adds safe Windows peer-identity, malformed-SID, and protected-
 pipe security failures used by B021-AW.
+Version 1.12.0 adds the complete read-only `sfmonitor` navigation, status,
+filter, help, error, resize, and configuration-unavailable language. The
+presentation profiles remain unchanged.
 
 With the board stopped, validate and install another independently licensed
 package through the public workflow:

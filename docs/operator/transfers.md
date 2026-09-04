@@ -96,5 +96,6 @@ schema-16 transfer behavior, schema-17 zero-byte authority, and the completed
 B-011/B-014/B-023 acceptance matrices. External-root rebind is a versioned
 Sysop-only mutation that returns observed availability to Unknown; a separate
 safe probe must precede the daemon's availability update. The current operator
-surface is domain/CLI-testable; `sfconfig` and `sfmonitor` remain unimplemented
-future clients of the same authority.
+surface is domain/CLI-testable. Read-only `sfmonitor` consumes current transfer
+aggregates and per-node state; `sfconfig` and attached transfer mutations
+remain future clients of the same authority.

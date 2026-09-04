@@ -63,6 +63,10 @@ outcomes rather than internal checkpoint chronology.
   identity, protocol/capability negotiation, the shared `OperatorClient`, and
   localized CLI views. B021-A is cross-platform closed; B-021 remains PARTIAL
   and B-022 remains NOT STARTED.
+- Added the read-only `sfmonitor` 0.1 local operator application over the same
+  `OperatorClient`, with responsive Dashboard, Nodes, Callers, Activity,
+  Statistics, Notifications, Maintenance / Errors, help, and reconnect views.
+  No mutation or configuration feature was added.
 
 ### Modern transport interleave
 
@@ -103,9 +107,9 @@ message-mutation, auditable caller-access, schema-13 caller identity, SSH
 caller-transport improvements, schema-14 public information, schema-15
 Tranche 5 file-domain features, schema-16/17 Tranche 6 transfer/storage source,
 schema-18 B-017 observability, and schema-19 B021-A protected operator
-attachment. No new binary, tag, or release has been
-published; the downloadable binary remains the accepted 0.1.0 Development
-Preview and does not contain those later source changes.
+attachment plus the read-only `sfmonitor` 0.1 application. No new binary, tag,
+or release has been published; the downloadable binary remains the accepted
+0.1.0 Development Preview and does not contain those later source changes.
 
 ## Current Category-B boundary
 
@@ -133,18 +137,19 @@ Controls remains PARTIAL. B-022 screen/export/publication work remains NOT
 STARTED. The Category-B ledger remains 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
 and 5 NOT STARTED.
 
-The next operator-product interleave is a read-only `sfmonitor` MVP over the
-completed client. B021-B then adds stale-safe live controls; B021-C adds typed
-configuration and the first `sfconfig`; B021-D closes maintenance/platform and
-integrated acceptance. B-022 remains later report/publication work.
+The read-only `sfmonitor` 0.1 operator-product interleave is implemented over
+the completed client. B021-B next adds stale-safe live controls; B021-C adds
+typed configuration and the first `sfconfig`; B021-D closes maintenance/
+platform and integrated acceptance. B-022 remains later report/publication
+work.
 
 Future operator products share daemon-authoritative typed services. The
 existing `spitfire setup` command remains the bootstrap/recovery path;
-`sfmonitor` is the planned live operator cockpit; `sfconfig` is the planned
-comprehensive configuration environment; and CLI clients provide
-noninteractive access. `sfmonitor` will provide **System Configuration** as a
-natural route to independently launchable `sfconfig`. None may edit SQLite
-directly or treat diagnostic text logs as authority.
+`sfmonitor` is the implemented read-only live operator cockpit; `sfconfig` is
+the planned comprehensive configuration environment; and CLI clients provide
+noninteractive access. `sfmonitor` provides **System Configuration** as an
+honest future route to independently launchable `sfconfig`. None may edit
+SQLite directly or treat diagnostic text logs as authority.
 
 Near-term release work includes:
 

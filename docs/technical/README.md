@@ -43,9 +43,9 @@ inform implementation technique, but they do not redefine SPITFIRE.
 
 The Rust workspace currently contains `sf-bbs` for application/runtime
 orchestration, `sf-core` for portable domain and persistence behavior,
-`sf-legacy` for bounded legacy parsing, and separately scoped preservation
-research components. The workspace manifest remains the package-membership
-authority.
+`sf-monitor` for the read-only operator TUI, `sf-legacy` for bounded legacy
+parsing, and separately scoped preservation research components. The workspace
+manifest remains the package-membership authority.
 
 ### Database, schema history, and transactions
 
@@ -126,6 +126,7 @@ acceptance are implemented.
 - [Native Backup and Restore](../sfng-backup-restore.md)
 - [Operator Observability](observability.md)
 - [Protected Operator Attachment](operator-control.md)
+- [sfmonitor Technical Architecture](sfmonitor.md)
 - [Security Philosophy](../03-security-philosophy.md)
 - [Multinode Runtime](../sfng-multinode-runtime.md)
 
@@ -143,6 +144,7 @@ input, transferred content, or host paths unnecessarily.
 - [B-021 Local/Sysop Operator Controls Gate](../research/m039-tranche-7-b021-operator-controls-gate.md)
 - [B021-A Protected Operator Attachment](../research/m039-tranche-7-b021a-protected-operator-attachment.md)
 - [B021-AW Windows Operator Attachment](../research/m039-tranche-7-b021aw-windows-operator-attachment.md)
+- [sfmonitor 0.1 Implementation](../research/m039-sfmonitor-read-only-mvp.md)
 - [System Architecture operator boundary](../04-system-architecture.md)
 - [Nodes and Events](../14-nodes-events.md)
 
@@ -152,9 +154,9 @@ and bounded daemon-authoritative read APIs. Schema 19/B021-A transports those
 views through protected Unix sockets and Windows named pipes plus a
 noninteractive operator client. The protocol uses OS-backed local identity,
 version/feature negotiation, distinct capabilities, daemon generation, and
-dispatch-time authorization. Screen/export formats, atomic publication, live
-control, `sfmonitor`, and `sfconfig` remain future work rather than alternate
-data owners.
+dispatch-time authorization. `sfmonitor` 0.1 now presents those same reads in
+a responsive local TUI. Screen/export formats, atomic publication, live
+control, and `sfconfig` remain future work rather than alternate data owners.
 
 ### Compatibility adapters and historical formats
 

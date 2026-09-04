@@ -42,9 +42,10 @@ daily statistics, recent caller, notification, maintenance, and retention
 services. Read [Board Activity and System
 Statistics](../manual/board-activity.md) for operator-facing behavior. The
 protected read-only `spitfire operator` attach commands are available on
-Unix-like hosts and Windows. A general Activity UI, `sfmonitor`, `sfconfig`,
-and report publication remain future work; the existing foreground console
-limits still apply.
+Unix-like hosts and Windows. The read-only [sfmonitor](../manual/sfmonitor.md)
+TUI now presents those views. `sfconfig`, live attached actions, and report
+publication remain future work; the existing foreground console limits still
+apply.
 
 ## Status labels
 

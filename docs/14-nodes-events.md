@@ -585,13 +585,15 @@ audited by the daemon.
 Maintenance mode keeps the administrative channel alive while fencing new
 work and draining or leasing affected nodes/services. Offline repair requires
 the daemon to be stopped and the exclusive board lock to be held. `sfconfig`
-and `sfmonitor` are not implemented by current source.
+and state-changing attached controls are not implemented by current source.
 
 Schema 18 provides privacy-safe live status, recent events, statistics,
 notifications, and maintenance projections. Schema 19/B021-A transports those
 views through protected Unix sockets and Windows named pipes, with daemon
-generation and explicit subscription-gap recovery. Future page, chat, time,
-disconnect, and shutdown actions must also carry fresh NodeId, SessionId,
+generation and explicit subscription-gap recovery. `sfmonitor` 0.1 consumes
+those same node/event projections, preserves bounded live-event gap recovery,
+and never renders event attributes or private session data. Future page, chat,
+time, disconnect, and shutdown actions must also carry fresh NodeId, SessionId,
 session generation, daemon generation, and CommandId identity so a reused node
 slot cannot receive an action intended for a previous caller. Those
 state-changing commands are not implemented.

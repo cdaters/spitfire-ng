@@ -112,7 +112,7 @@ gap flag so a client can resume through durable paging rather than assume it
 saw everything. Each in-memory subscriber queue is capped at 256 events and
 uses the same explicit gap result after overflow.
 
-The future monitor-ready service surface includes board status, node list,
+The monitor service surface includes board status, node list,
 recent/live events, notifications, system/today statistics, recent callers,
 one-caller activity, message activity, transfer activity, recent errors, and
 maintenance status. File mutations have a separately bounded event view.
@@ -169,7 +169,7 @@ use SQLite transactions. No half-written event or summary becomes authority.
 
 ## Presentation and localization
 
-The en-US 1.11.0 catalog contains operator activity, category/severity/outcome,
+The en-US 1.12.0 catalog contains operator activity, category/severity/outcome,
 statistics, notification/remediation, maintenance, pagination, and retention
 language. Modern 1.5.0, Minimal 1.5.0, and Classic 1.6.0 presentation packages
 remain unchanged: profiles may frame values differently but cannot alter

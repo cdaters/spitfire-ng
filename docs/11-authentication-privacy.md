@@ -613,3 +613,10 @@ caller-facing reports and confined publication. Live screen observation
 remains outside this tranche under its separate notice, redaction, consent,
 and retention boundary. See [Protected Operator
 Attachment](technical/operator-control.md).
+
+`sfmonitor` consumes only those privacy-bounded wire projections through
+`OperatorClient`. It never opens the database or diagnostic logs, never
+renders typed event attributes, and has no mutation feature or key binding.
+Disconnecting or crashing the monitor therefore cannot transfer authority to
+the client or affect callers. See the [sfmonitor Technical
+Architecture](technical/sfmonitor.md).
