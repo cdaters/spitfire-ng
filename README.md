@@ -40,10 +40,12 @@ schema-13 caller identity separation, secure SSH caller transport, and
 schema-14 privacy-bounded public information. Current source also includes
 schema-15 safe file inspection, private file requests and review, staged file
 maintenance, schema-16 batch transfer policy and logical storage, and the
-schema-17 zero-byte file invariant. Current source schema 18 additionally
-provides privacy-safe operational events, daily statistics, retention,
-notifications, and board/node/maintenance projections. Those improvements are
-not present in the published 0.1.0 archive.
+schema-17 zero-byte file invariant. Schema 18 adds privacy-safe operational
+events, daily statistics, retention, notifications, and board/node/maintenance
+projections. Current source schema 19 adds protected read-only operator
+attachment on Unix/macOS and Windows plus the reusable `OperatorClient` and
+`spitfire operator` CLI. Those improvements are not present in the published
+0.1.0 archive.
 
 The public Category-B ledger is now **14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
 and 5 NOT STARTED**. B-024 transfer interoperability, B-011 batch queues,
@@ -85,10 +87,15 @@ Available today:
   choices including TeLink;
 - when built from current source, schema-18 activity history, board-day
   statistics, bounded retention, actionable notifications, and privacy-safe
-  board, node, recent-caller, error, and maintenance services for future
-  operator clients;
+  board, node, recent-caller, error, and maintenance services;
+- when built from current source, schema-19 protected local operator
+  attachment through Unix-domain sockets or Windows named pipes, verified OS
+  peer identity and board allowlists, protocol/capability negotiation, and
+  read-only status, node, event, notification, statistics, caller, and
+  maintenance CLI commands;
 - multinode operation, operator status, cold backup, and restore, including
-  schema-18 observability state, schema-17 file/transfer/storage state,
+  schema-19 command/control audit, schema-18 observability state, schema-17
+  file/transfer/storage state,
   schema-14 public-information state, caller
   identity/access state, SSH configuration, and SSH host-key continuity when
   built from current source;
@@ -175,6 +182,10 @@ For the complete, verified current-source journey, use the
 - [Schema-18 observability technical reference](docs/technical/observability.md)
 - [Tranche 7 observability gate](docs/research/m039-tranche-7-operator-observability-reports-gate.md)
 - [B-017 implementation and verification](docs/research/m039-tranche-7-b017-observability-implementation.md)
+- [Schema-19 protected operator attachment](docs/technical/operator-control.md)
+- [B-021 operator-controls gate](docs/research/m039-tranche-7-b021-operator-controls-gate.md)
+- [B021-A implementation](docs/research/m039-tranche-7-b021a-protected-operator-attachment.md)
+- [B021-AW Windows acceptance](docs/research/m039-tranche-7-b021aw-windows-operator-attachment.md)
 - [Cross-project reference policy](docs/cross-project-reference-policy.md)
 - [Roadmap](ROADMAP.md)
 
@@ -208,9 +219,11 @@ The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
 advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
-also predates SSH, schemas 13–18, public-information additions, Tranche 5 file
-inspection/request/maintenance, Tranche 6 transfer/storage source, and B-017
-observability.
+also predates SSH, schemas 13–19, public-information additions, Tranche 5 file
+inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
+observability, and B021-A protected operator attachment. `sfmonitor`,
+`sfconfig`, live attached operator controls, and B-022 report publication
+remain future current-source work.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

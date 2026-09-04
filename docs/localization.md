@@ -38,9 +38,9 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.9.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.11.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 613 semantic messages in the complete schema-18 caller and
+copy. It contains 636 semantic messages in the complete schema-19 caller and
 operator catalog, including
 the schema-14 public-information catalog, across shared, caller, and operator
 messages. The
@@ -82,6 +82,12 @@ Tranche 7 B-017 advances en-US to 1.9.0 for privacy-safe board activity,
 statistics, event categories and severities, notifications, maintenance,
 pagination, and retention. Presentation-profile versions remain unchanged
 because they affect framing, not observability facts or authorization.
+
+B021-A advances en-US to 1.10.0 for protected attachment, CLI status and
+empty-state labels, authorization, protocol, timeout, restart, and event-gap
+messages. B021-AW advances en-US to 1.11.0 for bounded Windows peer-identity,
+SID-validation, and protected-pipe failures. Presentation-profile versions
+remain unchanged.
 
 ## Why Fluent
 

@@ -18,14 +18,24 @@ the historical or architectural material to set up a board.
   — Audiences, writing standards, source/release labels, publication strategy,
   and the project-source header policy.
 - [Board Activity and System Statistics](manual/board-activity.md) — Human
-  guidance for schema-18 activity, live status, notifications, privacy, and
-  retention.
+  guidance for schema-18 activity and schema-19 protected read-only operator
+  attachment.
 - [Operator Observability Technical Reference](technical/observability.md) —
   Schema-18 event, summary, query, authorization, and recovery contracts.
+- [Protected Operator Attachment](technical/operator-control.md) — Schema-19
+  command receipts/audit, local IPC, UID/SID identity, protocol, client, and
+  recovery contract.
 - [M039 Tranche 7 Operator Observability and Reports Gate](research/m039-tranche-7-operator-observability-reports-gate.md)
   — Public-safe B-017/B-021/B-022 architecture and acceptance boundaries.
 - [M039 Tranche 7 B-017 Observability Implementation](research/m039-tranche-7-b017-observability-implementation.md)
   — Schema-18 implementation and verification record.
+- [M039 Tranche 7 B-021 Operator Controls Gate](research/m039-tranche-7-b021-operator-controls-gate.md)
+  — Daemon authority, capability, stale-target, product, and acceptance
+  architecture.
+- [B021-A Protected Operator Attachment](research/m039-tranche-7-b021a-protected-operator-attachment.md)
+  — Schema-19 and cross-platform read-only attachment implementation record.
+- [B021-AW Windows Operator Attachment](research/m039-tranche-7-b021aw-windows-operator-attachment.md)
+  — Native Windows named-pipe, DACL, peer-SID, and portability acceptance.
 
 ## Getting started
 

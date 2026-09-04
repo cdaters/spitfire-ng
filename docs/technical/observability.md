@@ -2,7 +2,7 @@
 
 <!-- help-topic: technical.observability -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
 
 ## Authority boundaries
 
@@ -169,7 +169,7 @@ use SQLite transactions. No half-written event or summary becomes authority.
 
 ## Presentation and localization
 
-The en-US 1.9.0 catalog contains operator activity, category/severity/outcome,
+The en-US 1.11.0 catalog contains operator activity, category/severity/outcome,
 statistics, notification/remediation, maintenance, pagination, and retention
 language. Modern 1.5.0, Minimal 1.5.0, and Classic 1.6.0 presentation packages
 remain unchanged: profiles may frame values differently but cannot alter

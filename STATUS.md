@@ -13,8 +13,10 @@ auditable caller-access lifecycle, schema-13 caller identity, secure SSH caller
 transport, schema-14 privacy-bounded public information, schema-15 file
 inspection/maintenance, schema-16 transfer policy and storage, and the
 schema-17 zero-byte invariant. Schema 18 adds privacy-safe operational events,
-daily summaries, retention, notifications, and status/maintenance projections;
-the downloadable 0.1.0 archive is unchanged and does not contain those
+daily summaries, retention, notifications, and status/maintenance projections.
+Schema 19 adds cross-platform protected read-only operator attachment, the
+command-receipt/control-audit foundation, and the `spitfire operator` client.
+The downloadable 0.1.0 archive is unchanged and does not contain those
 additions.
 
 ## Current source additions
@@ -112,6 +114,15 @@ B-022 remains NOT STARTED.
   1K-XMODEM-g, YMODEM Batch, YMODEM-g Batch, ZMODEM Batch, and TeLink
 - Transactional schema-16→17 migration with rollback and exact zero-byte
   catalog, upload, protocol, backup, and restore support
+- Transactional schema-18→19 migration with bounded future command receipts,
+  append-only control audit, no fabricated history, and schema-19 cold recovery
+- Protected board-local Unix-domain-socket and Windows named-pipe operator
+  attachment using verified peer UID/SID, an explicit allowlist, restrictive
+  permissions/DACL, one-use challenge binding, daemon generation, protocol and
+  capability negotiation, and dispatch-time authorization
+- Shared, read-only `OperatorClient` and localized `spitfire operator` status,
+  nodes, events/live events, notifications, statistics, callers, and
+  maintenance commands backed by the existing B-017 projections
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -144,6 +155,9 @@ selection, visibility, or result presentation.
 - Schema-18 privacy-bounded operational events, board-day statistics,
   retention, notifications, board/node status, recent caller and activity
   projections, and maintenance/error views. B-017 is VERIFIED.
+- Schema-19 protected local operator attachment on Unix/macOS and Windows,
+  with the read-only operator CLI and reusable `OperatorClient`. B021-A is
+  cross-platform complete; B-021 remains PARTIAL.
 - ASCII, XMODEM, YMODEM, ZMODEM, and TeLink transfer support as documented
 - Multinode runtime and session isolation
 - Operator configuration, status, and renderer diagnostics
@@ -212,7 +226,9 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary. Schema 18 and B-017 are available
-in current source, while B-021 remains PARTIAL and B-022 remains NOT STARTED.
-The next separate work item is the B-021 Local/Sysop Operator Controls
-architecture/interface gate; it has not begun in this synchronization.
+Preserve the accepted 0.1.0 release boundary. Schema 19 and cross-platform
+B021-A protected read-only attachment are available in current source, while
+B-021 remains PARTIAL and B-022 remains NOT STARTED. The next separately
+authorized private development step is the read-only `sfmonitor` 0.1 MVP over
+the completed `OperatorClient`; no live operator mutations belong in that
+interleave.

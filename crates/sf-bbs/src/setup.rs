@@ -17,10 +17,10 @@ use std::path::{Path, PathBuf};
 use sf_core::{
     BoardAccessMode, BoardConfig, CallerConfig, CallerState, ConferenceAccessMode,
     ConferenceDefinition, CredentialHasher, FileAccessMode, FileAreaDefinition, FileStorage,
-    LanguageConfig, LogicalPaths, MenuPresentationMode, NetworkTerminalDefaults, NodePoolConfig,
-    PathConfig, PostLoginJourney, PresentationConfig, ProfileFieldPolicy, RuntimeConfig,
-    RuntimeDatabase, SecurityLevel, StorageConfig, TransportAdapterConfig, TransportConfig,
-    CONFIG_FORMAT_VERSION,
+    LanguageConfig, LocalOperatorIdentity, LogicalPaths, MenuPresentationMode,
+    NetworkTerminalDefaults, NodePoolConfig, OperatorConfig, PathConfig, PostLoginJourney,
+    PresentationConfig, ProfileFieldPolicy, RuntimeConfig, RuntimeDatabase, SecurityLevel,
+    StorageConfig, TransportAdapterConfig, TransportConfig, CONFIG_FORMAT_VERSION,
 };
 
 use crate::fixture::write_default_resources;
@@ -78,6 +78,7 @@ impl SetupPlan {
             language: LanguageConfig::default(),
             caller,
             transports: default_network_transports(),
+            operators: OperatorConfig::default(),
         };
         let read = SecurityLevel::new(5).expect("stock setup security is valid");
         let post = SecurityLevel::new(5).expect("stock setup security is valid");
@@ -210,7 +211,50 @@ pub fn setup_board(
     let paths = LogicalPaths::resolve(root, &validated)?;
     paths.create_directories()?;
     let config_path = root.join(BOARD_CONFIG_FILE);
-    plan.config.save_atomic(&config_path)?;
+    let mut stored_config = plan.config.clone();
+    #[cfg(unix)]
+    if stored_config.operators.local_identities.is_empty() {
+        use std::os::unix::fs::MetadataExt;
+        stored_config
+            .operators
+            .local_identities
+            .push(LocalOperatorIdentity::Unix {
+                uid: fs::metadata(root)
+                    .map_err(|source| ApplicationError::CreateSetupDirectory {
+                        path: root.to_path_buf(),
+                        source,
+                    })?
+                    .uid(),
+                label: Some("board creator".to_owned()),
+                capabilities: vec![
+                    sf_core::LocalOperatorCapability::BoardStatistics,
+                    sf_core::LocalOperatorCapability::NodeStatus,
+                    sf_core::LocalOperatorCapability::OperationalEvents,
+                    sf_core::LocalOperatorCapability::CallerActivity,
+                    sf_core::LocalOperatorCapability::Notifications,
+                    sf_core::LocalOperatorCapability::MaintenanceStatus,
+                ],
+            });
+    }
+    #[cfg(windows)]
+    if stored_config.operators.local_identities.is_empty() {
+        stored_config
+            .operators
+            .local_identities
+            .push(LocalOperatorIdentity::Windows {
+                sid: crate::operator_control::windows_current_process_sid()?,
+                label: Some("board creator".to_owned()),
+                capabilities: vec![
+                    sf_core::LocalOperatorCapability::BoardStatistics,
+                    sf_core::LocalOperatorCapability::NodeStatus,
+                    sf_core::LocalOperatorCapability::OperationalEvents,
+                    sf_core::LocalOperatorCapability::CallerActivity,
+                    sf_core::LocalOperatorCapability::Notifications,
+                    sf_core::LocalOperatorCapability::MaintenanceStatus,
+                ],
+            });
+    }
+    stored_config.save_atomic(&config_path)?;
     write_default_resources(&paths, false)?;
 
     let mut database = RuntimeDatabase::open(paths.database())?;
@@ -853,6 +897,14 @@ mod tests {
             validated.presentation.active_profile.as_deref(),
             Some("modern-ng")
         );
+        #[cfg(windows)]
+        assert!(validated.operators.local_identities.iter().any(|identity| {
+            matches!(
+                identity,
+                sf_core::LocalOperatorIdentity::Windows { sid, .. }
+                    if sid == &crate::operator_control::windows_current_process_sid().unwrap()
+            )
+        }));
         let database = RuntimeDatabase::open(&report.database_path).unwrap();
         let sysop = database.caller_by_name(b"Sysop").unwrap().unwrap();
         let actor = MessageActor::new(

@@ -61,7 +61,49 @@ pub fn initialize_fixture_board(root: &Path) -> Result<FixtureReport, Applicatio
         source,
     })?;
 
-    let config = RuntimeConfig::synthetic_fixture();
+    let mut config = RuntimeConfig::synthetic_fixture();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        config
+            .operators
+            .local_identities
+            .push(sf_core::LocalOperatorIdentity::Unix {
+                uid: fs::metadata(root)
+                    .map_err(|source| ApplicationError::CreateFixtureDirectory {
+                        path: root.to_path_buf(),
+                        source,
+                    })?
+                    .uid(),
+                label: Some("fixture creator".to_owned()),
+                capabilities: vec![
+                    sf_core::LocalOperatorCapability::BoardStatistics,
+                    sf_core::LocalOperatorCapability::NodeStatus,
+                    sf_core::LocalOperatorCapability::OperationalEvents,
+                    sf_core::LocalOperatorCapability::CallerActivity,
+                    sf_core::LocalOperatorCapability::Notifications,
+                    sf_core::LocalOperatorCapability::MaintenanceStatus,
+                ],
+            });
+    }
+    #[cfg(windows)]
+    {
+        config
+            .operators
+            .local_identities
+            .push(sf_core::LocalOperatorIdentity::Windows {
+                sid: crate::operator_control::windows_current_process_sid()?,
+                label: Some("fixture creator".to_owned()),
+                capabilities: vec![
+                    sf_core::LocalOperatorCapability::BoardStatistics,
+                    sf_core::LocalOperatorCapability::NodeStatus,
+                    sf_core::LocalOperatorCapability::OperationalEvents,
+                    sf_core::LocalOperatorCapability::CallerActivity,
+                    sf_core::LocalOperatorCapability::Notifications,
+                    sf_core::LocalOperatorCapability::MaintenanceStatus,
+                ],
+            });
+    }
     let validated = config.validate()?;
     let paths = LogicalPaths::resolve(root, &validated)?;
     paths.create_directories()?;
@@ -2066,10 +2108,10 @@ mod tests {
         assert!(classic.join("LICENSES/ASSET-LICENSE.txt").is_file());
 
         let config_text = fs::read_to_string(report.config_path).unwrap();
-        assert_eq!(
-            RuntimeConfig::from_toml(&config_text).unwrap(),
-            RuntimeConfig::synthetic_fixture()
-        );
+        let mut installed = RuntimeConfig::from_toml(&config_text).unwrap();
+        assert_eq!(installed.operators.local_identities.len(), 1);
+        installed.operators.local_identities.clear();
+        assert_eq!(installed, RuntimeConfig::synthetic_fixture());
     }
 
     #[test]

@@ -67,14 +67,18 @@ receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
 file areas, catalog metadata, hashes, attribution, state, and accounting.
 Schema 18 also preserves retained operational events, daily summaries,
 versioned activity retention, operator notifications, and their separate
-observability-action audit.
+observability-action audit. Schema 19 additionally preserves bounded operator
+command receipts and the append-only operator-control audit. It does not
+preserve live operator connections, challenges, subscriptions, endpoint
+files, or daemon generation.
 `SYSTEM/JOKER.DAT` and the configured board-local SSH host key, when present,
 are preserved as exact resource bytes. The snapshot does not duplicate that
 metadata in a second model.
 
 Transient `WORK/runtime-status.toml`, incomplete `WORK/upload-staging` bytes,
 logs or other uncataloged working files, and uncataloged external bytes are
-not snapshot state. The schema-18 memory-only live event ring is also excluded.
+not snapshot state. The schema-18 memory-only live event ring and schema-19
+operator endpoint/session state are also excluded.
 Git source recovery, historical samples, research work,
 emulator images, cloud copies, and external storage
 providers are also outside this workflow.
@@ -87,7 +91,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite and require current schema 18, exact migration names,
+3. open SQLite and require current schema 19, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -108,9 +112,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-18 snapshots.
+target. This build accepts exact schema-10 through schema-19 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 18. Validation rejects
+applies the transactional migrations through schema 19. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -226,7 +230,7 @@ one; clients will correctly report a changed host fingerprint. See
 
 ## Schema-14 public-information recovery boundary
 
-M043 schema-14 state remains preserved within current schema 18. Cold backup preserves directory policy, each
+M043 schema-14 state remains preserved within current schema 19. Cold backup preserves directory policy, each
 caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
 contributors/versions, recognized resource generations/digests, semantic
 events, and authoritative bulletin/newsletter/native-thought bytes under the
@@ -264,3 +268,13 @@ board authority and remain excluded. Restore preserves EventId sequencing,
 starts live state empty, and never fabricates downtime or pre-migration
 statistics. A schema-17 backup restores exactly; normal writable startup then
 performs the transactional 17-to-18 migration with empty history.
+
+## Schema-19 operator-control recovery boundary
+
+Schema 19 adds only the bounded operator-command receipt journal and
+append-only control audit. Cold backup preserves both so a timed-out future
+command can retain an accountable result after restore. Live IPC sessions,
+authentication challenges, subscription cursors, endpoint objects, and UI
+state are excluded. Restore always creates a new daemon generation, so a
+preserved receipt cannot make a former live SessionId target valid. See
+[Protected Operator Attachment](technical/operator-control.md).

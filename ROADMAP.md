@@ -57,7 +57,12 @@ outcomes rather than internal checkpoint chronology.
 - Added schema-18 operator observability: privacy-bounded retained events,
   board-day summaries, versioned retention, actionable notifications, bounded
   board/node/activity/maintenance projections, and cold recovery. B-017 is
-  VERIFIED; B-021 and B-022 remain separate future work.
+  VERIFIED.
+- Added schema-19/B021-A protected read-only operator attachment through
+  Unix-domain sockets and Windows named pipes, plus OS-backed host-operator
+  identity, protocol/capability negotiation, the shared `OperatorClient`, and
+  localized CLI views. B021-A is cross-platform closed; B-021 remains PARTIAL
+  and B-022 remains NOT STARTED.
 
 ### Modern transport interleave
 
@@ -97,7 +102,8 @@ Public source `main` now includes post-0.1.0 message-discovery, auditable
 message-mutation, auditable caller-access, schema-13 caller identity, SSH
 caller-transport improvements, schema-14 public information, schema-15
 Tranche 5 file-domain features, schema-16/17 Tranche 6 transfer/storage source,
-and schema-18 B-017 observability. No new binary, tag, or release has been
+schema-18 B-017 observability, and schema-19 B021-A protected operator
+attachment. No new binary, tag, or release has been
 published; the downloadable binary remains the accepted 0.1.0 Development
 Preview and does not contain those later source changes.
 
@@ -119,21 +125,26 @@ that closure.
 
 Tranche 7 begins with schema 18 and VERIFIED B-017: structured operational
 events, daily statistics, retention, notifications, and bounded status and
-maintenance services. B-021 Local/Sysop Operator Controls remains PARTIAL and
-is next for a separately authorized architecture/interface gate. B-022
-screen/export/publication work remains NOT STARTED. The Category-B ledger is
-now 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL, and 5 NOT STARTED.
+maintenance services. Schema 19/B021-A adds protected local attachment,
+daemon generation, bounded future command receipts/control audit, capability
+negotiation, read-only B-017 transport, and the operator CLI on Unix/macOS and
+Windows. B021-A is cross-platform complete, but B-021 Local/Sysop Operator
+Controls remains PARTIAL. B-022 screen/export/publication work remains NOT
+STARTED. The Category-B ledger remains 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
+and 5 NOT STARTED.
 
-This publication does not begin B-021 or B-022. Future work remains
-dependency-gated and begins only after its interface and evidence boundary are
-accepted.
+The next operator-product interleave is a read-only `sfmonitor` MVP over the
+completed client. B021-B then adds stale-safe live controls; B021-C adds typed
+configuration and the first `sfconfig`; B021-D closes maintenance/platform and
+integrated acceptance. B-022 remains later report/publication work.
 
 Future operator products share daemon-authoritative typed services. The
 existing `spitfire setup` command remains the bootstrap/recovery path;
 `sfmonitor` is the planned live operator cockpit; `sfconfig` is the planned
 comprehensive configuration environment; and CLI clients provide
-noninteractive access. None may edit SQLite directly or treat diagnostic text
-logs as authority.
+noninteractive access. `sfmonitor` will provide **System Configuration** as a
+natural route to independently launchable `sfconfig`. None may edit SQLite
+directly or treat diagnostic text logs as authority.
 
 Near-term release work includes:
 

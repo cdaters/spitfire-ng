@@ -2,7 +2,7 @@
 
 <!-- help-topic: operator.activity -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -15,12 +15,49 @@ backup succeed? The history records outcomes and safe identifiers, not what a
 caller typed or the contents of messages and files.
 
 Schema 18 provides the shared activity, statistics, notification, and
-maintenance services. They are ready for future `sfmonitor`, `sfconfig`, and
-command-line clients. Current source does not yet provide those programs or a
-general Activity screen. Continue to use `spitfire status <CONFIG-FILE>` and
-the foreground operator console for the operator commands they already
-support. Do not open the SQLite database as a substitute for an operator
-client.
+maintenance services. Schema 19 adds a protected local attachment path and
+the `spitfire operator` read-only commands. `sfmonitor` and `sfconfig` are not
+implemented yet. Do not open the SQLite database as a substitute for an
+operator client.
+
+<!-- help-topic: operator.dashboard -->
+
+## Attach to a running board
+
+Start the board normally, then use a second terminal and name that board's
+configuration file explicitly:
+
+```console
+spitfire operator status /path/to/board/spitfire.toml
+spitfire operator nodes /path/to/board/spitfire.toml
+spitfire operator events /path/to/board/spitfire.toml
+spitfire operator statistics /path/to/board/spitfire.toml
+spitfire operator notifications /path/to/board/spitfire.toml
+spitfire operator callers /path/to/board/spitfire.toml
+spitfire operator maintenance /path/to/board/spitfire.toml
+```
+
+`watch-events` waits briefly for new activity. Every command attaches to the
+already-running daemon, reads one bounded view, prints it, and exits. Closing
+the operator command does not stop the board or disconnect callers.
+
+<!-- help-topic: operator.security -->
+
+The operating-system account that created a new board is initially allowed to
+use these local read views. On Unix the board records that account's UID; on
+Windows it records the stable account SID. Other local accounts are denied
+unless explicitly listed in the board's operator configuration. BBS security
+level and named Sysop status do not grant host-operator access.
+
+The same commands work on Windows; name the intended board configuration just
+as shown above. If the endpoint is unavailable, verify that the named board is
+running. If authorization fails, use the board creator account or enroll the
+intended host operator while the board is stopped, then restart the daemon so
+the protected endpoint admits the new account. Do not edit named-pipe/socket
+permissions manually or query SQLite directly. A protocol-mismatch message
+means the CLI and running daemon need compatible current-source builds.
+
+<!-- help-topic: operator.callers -->
 
 ## What the activity history contains
 

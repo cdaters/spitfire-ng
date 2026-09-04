@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 18;
+pub const SCHEMA_VERSION: u32 = 19;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 18] = [
+const MIGRATIONS: [Migration; 19] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1431,6 +1431,62 @@ const MIGRATIONS: [Migration; 18] = [
         BEGIN SELECT RAISE(ABORT, 'operator observability audit is append-only'); END;
         "#,
     },
+    Migration {
+        version: 19,
+        name: "operator_control_foundation",
+        sql: r#"
+        CREATE TABLE migration_19_validation AS
+        SELECT (SELECT COUNT(*) FROM callers) AS caller_count,
+               (SELECT COUNT(*) FROM messages) AS message_count,
+               (SELECT COUNT(*) FROM files) AS file_count,
+               (SELECT COUNT(*) FROM transfer_records) AS transfer_count,
+               (SELECT COUNT(*) FROM operational_events) AS event_count,
+               (SELECT COUNT(*) FROM operational_daily_summaries) AS summary_count,
+               (SELECT COUNT(*) FROM operator_notifications) AS notification_count,
+               (SELECT COUNT(*) FROM operator_observability_audit) AS audit_count;
+
+        CREATE TABLE operator_command_journal (
+            command_id TEXT PRIMARY KEY CHECK (length(CAST(command_id AS BLOB)) BETWEEN 16 AND 64),
+            daemon_generation TEXT NOT NULL CHECK (length(daemon_generation)=32 AND daemon_generation NOT GLOB '*[^0-9a-f]*'),
+            operator_kind TEXT NOT NULL CHECK (operator_kind IN ('host-operator','named-sysop','system')),
+            operator_id TEXT NOT NULL CHECK (length(CAST(operator_id AS BLOB)) BETWEEN 1 AND 64),
+            command_family TEXT NOT NULL CHECK (length(CAST(command_family AS BLOB)) BETWEEN 3 AND 48 AND command_family NOT GLOB '*[^a-z0-9.-]*'),
+            command_type TEXT NOT NULL CHECK (length(CAST(command_type AS BLOB)) BETWEEN 3 AND 64 AND command_type NOT GLOB '*[^a-z0-9.-]*'),
+            request_fingerprint TEXT NOT NULL CHECK (length(request_fingerprint)=64 AND request_fingerprint NOT GLOB '*[^0-9a-f]*'),
+            target_kind TEXT CHECK (target_kind IS NULL OR length(CAST(target_kind AS BLOB)) BETWEEN 1 AND 32),
+            target_id TEXT CHECK (target_id IS NULL OR length(CAST(target_id AS BLOB)) BETWEEN 1 AND 64),
+            target_generation TEXT CHECK (target_generation IS NULL OR length(CAST(target_generation AS BLOB)) BETWEEN 1 AND 64),
+            state TEXT NOT NULL CHECK (state IN ('accepted','rejected','completed')),
+            result_class TEXT CHECK (result_class IS NULL OR length(CAST(result_class AS BLOB)) BETWEEN 3 AND 64),
+            result_version INTEGER CHECK (result_version IS NULL OR result_version > 0),
+            received_at INTEGER NOT NULL CHECK (received_at >= 0),
+            completed_at INTEGER CHECK (completed_at IS NULL OR completed_at >= received_at),
+            expires_at INTEGER NOT NULL CHECK (expires_at > received_at)
+        );
+        CREATE INDEX operator_command_journal_expiry ON operator_command_journal(expires_at,command_id);
+
+        CREATE TABLE operator_control_audit (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            operator_kind TEXT NOT NULL CHECK (operator_kind IN ('host-operator','named-sysop','system','unknown-peer')),
+            operator_id TEXT CHECK (operator_id IS NULL OR length(CAST(operator_id AS BLOB)) BETWEEN 1 AND 64),
+            operation TEXT NOT NULL CHECK (length(CAST(operation AS BLOB)) BETWEEN 3 AND 64 AND operation NOT GLOB '*[^a-z0-9.-]*'),
+            authorization_result TEXT NOT NULL CHECK (authorization_result IN ('allowed','denied','not-applicable')),
+            target_kind TEXT CHECK (target_kind IS NULL OR length(CAST(target_kind AS BLOB)) BETWEEN 1 AND 32),
+            target_id TEXT CHECK (target_id IS NULL OR length(CAST(target_id AS BLOB)) BETWEEN 1 AND 64),
+            command_id TEXT CHECK (command_id IS NULL OR length(CAST(command_id AS BLOB)) BETWEEN 16 AND 64),
+            correlation_id TEXT CHECK (correlation_id IS NULL OR length(CAST(correlation_id AS BLOB)) BETWEEN 1 AND 64),
+            outcome TEXT NOT NULL CHECK (outcome IN ('succeeded','denied','failed','rejected','incompatible')),
+            detail_code TEXT CHECK (detail_code IS NULL OR length(CAST(detail_code AS BLOB)) BETWEEN 3 AND 64)
+        );
+        CREATE INDEX operator_control_audit_time ON operator_control_audit(occurred_at,audit_id);
+        CREATE INDEX operator_control_audit_command ON operator_control_audit(command_id,audit_id);
+        CREATE TRIGGER operator_control_audit_no_update BEFORE UPDATE ON operator_control_audit
+        BEGIN SELECT RAISE(ABORT, 'operator control audit is append-only'); END;
+        CREATE TRIGGER operator_control_audit_no_delete BEFORE DELETE ON operator_control_audit
+        BEGIN SELECT RAISE(ABORT, 'operator control audit is append-only'); END;
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1617,6 +1673,9 @@ impl RuntimeDatabase {
         if required >= 18 {
             validate_schema_18_snapshot(&self.connection)?;
         }
+        if required >= 19 {
+            validate_schema_19_snapshot(&self.connection)?;
+        }
 
         self.load_board_identity()?
             .ok_or(DatabaseError::MissingBoardIdentity)
@@ -1666,7 +1725,13 @@ impl RuntimeDatabase {
             let _ = std::fs::remove_file(destination);
             return result;
         }
-        std::fs::File::open(destination)
+        // Windows requires a write-capable handle for FlushFileBuffers;
+        // opening the completed SQLite snapshot read-only makes sync_all fail
+        // with ACCESS_DENIED even though the backup itself succeeded.
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(destination)
             .and_then(|file| file.sync_all())
             .map_err(|source| DatabaseError::SnapshotSync {
                 path: destination.to_path_buf(),
@@ -2983,6 +3048,12 @@ fn run_migration(
             .execute("DROP TABLE migration_18_validation", [])
             .map_err(DatabaseError::Sqlite)?;
     }
+    if migration.version == 19 {
+        validate_operator_control_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_19_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
@@ -3511,6 +3582,53 @@ fn validate_schema_18_snapshot(connection: &Connection) -> Result<(), DatabaseEr
     Ok(())
 }
 
+fn validate_operator_control_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT caller_count,message_count,file_count,transfer_count,event_count,summary_count,notification_count,audit_count FROM migration_19_validation",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let actual: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM callers),(SELECT COUNT(*) FROM messages),(SELECT COUNT(*) FROM files),(SELECT COUNT(*) FROM transfer_records),(SELECT COUNT(*) FROM operational_events),(SELECT COUNT(*) FROM operational_daily_summaries),(SELECT COUNT(*) FROM operator_notifications),(SELECT COUNT(*) FROM operator_observability_audit)",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let fabricated: (i64, i64) = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM operator_command_journal),(SELECT COUNT(*) FROM operator_control_audit)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if expected != actual || fabricated != (0, 0) {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-19 migration changed existing authority or fabricated operator history"
+                .to_owned(),
+        ));
+    }
+    validate_schema_19_snapshot(transaction)
+}
+
+fn validate_schema_19_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let invalid: (i64, i64) = connection
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM operator_command_journal WHERE expires_at<=received_at OR length(request_fingerprint)<>64),(SELECT COUNT(*) FROM operator_control_audit WHERE authorization_result NOT IN ('allowed','denied','not-applicable'))",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid != (0, 0) {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-19 operator-control authority is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_caller_access_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
     let expected: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
         .query_row(
@@ -3763,7 +3881,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 18,
+                applied: 19,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -3790,7 +3908,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         let table_count: i64 = database
@@ -3858,7 +3976,7 @@ mod tests {
             MigrationReport {
                 starting_version: 10,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         let preserved = database
@@ -4021,7 +4139,7 @@ mod tests {
             MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         let caller = database
@@ -4131,7 +4249,7 @@ mod tests {
             MigrationReport {
                 starting_version: 12,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         let first = database
@@ -4193,7 +4311,7 @@ mod tests {
             MigrationReport {
                 starting_version: 13,
                 ending_version: SCHEMA_VERSION,
-                applied: 5
+                applied: 6
             }
         );
         let caller = database
@@ -4304,7 +4422,7 @@ mod tests {
             MigrationReport {
                 starting_version: 14,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         let preserved: (i64, String, String, i64, String, String, i64) = database.connection.query_row(
@@ -4412,7 +4530,7 @@ mod tests {
             MigrationReport {
                 starting_version: 15,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         let preserved: (i64, String, String, i64, i64, String) = database
@@ -4681,6 +4799,47 @@ mod tests {
     }
 
     #[test]
+    fn schema_eighteen_to_nineteen_preserves_authority_without_fabricated_control_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(18) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Schema Nineteen Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO operational_events(occurred_at_utc,board_day,timezone_policy_version,category,severity,event_code,outcome,retention_class,attribute_kind) VALUES(1700000000,20231114,1,'system','notice','system.test','observed','operational','none')", []).unwrap();
+        apply_migration(&mut connection, &MIGRATIONS[18]).unwrap();
+        assert_eq!(schema_version_from(&connection).unwrap(), 19);
+        let counts:(i64,i64,i64)=connection.query_row("SELECT (SELECT COUNT(*) FROM operational_events),(SELECT COUNT(*) FROM operator_command_journal),(SELECT COUNT(*) FROM operator_control_audit)", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(counts, (1, 0, 0));
+    }
+
+    #[test]
+    fn failed_schema_nineteen_migration_rolls_back_to_unchanged_schema_eighteen() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(18) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Rollback Nineteen','Fixture Sysop')", []).unwrap();
+        let broken_sql = MIGRATIONS[18].sql.replace(
+            "CREATE TABLE operator_control_audit",
+            "CREATE TABLE operator_command_journal",
+        );
+        let broken = Migration {
+            version: 19,
+            name: MIGRATIONS[18].name,
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        assert!(apply_migration(&mut connection, &broken).is_err());
+        assert_eq!(schema_version_from(&connection).unwrap(), 18);
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='operator_command_journal'", [], |row| row.get::<_,i64>(0)).unwrap(),0);
+    }
+
+    #[test]
     fn consistent_snapshot_is_read_only_validated_and_excludes_later_writes() {
         let temp = tempfile::tempdir().unwrap();
         let path = database_path(&temp);
@@ -4835,7 +4994,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 17,
+                applied: 18,
             }
         );
         assert_eq!(
@@ -4871,7 +5030,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 16,
+                applied: 17,
             }
         );
         let caller = database
@@ -4918,7 +5077,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 15,
+                applied: 16,
             }
         );
         assert_eq!(
@@ -4958,7 +5117,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 14,
+                applied: 15,
             }
         );
         let caller = database
@@ -5018,7 +5177,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 13,
+                applied: 14,
             }
         );
         let caller = database
@@ -5058,7 +5217,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: 13,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -5141,7 +5300,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 12,
             }
         );
         assert_eq!(
@@ -5241,7 +5400,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         let caller = database

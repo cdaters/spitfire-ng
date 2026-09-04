@@ -14,6 +14,7 @@ mod raw;
 mod rlogin;
 mod serial;
 mod ssh;
+#[cfg(unix)]
 mod stdio;
 mod telnet;
 
@@ -24,6 +25,7 @@ pub use serial::SerialTerminal;
 pub(crate) use ssh::{
     host_key_fingerprint, load_or_generate_host_key, serve_ssh_listener, SshListenerOptions,
 };
+#[cfg(unix)]
 pub use stdio::StdioTerminal;
 pub use telnet::TelnetTerminal;
 

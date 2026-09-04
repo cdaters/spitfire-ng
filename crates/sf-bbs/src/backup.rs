@@ -220,6 +220,9 @@ pub fn backup_board(
     if snapshot_identity != identity {
         return Err(BoardBackupError::IdentityMismatch.into());
     }
+    // Windows will not publish (rename) the completed staging directory while
+    // SQLite still holds this validation handle open inside it.
+    drop(snapshot);
     entries.push(entry_for_file(
         &database_destination,
         DATABASE_BACKUP_PATH,
@@ -1163,8 +1166,9 @@ mod tests {
     use sf_core::{
         CallerState, CopyRecipient, CredentialHasher, EventQuery, FileActor, InMemoryTerminal,
         MessageActor, MessageBackend, MessageKind, MessageRecipient, MessageVisibility, NewMessage,
-        NodeId, ObservabilityService, OperatorPrincipal, OperatorPrincipalKind, PasswordHashConfig,
-        SecurityLevel, TransferMethod, TransferProtocol, TransferQueue, TransferRuntimeState,
+        NewOperatorCommandReceipt, NewOperatorControlAudit, NodeId, ObservabilityService,
+        OperatorPrincipal, OperatorPrincipalKind, PasswordHashConfig, SecurityLevel,
+        TransferMethod, TransferProtocol, TransferQueue, TransferRuntimeState,
     };
 
     use crate::{setup_board, BoardRuntime, ConnectionReport, SetupPlan, BOARD_CONFIG_FILE};
@@ -1291,7 +1295,22 @@ mod tests {
         RuntimeDatabase::open_read_only(paths.database()).unwrap()
     }
 
+    fn downgrade_schema_19_to_18(connection: &rusqlite::Connection) {
+        let has_schema_19: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=19)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if !has_schema_19 {
+            return;
+        }
+        connection.execute_batch("DROP TRIGGER operator_control_audit_no_delete; DROP TRIGGER operator_control_audit_no_update; DROP TABLE operator_control_audit; DROP TABLE operator_command_journal; DELETE FROM schema_migrations WHERE version=19;").unwrap();
+    }
+
     fn downgrade_schema_18_to_17(connection: &rusqlite::Connection) {
+        downgrade_schema_19_to_18(connection);
         let has_schema_18: bool = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=18)",
@@ -1986,7 +2005,7 @@ mod tests {
         assert!(restored_status.contains("Base: modern-ng 1.5.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.9.0"));
+        assert!(restored_status.contains("Package: en-US 1.11.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
@@ -2124,7 +2143,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 15,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         let restored_requests = restored_database
@@ -2233,13 +2252,42 @@ mod tests {
             .update_retention_policy(1, 45, 500, None, &actor, 1_800_000_001)
             .unwrap()
             .unwrap();
+        database
+            .accept_operator_command(&NewOperatorCommandReceipt {
+                command_id: "backup-command-0001".to_owned(),
+                daemon_generation: "1".repeat(32),
+                operator_id: "unix-uid:501".to_owned(),
+                command_family: "system".to_owned(),
+                command_type: "system.example".to_owned(),
+                request_fingerprint: "a".repeat(64),
+                target_kind: None,
+                target_id: None,
+                target_generation: None,
+                received_at: 1_800_000_001,
+            })
+            .unwrap();
+        database
+            .record_operator_control_audit(&NewOperatorControlAudit {
+                occurred_at: 1_800_000_002,
+                operator_kind: "host-operator".to_owned(),
+                operator_id: Some("unix-uid:501".to_owned()),
+                operation: "operator.authenticate".to_owned(),
+                authorization_result: "allowed".to_owned(),
+                target_kind: None,
+                target_id: None,
+                command_id: None,
+                correlation_id: None,
+                outcome: "succeeded".to_owned(),
+                detail_code: None,
+            })
+            .unwrap();
         drop(database);
 
         let backup = temp.path().join("schema-18-observability-backup");
         backup_board(&config_path, &backup).unwrap();
         let restored = temp.path().join("schema-18-observability-restored");
         let report = restore_board(&backup, &restored, false).unwrap();
-        assert_eq!(report.schema_version, 18);
+        assert_eq!(report.schema_version, SCHEMA_VERSION);
         let restored_config = RuntimeConfig::load(&report.config_path)
             .unwrap()
             .validate()
@@ -2277,6 +2325,11 @@ mod tests {
             )
             .unwrap();
         assert_eq!(audit_count, 1);
+        let control_counts: (i64, i64) = rusqlite::Connection::open(restored_paths.database())
+            .unwrap()
+            .query_row("SELECT (SELECT COUNT(*) FROM operator_command_journal),(SELECT COUNT(*) FROM operator_control_audit)", [], |row| Ok((row.get(0)?,row.get(1)?)))
+            .unwrap();
+        assert_eq!(control_counts, (1, 1));
         let highest_restored_id = events
             .events
             .iter()
@@ -2316,8 +2369,8 @@ mod tests {
             database.migrate().unwrap(),
             sf_core::MigrationReport {
                 starting_version: 17,
-                ending_version: 18,
-                applied: 1,
+                ending_version: SCHEMA_VERSION,
+                applied: 2,
             }
         );
         assert!(database
@@ -2634,7 +2687,7 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 8);
+        assert_eq!(migration.applied, 9);
         migrated.validate_current_snapshot().unwrap();
     }
 
@@ -2660,7 +2713,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -2692,7 +2745,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 13,
                 ending_version: SCHEMA_VERSION,
-                applied: 5
+                applied: 6
             }
         );
         assert!(!database.public_directory_policy().unwrap().enabled);
@@ -2726,7 +2779,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 14,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: 5,
             }
         );
         database.validate_current_snapshot().unwrap();

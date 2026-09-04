@@ -545,15 +545,23 @@ exclusive board operation lock and must reuse the same domain/configuration
 services rather than duplicate business rules. Unix-domain sockets and
 Windows named pipes are the preferred platform-local endpoint families;
 loopback transport is a strongly authenticated fallback, never a public
-unauthenticated admin listener. These are accepted architecture constraints,
-not a claim that daemon admin IPC, `sfconfig`, or `sfmonitor` already exists.
+unauthenticated admin listener.
 
-Schema 18 and B-017 now provide the retained event, daily-summary,
-notification, retention, and bounded read-service foundation those future
-clients will consume. B-021 protected operator attachment and B-022 report
-publication remain unimplemented. Generated reports, diagnostic logs,
-transient status files, and operator clients never become alternate domain
-authority. See [Operator Observability](technical/observability.md).
+Schema 18 and B-017 provide retained events, daily summaries, notifications,
+retention, and bounded read services. Schema 19/B021-A transports those views
+through a protected board-local Unix-domain socket or Windows named pipe,
+using verified OS peer identity, a typed host-operator allowlist, protocol and
+feature negotiation, daemon generation, and dispatch-time authorization. The
+same `OperatorService` serves the foreground console, `OperatorClient`, CLI,
+and future operator applications. See [Operator
+Observability](technical/observability.md), [Protected Operator
+Attachment](technical/operator-control.md), and the [B-021 operator-controls
+gate](research/m039-tranche-7-b021-operator-controls-gate.md).
+
+The current operator endpoint is read-only. Live controls, `sfmonitor`,
+`sfconfig`, and B-022 report publication remain future work. Generated
+reports, diagnostic logs, transient status files, and operator clients never
+become alternate domain authority.
 
 ## 21. Implementation Language
 
@@ -620,3 +628,19 @@ When architectural choices conflict, priority should generally be:
 SPITFIRE is not intended to become an enterprise application framework.
 
 It is intended to become a modern BBS.
+
+## 24. Protected operator control plane
+
+Schema 19/B021-A adds a daemon-owned local read-only operator plane. Unix
+clients attach through a protected board Work-directory socket using OS peer
+UID; Windows clients use a board-specific named pipe with an explicit
+protected DACL and verified peer-token SID. Both map identity through a typed
+board allowlist, negotiate protocol features, bind to one daemon
+generation/challenge, and retrieve B-017 projections through the same
+`OperatorService` used by the foreground console.
+
+The transport owns no business state and exposes no generic RPC, database,
+log, filesystem, process, or TCP administration surface. Native Windows and
+Unix/macOS acceptance close the B021-A portability slice. All live and
+configuration mutations remain later B-021 work; B-022 publication,
+networking, doors, and scheduler domains remain separate.

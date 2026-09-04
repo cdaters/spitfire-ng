@@ -584,16 +584,22 @@ audited by the daemon.
 
 Maintenance mode keeps the administrative channel alive while fencing new
 work and draining or leasing affected nodes/services. Offline repair requires
-the daemon to be stopped and the exclusive board lock to be held. This is an
-accepted future architecture boundary; admin IPC, `sfconfig`, and `sfmonitor`
-are not implemented by current source.
+the daemon to be stopped and the exclusive board lock to be held. `sfconfig`
+and `sfmonitor` are not implemented by current source.
 
-Schema 18 now provides privacy-safe live status, recent events, statistics,
-notifications, and maintenance projections for future operator clients. B-021
-still owns protected attachment and control, and B-022 owns report rendering
-and publication. Operational events are also distinct from historical Event
-A–L scheduler jobs; no scheduler or external-command execution is introduced
-here.
+Schema 18 provides privacy-safe live status, recent events, statistics,
+notifications, and maintenance projections. Schema 19/B021-A transports those
+views through protected Unix sockets and Windows named pipes, with daemon
+generation and explicit subscription-gap recovery. Future page, chat, time,
+disconnect, and shutdown actions must also carry fresh NodeId, SessionId,
+session generation, daemon generation, and CommandId identity so a reused node
+slot cannot receive an action intended for a previous caller. Those
+state-changing commands are not implemented.
+
+B-022 still owns report rendering and publication. Operational events are
+also distinct from historical Event A–L scheduler jobs; no scheduler or
+external-command execution is introduced here. See [Protected Operator
+Attachment](technical/operator-control.md).
 
 ## 37. Resource Limits
 

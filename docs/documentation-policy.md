@@ -354,7 +354,7 @@ short reader-facing applicability block when source and downloadable release
 differ:
 
 ```text
-Applies to: Current source (schema 18)
+Applies to: Current source (schema 19)
 Downloadable release: Not yet included
 Latest downloadable release: SPITFIRE NG 0.1.0 Development Preview
 ```

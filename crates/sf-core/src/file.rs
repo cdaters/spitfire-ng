@@ -1881,7 +1881,9 @@ impl FileStorage {
                 .create_new(true)
                 .open(&destination)
                 .map_err(|source| {
-                    if source.kind() == std::io::ErrorKind::AlreadyExists {
+                    if source.kind() == std::io::ErrorKind::AlreadyExists
+                        || destination.try_exists().unwrap_or(false)
+                    {
                         FileError::DuplicateFilename(staged.filename.clone())
                     } else {
                         FileError::StorageIo {

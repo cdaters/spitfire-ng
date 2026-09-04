@@ -1827,6 +1827,7 @@ dependencies = [
  "rusqlite",
  "russh",
  "serde",
+ "serde_json",
  "serialport",
  "sf-core",
  "sf-legacy",
@@ -1838,6 +1839,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

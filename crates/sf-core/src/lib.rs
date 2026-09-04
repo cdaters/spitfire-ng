@@ -30,6 +30,7 @@ pub mod message;
 mod message_session;
 pub mod node;
 pub mod observability;
+pub mod operator_control;
 pub mod paths;
 pub mod public_information;
 pub mod resources;
@@ -56,11 +57,11 @@ pub use caller_access::{
 };
 pub use config::{
     BoardAccessMode, BoardConfig, CallerConfig, CallerProfilePolicy, ConfigError, LanguageConfig,
-    LegacyNodeConfig, MenuPresentationMode, NetworkTerminalDefaults, NodeOverrideConfig,
-    NodePoolConfig, PasswordHashConfig, PathConfig, PostLoginJourney, PresentationConfig,
-    PresentationMode, ProfileFieldPolicy, RuntimeConfig, SecurityLimitConfig, StorageConfig,
-    SubscriptionConfig, TransportAdapterConfig, TransportConfig, ValidatedConfig,
-    CONFIG_FORMAT_VERSION,
+    LegacyNodeConfig, LocalOperatorCapability, LocalOperatorIdentity, MenuPresentationMode,
+    NetworkTerminalDefaults, NodeOverrideConfig, NodePoolConfig, OperatorConfig,
+    PasswordHashConfig, PathConfig, PostLoginJourney, PresentationConfig, PresentationMode,
+    ProfileFieldPolicy, RuntimeConfig, SecurityLimitConfig, StorageConfig, SubscriptionConfig,
+    TransportAdapterConfig, TransportConfig, ValidatedConfig, CONFIG_FORMAT_VERSION,
 };
 pub use credentials::{CredentialError, CredentialHasher, CREDENTIAL_SCHEME};
 pub use database::{
@@ -95,6 +96,7 @@ pub use node::{
     NodePresentationContext, NodeRuntimeState, NodeSnapshot,
 };
 pub use observability::*;
+pub use operator_control::*;
 pub use paths::{LogicalPath, LogicalPaths, PathError};
 pub use public_information::*;
 pub use resources::{

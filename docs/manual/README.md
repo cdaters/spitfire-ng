@@ -2,7 +2,7 @@
 
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -70,7 +70,8 @@ compatibility detail for advanced Sysops and developers.
 - **Sysop operations:** [Status, the operator console, and routine
   operation](../operator/sysop-guide.md).
 - **Board activity and statistics:** [Understand recent activity, live node
-  status, notifications, maintenance, privacy, and retention](board-activity.md).
+  status, notifications, maintenance, privacy, retention, and protected
+  read-only operator attachment](board-activity.md).
 - **Nodes and multinode operation:** [Node ownership and simultaneous caller
   sessions](../sfng-multinode-runtime.md).
 - **Caller accounts:** [Creation, access changes, privacy, and public caller

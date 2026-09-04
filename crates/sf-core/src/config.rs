@@ -54,6 +54,59 @@ pub struct RuntimeConfig {
     pub caller: CallerConfig,
     #[serde(default)]
     pub transports: Vec<TransportConfig>,
+    /// Local operating-system identities allowed to use the protected
+    /// operator control endpoint. An empty list uses the board-owner
+    /// bootstrap rule so existing boards remain locally manageable.
+    #[serde(default)]
+    pub operators: OperatorConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperatorConfig {
+    #[serde(default)]
+    pub local_identities: Vec<LocalOperatorIdentity>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "platform", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum LocalOperatorIdentity {
+    Unix {
+        uid: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(default = "default_operator_capabilities")]
+        capabilities: Vec<LocalOperatorCapability>,
+    },
+    Windows {
+        sid: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(default = "default_operator_capabilities")]
+        capabilities: Vec<LocalOperatorCapability>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LocalOperatorCapability {
+    BoardStatistics,
+    NodeStatus,
+    OperationalEvents,
+    CallerActivity,
+    Notifications,
+    MaintenanceStatus,
+}
+
+fn default_operator_capabilities() -> Vec<LocalOperatorCapability> {
+    vec![
+        LocalOperatorCapability::BoardStatistics,
+        LocalOperatorCapability::NodeStatus,
+        LocalOperatorCapability::OperationalEvents,
+        LocalOperatorCapability::CallerActivity,
+        LocalOperatorCapability::Notifications,
+        LocalOperatorCapability::MaintenanceStatus,
+    ]
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -496,6 +549,7 @@ pub struct ValidatedConfig {
     pub language: LanguageConfig,
     pub caller: CallerConfig,
     pub transports: Vec<TransportConfig>,
+    pub operators: OperatorConfig,
 }
 
 impl RuntimeConfig {
@@ -578,6 +632,7 @@ impl RuntimeConfig {
             .map_err(|_| ConfigError::InvalidDefaultLocale(self.language.default_locale.clone()))?;
         validate_transports(&self.transports)?;
         validate_caller(&self.caller)?;
+        validate_operators(&self.operators)?;
 
         Ok(ValidatedConfig {
             identity,
@@ -591,6 +646,7 @@ impl RuntimeConfig {
             language: self.language.clone(),
             caller: self.caller.clone(),
             transports: self.transports.clone(),
+            operators: self.operators.clone(),
         })
     }
 
@@ -660,8 +716,52 @@ impl RuntimeConfig {
                     },
                 },
             ],
+            operators: OperatorConfig::default(),
         }
     }
+}
+
+fn validate_operators(operators: &OperatorConfig) -> Result<(), ConfigError> {
+    if operators.local_identities.len() > 32 {
+        return Err(ConfigError::InvalidOperatorConfiguration);
+    }
+    let mut identities = HashSet::new();
+    for identity in &operators.local_identities {
+        let (key, label, capabilities) = match identity {
+            LocalOperatorIdentity::Unix {
+                uid,
+                label,
+                capabilities,
+            } => (format!("unix:{uid}"), label, capabilities),
+            LocalOperatorIdentity::Windows {
+                sid,
+                label,
+                capabilities,
+            } => {
+                if sid.len() < 5
+                    || sid.len() > 184
+                    || !sid.starts_with("S-")
+                    || sid[2..]
+                        .bytes()
+                        .any(|byte| !byte.is_ascii_digit() && byte != b'-')
+                {
+                    return Err(ConfigError::InvalidOperatorConfiguration);
+                }
+                (format!("windows:{sid}"), label, capabilities)
+            }
+        };
+        if !identities.insert(key)
+            || capabilities.is_empty()
+            || capabilities.len() > 6
+            || capabilities.iter().copied().collect::<HashSet<_>>().len() != capabilities.len()
+            || label.as_ref().is_some_and(|value| {
+                value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
+            })
+        {
+            return Err(ConfigError::InvalidOperatorConfiguration);
+        }
+    }
+    Ok(())
 }
 
 fn default_sysop_caller_name() -> String {
@@ -1054,6 +1154,8 @@ fn validate_ssh_host_key(path: &Path) -> Result<(), ConfigError> {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("local operator configuration is invalid or exceeds its bounds")]
+    InvalidOperatorConfiguration,
     #[error("could not read configuration {path}: {source}")]
     Read {
         path: PathBuf,

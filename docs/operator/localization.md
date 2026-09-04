@@ -5,7 +5,7 @@ SPITFIRE NG presentation and language are separate. Selecting
 engine-owned prompts and generated-menu labels. Neither setting changes
 commands, security, authentication, or stored caller data.
 
-Current source setup installs `en-US` 1.9.0 under
+Current source setup installs `en-US` 1.11.0 under
 `SYSTEM/language-packs/en-US/` and writes:
 
 ```toml
@@ -13,10 +13,15 @@ Current source setup installs `en-US` 1.9.0 under
 default_locale = "en-US"
 ```
 
-Version 1.9.0 adds the operator-facing labels for board activity, statistics,
+Version 1.9.0 added the operator-facing labels for board activity, statistics,
 notifications, maintenance, and retention. Modern, Minimal, and Classic
 presentation versions do not change; they cannot alter the underlying counts,
 privacy, or authorization.
+Version 1.10.0 adds the attach/status CLI labels and safe endpoint,
+authentication, authorization, protocol, timeout, restart, and live-gap
+messages used by B021-A.
+Version 1.11.0 adds safe Windows peer-identity, malformed-SID, and protected-
+pipe security failures used by B021-AW.
 
 With the board stopped, validate and install another independently licensed
 package through the public workflow:

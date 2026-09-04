@@ -35,6 +35,7 @@ ROOT = File.expand_path("..", __dir__)
 SCOPES = {
   rust: "crates/*/src/**/*.rs",
   shell: "tools/*.sh",
+  powershell: "tools/*.ps1",
   ruby: "tools/*.rb"
 }.freeze
 
@@ -86,7 +87,7 @@ end
 
 def tracked_source_paths
   tracked_paths.select do |path|
-    %w[.rs .sh .rb].include?(File.extname(path).downcase)
+    %w[.rs .sh .ps1 .rb].include?(File.extname(path).downcase)
   end
 end
 
@@ -101,7 +102,7 @@ end
 
 def insertion_index(kind, lines, relative_path)
   case kind
-  when :rust
+  when :rust, :powershell
     0
   when :shell
     abort "#{relative_path}: shell script must retain a shebang on line 1" unless lines[0]&.start_with?("#!")

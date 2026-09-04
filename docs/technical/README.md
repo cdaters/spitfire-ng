@@ -2,7 +2,7 @@
 
 <!-- help-topic: technical.reference -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -125,6 +125,7 @@ acceptance are implemented.
 
 - [Native Backup and Restore](../sfng-backup-restore.md)
 - [Operator Observability](observability.md)
+- [Protected Operator Attachment](operator-control.md)
 - [Security Philosophy](../03-security-philosophy.md)
 - [Multinode Runtime](../sfng-multinode-runtime.md)
 
@@ -139,14 +140,21 @@ input, transferred content, or host paths unnecessarily.
 - [Implemented Schema-18/B-017 Observability](observability.md)
 - [B-017 Implementation and Verification](../research/m039-tranche-7-b017-observability-implementation.md)
 - [Tranche 7 Operator Observability and Reports Gate](../research/m039-tranche-7-operator-observability-reports-gate.md)
+- [B-021 Local/Sysop Operator Controls Gate](../research/m039-tranche-7-b021-operator-controls-gate.md)
+- [B021-A Protected Operator Attachment](../research/m039-tranche-7-b021a-protected-operator-attachment.md)
+- [B021-AW Windows Operator Attachment](../research/m039-tranche-7-b021aw-windows-operator-attachment.md)
 - [System Architecture operator boundary](../04-system-architecture.md)
 - [Nodes and Events](../14-nodes-events.md)
 
-Schema 18 and B-017 now implement retained operational events, daily
+Schema 18 and B-017 implement retained operational events, daily
 summaries, retention, notifications, privacy-safe maintenance/status views,
-and bounded daemon-authoritative read APIs. Screen/export formats, atomic
-publication, the protected B-021 attach/control channel, `sfmonitor`, and
-`sfconfig` remain future clients rather than alternate data owners.
+and bounded daemon-authoritative read APIs. Schema 19/B021-A transports those
+views through protected Unix sockets and Windows named pipes plus a
+noninteractive operator client. The protocol uses OS-backed local identity,
+version/feature negotiation, distinct capabilities, daemon generation, and
+dispatch-time authorization. Screen/export formats, atomic publication, live
+control, `sfmonitor`, and `sfconfig` remain future work rather than alternate
+data owners.
 
 ### Compatibility adapters and historical formats
 

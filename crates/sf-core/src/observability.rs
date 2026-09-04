@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use chrono::{Datelike, Days, Utc};
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{board_local_day, CallerId, DatabaseError, RuntimeDatabase};
 
@@ -36,6 +36,14 @@ pub const RETENTION_CLEANUP_BATCH: usize = 500;
 pub struct EventId(u64);
 
 impl EventId {
+    pub const fn new(value: u64) -> Option<Self> {
+        if value == 0 {
+            None
+        } else {
+            Some(Self(value))
+        }
+    }
+
     pub const fn get(self) -> u64 {
         self.0
     }
@@ -52,7 +60,8 @@ impl NotificationId {
 
 macro_rules! database_enum {
     ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+        #[serde(rename_all = "kebab-case")]
         pub enum $name { $($variant),+ }
 
         impl $name {

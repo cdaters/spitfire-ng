@@ -21,6 +21,7 @@ rand.workspace = true
 rpassword.workspace = true
 russh.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 sf-core = { path = "../sf-core" }
 sf-legacy = { path = "../sf-legacy" }
@@ -32,6 +33,9 @@ toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
 
 [dev-dependencies]
 rusqlite.workspace = true

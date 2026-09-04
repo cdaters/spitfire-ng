@@ -1,0 +1,41 @@
+name: Windows operator attachment
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-operator:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Use stable Rust
+        run: rustup default stable
+
+      - name: Verify formatting
+        run: cargo fmt --all --check
+
+      - name: Test the Windows named-pipe control plane
+        timeout-minutes: 8
+        run: cargo test -p sf-bbs operator_control::windows_tests -- --nocapture --test-threads=1
+
+      - name: Run real named-pipe, SID, ACL, CLI, and daemon acceptance
+        shell: pwsh
+        run: ./tools/verify-windows-operator.ps1
+
+      - name: Build and test the Windows workspace
+        run: cargo test --workspace --locked
+
+      - name: Lint the Windows workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings

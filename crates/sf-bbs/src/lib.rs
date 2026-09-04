@@ -17,6 +17,7 @@ mod board_lock;
 mod error;
 mod fixture;
 mod operator;
+mod operator_control;
 mod presentation;
 mod resources;
 mod runtime;
@@ -32,6 +33,11 @@ pub use backup::{
 pub use error::ApplicationError;
 pub use fixture::{initialize_fixture_board, FixtureReport, FIXTURE_CONFIG_FILE};
 pub use operator::{run_operator_console, OperatorService};
+pub use operator_control::{
+    BoardStatusWire, EventBatchWire, EventCursorWire, EventWire, MaintenanceWire, NodeStatusWire,
+    NotificationWire, OperatorClient, OperatorControlError, OperatorEventQuery, OperatorFeature,
+    RecentCallerWire, StatisticsWire,
+};
 pub use presentation::{
     EngineCompatibility, FallbackPolicy, PresentationResolver, PresentationStatus,
     ProfileDescriptor, ProfileFormat, ProfileResourceKind, ProfileResourceRecord, ProvenanceKind,
@@ -51,6 +57,7 @@ use std::path::PathBuf;
 
 use sf_core::InMemoryTerminal;
 
+#[cfg(unix)]
 use crate::transports::StdioTerminal;
 
 /// Executes CLI behavior without exiting the process, keeping argument and
@@ -137,6 +144,9 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
         }
         [command, config] if command == "config" => interactive_config(&PathBuf::from(config)),
         [command, config] if command == "status" => board_status(&PathBuf::from(config)),
+        [command, action, config] if command == "operator" => {
+            run_operator_attach_cli(action.to_string_lossy().as_ref(), &PathBuf::from(config))
+        }
         [command, config, destination] if command == "backup" => {
             let report = backup_board(&PathBuf::from(config), &PathBuf::from(destination))?;
             Ok(op_args(
@@ -318,6 +328,191 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
         }
         _ => Err(ApplicationError::Usage(op("operator-usage"))),
     }
+}
+
+fn run_operator_attach_cli(
+    action: &str,
+    config: &std::path::Path,
+) -> Result<String, ApplicationError> {
+    if !matches!(
+        action,
+        "status"
+            | "nodes"
+            | "events"
+            | "watch-events"
+            | "notifications"
+            | "statistics"
+            | "callers"
+            | "maintenance"
+    ) {
+        return Err(ApplicationError::Usage(op("operator-usage")));
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| ApplicationError::Transport(op("operator-client-start-failed")))?;
+    runtime
+        .block_on(async {
+            let mut client = OperatorClient::connect(config).await?;
+            let negotiated = format!("{}", client.features().len());
+            let body = match action {
+                "status" => {
+                    let value = client.board_status().await?;
+                    op_args(
+                        "operator-attach-status",
+                        sf_core::LocalizationArgs::new()
+                            .with("board", value.board_name)
+                            .with("schema", value.schema_version)
+                            .with("uptime", value.uptime_seconds)
+                            .with("nodes", value.active_nodes as u64)
+                            .with("callers", value.callers_online as u64)
+                            .with("features", negotiated),
+                    )
+                }
+                "nodes" => {
+                    let rows = client.nodes().await?;
+                    if rows.is_empty() {
+                        op("operator-attach-nodes-empty")
+                    } else {
+                        rows.into_iter()
+                            .map(|node| {
+                                op_args(
+                                    "operator-attach-node-row",
+                                    sf_core::LocalizationArgs::new()
+                                        .with("node", node.node_id)
+                                        .with("state", node.lifecycle)
+                                        .with(
+                                            "caller",
+                                            node.public_handle.unwrap_or_else(|| "-".to_owned()),
+                                        ),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }
+                }
+                "events" | "watch-events" => {
+                    let batch = if action == "watch-events" {
+                        client.subscribe_events(4_000).await?
+                    } else {
+                        client.recent_events(100).await?
+                    };
+                    if batch.events.is_empty() {
+                        op("operator-attach-events-empty")
+                    } else {
+                        let mut lines = batch
+                            .events
+                            .into_iter()
+                            .map(|event| {
+                                op_args(
+                                    "operator-attach-event-row",
+                                    sf_core::LocalizationArgs::new()
+                                        .with("id", event.event_id)
+                                        .with("severity", event.severity)
+                                        .with("code", event.event_code),
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        if batch.gap_before_first {
+                            lines.insert(0, op("operator-attach-event-gap"));
+                        }
+                        lines.join("\n")
+                    }
+                }
+                "notifications" => {
+                    let rows = client.notifications(false, 100).await?;
+                    if rows.is_empty() {
+                        op("operator-notifications-empty")
+                    } else {
+                        rows.into_iter()
+                            .map(|item| {
+                                op_args(
+                                    "operator-attach-notification-row",
+                                    sf_core::LocalizationArgs::new()
+                                        .with("id", item.notification_id)
+                                        .with("severity", item.severity)
+                                        .with("reason", item.reason_key),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }
+                }
+                "statistics" => {
+                    let value = client.statistics().await?;
+                    op_args(
+                        "operator-attach-statistics",
+                        sf_core::LocalizationArgs::new()
+                            .with("day", i64::from(value.board_day))
+                            .with("calls", value.calls_completed_today)
+                            .with("messages", value.messages_posted_today)
+                            .with("uploads", value.successful_uploads_today)
+                            .with("downloads", value.successful_downloads_today)
+                            .with("lifetime", value.lifetime_calls),
+                    )
+                }
+                "callers" => {
+                    let rows = client.recent_callers(100).await?;
+                    if rows.is_empty() {
+                        op("operator-recent-callers-empty")
+                    } else {
+                        rows.into_iter()
+                            .map(|item| {
+                                op_args(
+                                    "operator-attach-caller-row",
+                                    sf_core::LocalizationArgs::new()
+                                        .with("caller", item.public_handle)
+                                        .with("time", item.occurred_at_utc)
+                                        .with("node", item.node_id.unwrap_or(0)),
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }
+                }
+                "maintenance" => {
+                    let value = client.maintenance_status().await?;
+                    op_args(
+                        "operator-attach-maintenance",
+                        sf_core::LocalizationArgs::new()
+                            .with("notifications", value.open_notifications)
+                            .with("warnings", value.recent_warning_events)
+                            .with("errors", value.recent_error_events)
+                            .with("storage", value.unavailable_storage_roots)
+                            .with("review", value.pending_review_files)
+                            .with("transfers", value.nonterminal_transfers),
+                    )
+                }
+                _ => unreachable!("operator action was validated before client startup"),
+            };
+            Ok::<_, OperatorControlError>(body)
+        })
+        .map_err(localized_operator_error)
+}
+
+fn localized_operator_error(error: OperatorControlError) -> ApplicationError {
+    let key = match error {
+        OperatorControlError::EndpointUnavailable | OperatorControlError::Io(_) => {
+            "operator-endpoint-unavailable"
+        }
+        OperatorControlError::UnsafeEndpoint(_) => "operator-endpoint-unsafe",
+        OperatorControlError::AuthenticationFailed => "operator-authentication-failed",
+        OperatorControlError::AuthorizationDenied => "operator-authorization-failed",
+        OperatorControlError::ProtocolMismatch
+        | OperatorControlError::MalformedFrame
+        | OperatorControlError::OversizedFrame
+        | OperatorControlError::Serialization(_) => "operator-protocol-mismatch",
+        OperatorControlError::UnsupportedFeature | OperatorControlError::PlatformUnavailable => {
+            "operator-feature-unsupported"
+        }
+        OperatorControlError::PeerIdentityUnavailable => "operator-peer-identity-unavailable",
+        OperatorControlError::InvalidWindowsSid => "operator-windows-sid-invalid",
+        OperatorControlError::PipeSecurityUnavailable => "operator-pipe-security-failed",
+        OperatorControlError::Timeout => "operator-request-timeout",
+        OperatorControlError::StaleDaemonGeneration => "operator-daemon-restarted",
+        OperatorControlError::Service(_) => "operator-request-failed",
+    };
+    ApplicationError::Transport(op(key))
 }
 
 fn op(key: &str) -> String {

@@ -20,6 +20,7 @@ use sf_core::{
 };
 use tracing::info;
 
+use crate::runtime::{BoardStatus, LiveNodeStatus, OperatorObservabilityContext};
 use crate::{ApplicationError, BoardRuntime};
 
 /// Presentation-independent operator operations for the running board. The
@@ -40,6 +41,68 @@ impl OperatorService {
 
     pub fn nodes(&self) -> Result<Vec<sf_core::NodeSnapshot>, ApplicationError> {
         self.runtime.node_snapshots()
+    }
+
+    pub fn board_status(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<BoardStatus, ApplicationError> {
+        self.runtime.board_status(context)
+    }
+    pub fn live_nodes(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<Vec<LiveNodeStatus>, ApplicationError> {
+        self.runtime.live_node_statuses(context)
+    }
+    pub fn recent_events(
+        &self,
+        context: &OperatorObservabilityContext,
+        query: &sf_core::EventQuery,
+    ) -> Result<sf_core::EventPage, ApplicationError> {
+        self.runtime.recent_operational_events(context, query)
+    }
+    pub fn notifications(
+        &self,
+        context: &OperatorObservabilityContext,
+        include_closed: bool,
+        limit: usize,
+    ) -> Result<Vec<sf_core::OperatorNotification>, ApplicationError> {
+        self.runtime
+            .operator_notifications(context, include_closed, limit)
+    }
+    pub fn statistics(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<sf_core::SystemStatistics, ApplicationError> {
+        self.runtime.system_statistics(context)
+    }
+    pub fn recent_callers(
+        &self,
+        context: &OperatorObservabilityContext,
+        limit: usize,
+    ) -> Result<Vec<sf_core::RecentCaller>, ApplicationError> {
+        self.runtime.recent_callers(context, limit)
+    }
+    pub fn maintenance_status(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<sf_core::MaintenanceStatus, ApplicationError> {
+        self.runtime.maintenance_status(context)
+    }
+    pub fn subscribe_events(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<sf_core::LiveEventSubscription, ApplicationError> {
+        self.runtime.subscribe_operational_events(context)
+    }
+    pub fn poll_events(
+        &self,
+        context: &OperatorObservabilityContext,
+        subscription: &sf_core::LiveEventSubscription,
+    ) -> Result<sf_core::LiveEventBatch, ApplicationError> {
+        self.runtime
+            .poll_operational_event_subscription(context, subscription)
     }
 
     pub fn pages(&self) -> Result<Vec<PageRequest>, ApplicationError> {

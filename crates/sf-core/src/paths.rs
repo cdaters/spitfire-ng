@@ -187,8 +187,9 @@ mod tests {
     #[test]
     fn resolves_all_stock_logical_paths_without_leaking_config_paths() {
         let config = RuntimeConfig::synthetic_fixture().validate().unwrap();
-        let root = Path::new("/fixture-root");
-        let paths = LogicalPaths::resolve(root, &config).unwrap();
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("fixture-root");
+        let paths = LogicalPaths::resolve(&root, &config).unwrap();
 
         assert_eq!(paths.get(LogicalPath::System), root.join("system"));
         assert_eq!(paths.get(LogicalPath::Work), root.join("work"));

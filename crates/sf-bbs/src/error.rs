@@ -116,6 +116,8 @@ pub enum ApplicationError {
     #[error(transparent)]
     Interaction(#[from] sf_core::InteractionError),
     #[error(transparent)]
+    OperatorControl(#[from] crate::operator_control::OperatorControlError),
+    #[error(transparent)]
     Session(#[from] sf_core::SessionError),
     #[error(transparent)]
     Terminal(#[from] sf_core::TerminalError),

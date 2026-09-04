@@ -33,7 +33,7 @@ pub const LANGUAGE_MANIFEST: &str = "language.toml";
 pub const LANGUAGE_FORMAT_VERSION: u32 = 1;
 pub const CATALOG_API_VERSION: u32 = 1;
 pub const EMBEDDED_LOCALE: &str = "en-US";
-pub const EMBEDDED_PACKAGE_VERSION: &str = "1.9.0";
+pub const EMBEDDED_PACKAGE_VERSION: &str = "1.11.0";
 
 const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 const MAX_LANGUAGE_FILES: usize = 64;
@@ -728,7 +728,7 @@ fn load_language_package(
     let mut total = 0usize;
     for record in &manifest.files {
         validate_relative_path(&record.path)?;
-        if !declared.insert(record.path.to_string_lossy().to_ascii_lowercase())
+        if !declared.insert(inventory_key(&record.path)?)
             || !provenance.contains(record.provenance.as_str())
         {
             return Err(LanguageError::InvalidInventory);
@@ -759,12 +759,12 @@ fn load_language_package(
         }
     }
     let actual = recursive_inventory(&directory)?;
-    let expected = manifest
+    let mut expected = manifest
         .files
         .iter()
-        .map(|record| record.path.to_string_lossy().to_ascii_lowercase())
-        .chain([LANGUAGE_MANIFEST.to_owned()])
-        .collect::<BTreeSet<_>>();
+        .map(|record| inventory_key(&record.path))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    expected.insert(LANGUAGE_MANIFEST.to_owned());
     if actual != expected {
         return Err(LanguageError::InvalidInventory);
     }
@@ -905,7 +905,7 @@ fn recursive_inventory(root: &Path) -> Result<BTreeSet<String>, LanguageError> {
                 let relative = path
                     .strip_prefix(base)
                     .map_err(|_| LanguageError::UnsafePackage)?;
-                if !output.insert(relative.to_string_lossy().to_ascii_lowercase()) {
+                if !output.insert(inventory_key(relative)?) {
                     return Err(LanguageError::InvalidInventory);
                 }
             } else {
@@ -917,6 +917,20 @@ fn recursive_inventory(root: &Path) -> Result<BTreeSet<String>, LanguageError> {
     let mut output = BTreeSet::new();
     visit(root, root, &mut output)?;
     Ok(output)
+}
+
+fn inventory_key(path: &Path) -> Result<String, LanguageError> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        let Component::Normal(part) = component else {
+            return Err(LanguageError::UnsafePackage);
+        };
+        parts.push(part.to_string_lossy().to_ascii_lowercase());
+    }
+    if parts.is_empty() {
+        return Err(LanguageError::UnsafePackage);
+    }
+    Ok(parts.join("/"))
 }
 
 fn validate_relative_path(path: &Path) -> Result<(), LanguageError> {

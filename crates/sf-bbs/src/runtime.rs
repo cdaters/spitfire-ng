@@ -175,6 +175,7 @@ pub struct BoardRuntime {
     status_path: PathBuf,
     started_at: i64,
     observability: ObservabilityService,
+    daemon_generation: String,
 }
 
 impl BoardRuntime {
@@ -308,6 +309,7 @@ impl BoardRuntime {
             status_path,
             started_at,
             observability,
+            daemon_generation: crate::operator_control::random_token(),
         })
     }
 
@@ -552,6 +554,25 @@ impl BoardRuntime {
             .map_err(Into::into)
     }
 
+    pub fn subscribe_operational_events(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<sf_core::LiveEventSubscription, ApplicationError> {
+        require(context.capabilities.view_operational_events)?;
+        self.observability.subscribe_live().map_err(Into::into)
+    }
+
+    pub fn poll_operational_event_subscription(
+        &self,
+        context: &OperatorObservabilityContext,
+        subscription: &sf_core::LiveEventSubscription,
+    ) -> Result<sf_core::LiveEventBatch, ApplicationError> {
+        require(context.capabilities.view_operational_events)?;
+        self.observability
+            .poll_live_subscription(subscription, current_unix_seconds()?)
+            .map_err(Into::into)
+    }
+
     pub fn interaction(&self) -> InteractionHub {
         self.interaction.clone()
     }
@@ -562,6 +583,14 @@ impl BoardRuntime {
 
     pub fn database_path(&self) -> &Path {
         self.paths.database()
+    }
+
+    pub fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    pub fn daemon_generation(&self) -> &str {
+        &self.daemon_generation
     }
 
     pub(crate) fn system_path(&self) -> &Path {
@@ -1293,6 +1322,16 @@ fn serve_with_operator(
             "no listener or device transports are configured".to_owned(),
         ));
     }
+    let operator_server = crate::operator_control::start_operator_server(
+        Arc::clone(&runtime),
+        config_path
+            .canonicalize()
+            .map_err(|source| ApplicationError::ResolveConfiguration {
+                path: config_path.to_path_buf(),
+                source,
+            })?,
+        Arc::clone(&shutdown),
+    )?;
 
     for listener in &listeners {
         info!(name = listener.name, transport = ?listener.transport, listen = %listener.address, "transport listener ready");
@@ -1363,15 +1402,22 @@ fn serve_with_operator(
         }));
     }
 
-    if let Some(operator) = operator {
-        operator(Arc::clone(&runtime), Arc::clone(&shutdown))?;
+    let operator_result = if let Some(operator) = operator {
+        let result = operator(Arc::clone(&runtime), Arc::clone(&shutdown));
         shutdown.store(true, Ordering::SeqCst);
-    }
+        Some(result)
+    } else {
+        None
+    };
 
     for handle in handles {
         handle
             .join()
             .map_err(|_| ApplicationError::Coordination("transport listener thread panicked"))?;
+    }
+    operator_server.join()?;
+    if let Some(result) = operator_result {
+        result?;
     }
     info!("SPITFIRE NG listeners shut down cleanly");
     Ok(ServeReport {
@@ -3858,10 +3904,24 @@ mod tests {
             .unwrap();
         let _ = first.shutdown(Shutdown::Write);
         let _ = second.shutdown(Shutdown::Write);
-        let mut first_output = Vec::new();
-        let mut second_output = Vec::new();
-        let first_read = first.read_to_end(&mut first_output);
-        let second_read = second.read_to_end(&mut second_output);
+        first
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        second
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        let first_reader = thread::spawn(move || {
+            let mut output = Vec::new();
+            let result = first.read_to_end(&mut output);
+            (result, output)
+        });
+        let second_reader = thread::spawn(move || {
+            let mut output = Vec::new();
+            let result = second.read_to_end(&mut output);
+            (result, output)
+        });
+        let (first_read, first_output) = first_reader.join().unwrap();
+        let (second_read, second_output) = second_reader.join().unwrap();
         assert!(
             first_read.is_ok()
                 || first_read

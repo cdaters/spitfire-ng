@@ -5,6 +5,7 @@ operator-usage = Usage:
     spitfire [--locale <BCP47>] setup <OUTPUT-DIRECTORY>
     spitfire [--locale <BCP47>] config <CONFIG-FILE>
     spitfire [--locale <BCP47>] status <CONFIG-FILE>
+    spitfire [--locale <BCP47>] operator <status|nodes|events|watch-events|notifications|statistics|callers|maintenance> <CONFIG-FILE>
     spitfire [--locale <BCP47>] backup <CONFIG-FILE> <BACKUP-DIRECTORY>
     spitfire [--locale <BCP47>] restore <BACKUP-DIRECTORY> <BOARD-DIRECTORY> [--replace]
     spitfire [--locale <BCP47>] init-sysop <CONFIG-FILE>
@@ -51,6 +52,34 @@ operator-demo-summary = Runtime summary: board={ $board }, node={ $node }, schem
 operator-shell-ended = SPITFIRE shell session { $session } ended { $reason }.
 operator-console-ended = SPITFIRE operator console stopped after { $sessions } completed sessions.
 operator-listeners-ended = SPITFIRE listeners stopped after { $sessions } completed sessions.
+operator-attach-status = Board: { $board }
+    Schema: { $schema }
+    Uptime seconds: { $uptime }
+    Active nodes: { $nodes }
+    Callers online: { $callers }
+    Negotiated operator features: { $features }
+operator-attach-nodes-empty = No configured nodes are available.
+operator-attach-node-row = Node { $node }: { $state }; caller: { $caller }
+operator-attach-events-empty = No recent board activity is available.
+operator-attach-event-row = Event { $id }: { $severity } { $code }
+operator-attach-event-gap = Some live activity was missed. Refresh recent activity to recover the gap.
+operator-attach-notification-row = Notification { $id }: { $severity } { $reason }
+operator-attach-statistics = Board day { $day }: completed calls { $calls }, messages { $messages }, uploads { $uploads }, downloads { $downloads }; lifetime calls { $lifetime }.
+operator-attach-caller-row = { $caller } at { $time } on node { $node }
+operator-attach-maintenance = Open notifications { $notifications }; warnings { $warnings }; errors { $errors }; unavailable storage { $storage }; files awaiting review { $review }; active/incomplete transfers { $transfers }.
+operator-endpoint-unavailable = The running board's local operator endpoint is unavailable.
+operator-endpoint-unsafe = The board's local operator endpoint is not safe to use. Check its ownership and permissions.
+operator-client-start-failed = The local operator client could not start.
+operator-authentication-failed = This local operating-system account is not authorized to operate this board.
+operator-authorization-failed = This operator is not permitted to view the requested information.
+operator-peer-identity-unavailable = Windows could not verify the local operator's account identity.
+operator-windows-sid-invalid = A configured Windows host-operator identity is invalid. Correct the board operator allowlist while the board is stopped.
+operator-pipe-security-failed = Windows could not create the protected local operator channel. The board did not open an insecure fallback.
+operator-protocol-mismatch = The operator client and running board use incompatible control protocol versions.
+operator-feature-unsupported = The running board does not support that operator feature.
+operator-request-timeout = The operator request timed out without changing board state.
+operator-daemon-restarted = The board restarted. Attach again to establish a new operator session.
+operator-request-failed = The running board could not complete that operator request safely.
 operator-setup-title = SPITFIRE NG Board Setup
 operator-setup-profile-summary = Installed presentation profiles: modern-ng, minimal-terminal, classic-spitfire.
 operator-setup-board-name = Board name

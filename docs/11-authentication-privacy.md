@@ -598,7 +598,18 @@ do not expose credentials, login identifiers, private profiles, content,
 terminal input, remote endpoints, or host paths.
 
 Named Sysop, threshold Sysop, and host operator remain separate authorities.
-B-021 will provide the protected operator attach/control boundary, while
-B-022 will govern caller-facing reports and confined publication. Live screen
-observation remains outside this tranche under its separate notice, redaction,
-consent, and retention boundary.
+Schema 19/B021-A now provides a protected read-only operator attachment
+boundary. It uses local endpoint protection plus verified OS peer identity
+mapped through a board-local host-operator allowlist; it does not reuse a
+caller password, login identifier, named-Sysop identity, security threshold,
+SSH host key, or command-line bearer secret. Every request is capability-
+checked again at dispatch.
+
+Unix sockets identify the peer UID. Windows named pipes use an explicit
+protected DACL and obtain the peer SID from the client's Windows security
+token; Administrator membership and caller BBS authority do not grant access.
+All state-changing operator commands remain unimplemented. B-022 will govern
+caller-facing reports and confined publication. Live screen observation
+remains outside this tranche under its separate notice, redaction, consent,
+and retention boundary. See [Protected Operator
+Attachment](technical/operator-control.md).
