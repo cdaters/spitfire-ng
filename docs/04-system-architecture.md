@@ -88,6 +88,15 @@ semantic file audit while retaining SQLite-plus-confined-bytes authority. The
 exact caller model and modernization boundary are specified in
 [Native Caller and Authentication Model](sfng-caller-authentication.md).
 
+Schema 16 adds versioned transfer policy, board-day usage and reservations,
+idempotent settlement, and stable storage roots and locators. Protocol wire
+state and caller batch queues remain ephemeral. Schema 17 separates valid
+zero-byte file authority from protocol capability. Schema 18 adds B-017
+operational observability: privacy-bounded retained events, typed board-day
+summaries, versioned retention, notifications, separate observability-action
+audit, and bounded operator-ready projections. It does not duplicate domain
+counters or add report-publication state.
+
 M043 implements caller-facing public information as a handle-only,
 privacy-filtered projection rather than caller/configuration serialization.
 Native Other BBS rows are board-local SQLite state; bulletins, newsletter, and
@@ -538,6 +547,13 @@ Windows named pipes are the preferred platform-local endpoint families;
 loopback transport is a strongly authenticated fallback, never a public
 unauthenticated admin listener. These are accepted architecture constraints,
 not a claim that daemon admin IPC, `sfconfig`, or `sfmonitor` already exists.
+
+Schema 18 and B-017 now provide the retained event, daily-summary,
+notification, retention, and bounded read-service foundation those future
+clients will consume. B-021 protected operator attachment and B-022 report
+publication remain unimplemented. Generated reports, diagnostic logs,
+transient status files, and operator clients never become alternate domain
+authority. See [Operator Observability](technical/observability.md).
 
 ## 21. Implementation Language
 

@@ -65,14 +65,18 @@ immutable message payload/fan-out identities,
 separately numbered delivery recipients/audiences, tombstones, visibility,
 receipts, last-read, Copy/Forward lineage, and privacy-safe mutation audit; and
 file areas, catalog metadata, hashes, attribution, state, and accounting.
+Schema 18 also preserves retained operational events, daily summaries,
+versioned activity retention, operator notifications, and their separate
+observability-action audit.
 `SYSTEM/JOKER.DAT` and the configured board-local SSH host key, when present,
 are preserved as exact resource bytes. The snapshot does not duplicate that
 metadata in a second model.
 
 Transient `WORK/runtime-status.toml`, incomplete `WORK/upload-staging` bytes,
 logs or other uncataloged working files, and uncataloged external bytes are
-not snapshot state. Git source recovery, historical samples, research work,
-emulator images, cloud copies, retention policy, and external storage
+not snapshot state. The schema-18 memory-only live event ring is also excluded.
+Git source recovery, historical samples, research work,
+emulator images, cloud copies, and external storage
 providers are also outside this workflow.
 
 ## Backup Validation and Publication
@@ -83,7 +87,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite read-only and require current schema 15, exact migration names,
+3. open SQLite and require current schema 18, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -104,9 +108,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-15 snapshots.
+target. This build accepts exact schema-10 through schema-18 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 15. Validation rejects
+applies the transactional migrations through schema 18. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -168,7 +172,9 @@ followed by normal migration, schema-13 identity restore followed by writable
 migration, exact SSH-key/configuration preservation, schema-14 public
 policy/opt-out/Other-BBS/event/resource-generation preservation, schema-15
 requests/policy/lifecycle/event preservation, schema-14 exact restore then
-writable migration, older/newer refusal,
+writable migration, schema-18 event/summary/retention/notification/audit
+preservation and EventId continuation, schema-17 exact restore followed by an
+honest empty-history migration, safe failed-backup notification, older/newer refusal,
 board-lock exclusion, missing catalog bytes, checksum corruption, manifest
 traversal, undeclared files, explicit replacement, rollback cleanup, and the
 Sysop CLI report. The combined workspace and existing transport,
@@ -220,7 +226,7 @@ one; clients will correctly report a changed host fingerprint. See
 
 ## Schema-14 public-information recovery boundary
 
-M043 schema-14 state remains preserved within current schema 17. Cold backup preserves directory policy, each
+M043 schema-14 state remains preserved within current schema 18. Cold backup preserves directory policy, each
 caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
 contributors/versions, recognized resource generations/digests, semantic
 events, and authoritative bulletin/newsletter/native-thought bytes under the
@@ -244,3 +250,17 @@ not file `Missing`. Schema 17 additionally preserves valid zero-byte catalog
 objects and their empty SHA-256 through new-root restore. Schema-15 and
 schema-16 backups restore exactly, then migrate only on normal writable
 startup.
+
+## Schema-18 observability recovery boundary
+
+Current schema-18 cold snapshots retain operational events inside policy,
+board-day summaries, versioned retention, notification state, and
+observability-action audit. Saved report-publication definitions and journals
+remain B-022 work and are not part of this schema slice.
+
+The live event ring, subscriber cursors, reconstructable report caches,
+rendering staging, diagnostic logs, and ordinary operator exports are not
+board authority and remain excluded. Restore preserves EventId sequencing,
+starts live state empty, and never fabricates downtime or pre-migration
+statistics. A schema-17 backup restores exactly; normal writable startup then
+performs the transactional 17-to-18 migration with empty history.

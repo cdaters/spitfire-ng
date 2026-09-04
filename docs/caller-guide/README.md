@@ -2,7 +2,7 @@
 
 <!-- help-topic: caller.guide -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 17)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >

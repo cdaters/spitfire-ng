@@ -32,6 +32,16 @@ cannot force disclosure. Disabled, Deleted, and opted-out callers appear
 absent to ordinary directory/locate commands. See
 [Public Information](sfng-public-information.md).
 
+Schema 18 adds privacy-bounded operator observability. Normal operational
+events may correlate a stable caller ID and may retain a public-handle snapshot
+for completed-call history, but never store supplied login identifiers,
+passwords or hashes, private profile details, message content or recipient
+lists, file content, terminal input, remote endpoints, keys, or host paths.
+Authentication failures retain only a safe reason class, transport, and
+node/session correlation. Purpose-specific security audit remains separate and
+cannot be removed through ordinary activity retention. See [Operator
+Observability](technical/observability.md).
+
 ## 2. Caller Principle
 
 The historical concept of a Caller remains central.
@@ -575,3 +585,20 @@ session-local and cannot cross callers or nodes.
 SSH remains a caller carrier with no shell, exec, SCP, SFTP, subsystem, or
 forwarding route. Independent closure signaling ensures a saturated input
 queue cannot strand reservations or active-use authority after disconnect.
+
+## 37. Operator observability and report privacy
+
+The accepted [M039 Tranche 7
+contract](research/m039-tranche-7-operator-observability-reports-gate.md)
+separates retained operational history, durable security audit, read-only
+reports, and generated publications. Schema 18 implements the B-017 event,
+summary, retention, notification, and maintenance foundation. Ordinary
+activity views use public handles where useful and stable IDs internally; they
+do not expose credentials, login identifiers, private profiles, content,
+terminal input, remote endpoints, or host paths.
+
+Named Sysop, threshold Sysop, and host operator remain separate authorities.
+B-021 will provide the protected operator attach/control boundary, while
+B-022 will govern caller-facing reports and confined publication. Live screen
+observation remains outside this tranche under its separate notice, redaction,
+consent, and retention boundary.

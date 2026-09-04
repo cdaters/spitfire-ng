@@ -25,8 +25,9 @@ use rusqlite::{params, OptionalExtension};
 use thiserror::Error;
 
 use crate::{
-    FileAccess, FileActor, FileAreaId, FileEntry, FileId, FileIntegrity, FileLifecycle, NodeId,
-    RuntimeDatabase, SecurityLevel, TransferProtocol,
+    insert_operational_event_tx, EventAttributes, EventCategory, EventOutcome, EventSeverity,
+    FileAccess, FileActor, FileAreaId, FileEntry, FileId, FileIntegrity, FileLifecycle,
+    NewOperationalEvent, NodeId, RetentionClass, RuntimeDatabase, SecurityLevel, TransferProtocol,
 };
 
 pub const MAX_BATCH_QUEUE_ITEMS: usize = 99;
@@ -1129,6 +1130,28 @@ impl RuntimeDatabase {
             "INSERT INTO transfer_events(occurred_at,operation,actor_caller_id,transfer_id,reservation_id,protocol,direction,outcome,byte_count,detail) VALUES(?1,'reservation-created',?2,?3,?4,?5,'download','reserved',?6,?7)",
             params![now, caller.id.get(), transfer_id.as_str(), reservation_id.as_str(), method.database_value(), sqlite_i64(chargeable_bytes)?, format!("items={}", queue.len())],
         )?;
+        let mut event = NewOperationalEvent::new(
+            now,
+            EventCategory::Transfer,
+            EventSeverity::Info,
+            "transfer.started",
+            EventOutcome::Observed,
+        );
+        event.caller_id = Some(caller.id);
+        event.node_id = Some(node_id.get());
+        event.object_kind = Some("transfer".to_owned());
+        event.object_id = Some(transfer_id.as_str().to_owned());
+        event.correlation_id = Some(transfer_id.as_str().to_owned());
+        event.idempotency_key = Some(format!("transfer-started-{}", transfer_id.as_str()));
+        event.attributes = EventAttributes::Transfer {
+            protocol: Some(method.database_value().to_owned()),
+            direction: Some("download".to_owned()),
+            bytes: Some(queue.total_bytes()),
+            files: Some(
+                u64::try_from(queue.len()).map_err(|_| TransferRuntimeError::ResourceLimit)?,
+            ),
+        };
+        insert_operational_event_tx(&transaction, &event)?;
         transaction.commit()?;
         Ok(QuotaReservation {
             id: reservation_id,
@@ -1179,10 +1202,10 @@ impl RuntimeDatabase {
                 actual,
             });
         }
-        let (caller_id, protocol, direction): (i64, String, String) = transaction.query_row(
-            "SELECT caller_id,protocol,direction FROM transfer_records WHERE transfer_id=?1",
+        let (caller_id, protocol, direction, node_id): (i64, String, String, i64) = transaction.query_row(
+            "SELECT caller_id,protocol,direction,node_id FROM transfer_records WHERE transfer_id=?1",
             params![transfer_id.as_str()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )?;
         let operation = match state {
             TransferRuntimeState::Completed => "transfer-completed",
@@ -1194,6 +1217,51 @@ impl RuntimeDatabase {
             "INSERT INTO transfer_events(occurred_at,operation,actor_caller_id,transfer_id,protocol,direction,outcome,prior_version,next_version,byte_count,detail) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
             params![now,operation,caller_id,transfer_id.as_str(),protocol,direction,state.database_value(),sqlite_i64(expected_version)?,sqlite_i64(next)?,sqlite_i64(bytes_transferred)?,error_class.unwrap_or("state-transition")],
         )?;
+        if state.terminal() {
+            let (event_code, severity, outcome) = match state {
+                TransferRuntimeState::Completed => (
+                    "transfer.completed",
+                    EventSeverity::Info,
+                    EventOutcome::Succeeded,
+                ),
+                TransferRuntimeState::Cancelled => (
+                    "transfer.cancelled",
+                    EventSeverity::Notice,
+                    EventOutcome::Cancelled,
+                ),
+                TransferRuntimeState::Failed | TransferRuntimeState::NeedsReview => (
+                    "transfer.failed",
+                    EventSeverity::Warning,
+                    EventOutcome::Failed,
+                ),
+                _ => unreachable!("terminal transfer state checked above"),
+            };
+            let mut event = NewOperationalEvent::new(
+                now,
+                EventCategory::Transfer,
+                severity,
+                event_code,
+                outcome,
+            );
+            event.caller_id = Some(
+                crate::CallerId::new(caller_id)
+                    .map_err(|_| TransferRuntimeError::InvalidStoredState)?,
+            );
+            event.node_id =
+                Some(u32::try_from(node_id).map_err(|_| TransferRuntimeError::InvalidStoredState)?);
+            event.object_kind = Some("transfer".to_owned());
+            event.object_id = Some(transfer_id.as_str().to_owned());
+            event.correlation_id = Some(transfer_id.as_str().to_owned());
+            event.idempotency_key = Some(format!("transfer-state-{}-{next}", transfer_id.as_str()));
+            event.retention_class = RetentionClass::SummarySource;
+            event.attributes = EventAttributes::Transfer {
+                protocol: Some(protocol),
+                direction: Some(direction),
+                bytes: Some(bytes_transferred),
+                files: None,
+            };
+            insert_operational_event_tx(&transaction, &event)?;
+        }
         transaction.commit()?;
         Ok(next)
     }
@@ -1207,11 +1275,11 @@ impl RuntimeDatabase {
     ) -> Result<bool, TransferRuntimeError> {
         validate_identifier(item_id)?;
         let transaction = self.connection.transaction()?;
-        let reservation: (String, i64, String, i64, String) = transaction
+        let reservation: (String, i64, String, i64, String, i64) = transaction
             .query_row(
-                "SELECT transfer_id,caller_id,board_day,timezone_policy_version,state FROM transfer_quota_reservations WHERE reservation_id=?1",
+                "SELECT r.transfer_id,r.caller_id,r.board_day,r.timezone_policy_version,r.state,t.node_id FROM transfer_quota_reservations r JOIN transfer_records t ON t.transfer_id=r.transfer_id WHERE r.reservation_id=?1",
                 params![reservation_id.as_str()],
-                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)),
+                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?)),
             )
             .optional()?
             .ok_or(TransferRuntimeError::ReservationNotFound)?;
@@ -1275,6 +1343,35 @@ impl RuntimeDatabase {
             "INSERT INTO transfer_events(occurred_at,operation,actor_caller_id,transfer_id,reservation_id,file_id,direction,outcome,byte_count,detail) VALUES(?1,'quota-settled',?2,?3,?4,?5,'download','completed',?6,?7)",
             params![now, reservation.1, reservation.0, reservation_id.as_str(), item.0, sqlite_i64(completed_bytes)?, if item.2 { "no-charge" } else { "chargeable" }],
         )?;
+        let mut event = NewOperationalEvent::new(
+            now,
+            EventCategory::Transfer,
+            EventSeverity::Info,
+            "transfer.download.completed",
+            EventOutcome::Succeeded,
+        );
+        event.caller_id = Some(
+            crate::CallerId::new(reservation.1)
+                .map_err(|_| TransferRuntimeError::InvalidStoredState)?,
+        );
+        event.node_id = Some(
+            u32::try_from(reservation.5).map_err(|_| TransferRuntimeError::InvalidStoredState)?,
+        );
+        event.object_kind = Some("file".to_owned());
+        event.object_id = Some(item.0.to_string());
+        event.correlation_id = Some(reservation.0.clone());
+        event.idempotency_key = Some(format!(
+            "download-settled-{}-{item_id}",
+            reservation_id.as_str()
+        ));
+        event.retention_class = RetentionClass::SummarySource;
+        event.attributes = EventAttributes::Transfer {
+            protocol: None,
+            direction: Some("download".to_owned()),
+            bytes: Some(completed_bytes),
+            files: Some(1),
+        };
+        insert_operational_event_tx(&transaction, &event)?;
         transaction.commit()?;
         Ok(true)
     }
@@ -1421,6 +1518,27 @@ impl RuntimeDatabase {
             "INSERT INTO transfer_events(occurred_at,operation,actor_caller_id,transfer_id,file_id,direction,outcome,byte_count,detail) VALUES(?1,'upload-credit-applied',?2,?3,?4,'upload','completed',?5,?6)",
             params![now, caller.id.get(), transfer_id.as_str(), file.id.get(), sqlite_i64(file.size_bytes)?, format!("credit-seconds={credit}")],
         )?;
+        let mut event = NewOperationalEvent::new(
+            now,
+            EventCategory::Transfer,
+            EventSeverity::Info,
+            "transfer.upload.completed",
+            EventOutcome::Succeeded,
+        );
+        event.caller_id = Some(caller.id);
+        event.node_id = Some(node_id.get());
+        event.object_kind = Some("file".to_owned());
+        event.object_id = Some(file.id.get().to_string());
+        event.correlation_id = Some(transfer_id.as_str().to_owned());
+        event.idempotency_key = Some(format!("upload-settled-{}-{item_id}", transfer_id.as_str()));
+        event.retention_class = RetentionClass::SummarySource;
+        event.attributes = EventAttributes::Transfer {
+            protocol: Some(method.database_value().to_owned()),
+            direction: Some("upload".to_owned()),
+            bytes: Some(file.size_bytes),
+            files: Some(1),
+        };
+        insert_operational_event_tx(&transaction, &event)?;
         transaction.commit()?;
         Ok(credit)
     }
@@ -1597,17 +1715,48 @@ impl RuntimeDatabase {
             }
         }
         let next = expected_version + 1;
-        let changed = self.connection.execute(
+        let transaction = self.connection.transaction()?;
+        let changed = transaction.execute(
             "UPDATE file_storage_roots SET availability=?2,state_version=?3,updated_at=CURRENT_TIMESTAMP WHERE storage_root_id=?1 AND state_version=?4",
             params![root_id.get(), availability.database_value(), sqlite_i64(next)?, sqlite_i64(expected_version)?],
         )?;
         if changed != 1 {
             return Err(TransferRuntimeError::Conflict);
         }
-        self.connection.execute(
+        transaction.execute(
             "INSERT INTO transfer_events(occurred_at,operation,actor_caller_id,storage_root_id,outcome,prior_version,next_version,detail) VALUES(?1,'storage-root-probed',?2,?3,'committed',?4,?5,?6)",
             params![now, caller.id.get(), root_id.get(), sqlite_i64(expected_version)?, sqlite_i64(next)?, availability.database_value()],
         )?;
+        if availability != StorageAvailability::Available {
+            let mut event = NewOperationalEvent::new(
+                now,
+                EventCategory::Storage,
+                if availability == StorageAvailability::Unavailable {
+                    EventSeverity::Warning
+                } else {
+                    EventSeverity::Notice
+                },
+                if availability == StorageAvailability::Unavailable {
+                    "storage.unavailable"
+                } else {
+                    "storage.unknown"
+                },
+                if availability == StorageAvailability::Unavailable {
+                    EventOutcome::Unavailable
+                } else {
+                    EventOutcome::Observed
+                },
+            );
+            event.caller_id = Some(caller.id);
+            event.object_kind = Some("storage-root".to_owned());
+            event.object_id = Some(root_id.get().to_string());
+            event.idempotency_key = Some(format!("storage-state-{}-{next}", root_id.get()));
+            event.attributes = EventAttributes::Storage {
+                state: availability.database_value().to_owned(),
+            };
+            insert_operational_event_tx(&transaction, &event)?;
+        }
+        transaction.commit()?;
         Ok(next)
     }
 
@@ -2023,6 +2172,8 @@ fn node_sql_conversion(error: crate::NodeError) -> rusqlite::Error {
 
 #[derive(Debug, Error)]
 pub enum TransferRuntimeError {
+    #[error(transparent)]
+    Database(#[from] crate::DatabaseError),
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
     #[error("caller is not authorized for this transfer operation")]

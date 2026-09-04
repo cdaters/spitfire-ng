@@ -24,9 +24,13 @@ use crate::{
     GraphicsPreference, PostalAddress, PublicInformationError, SecurityLevel, TimePolicy,
     TransferPreference, CREDENTIAL_SCHEME, MAX_LOGIN_IDENTIFIER_BYTES,
 };
+use crate::{
+    insert_operational_event_tx, EventAttributes, EventCategory, EventOutcome, EventSeverity,
+    NewOperationalEvent, RetentionClass,
+};
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 17;
+pub const SCHEMA_VERSION: u32 = 18;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -53,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 17] = [
+const MIGRATIONS: [Migration; 18] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1290,6 +1294,143 @@ const MIGRATIONS: [Migration; 17] = [
             ON files(uploaded_at, area_id, lifecycle);
         "#,
     },
+    Migration {
+        version: 18,
+        name: "operational_observability",
+        sql: r#"
+        CREATE TABLE migration_18_validation AS
+        SELECT
+            (SELECT COUNT(*) FROM callers) AS caller_count,
+            (SELECT COALESCE(SUM(caller_id),0) FROM callers) AS caller_id_sum,
+            (SELECT COUNT(*) FROM messages) AS message_count,
+            (SELECT COALESCE(SUM(message_id),0) FROM messages) AS message_id_sum,
+            (SELECT COUNT(*) FROM files) AS file_count,
+            (SELECT COALESCE(SUM(file_id),0) FROM files) AS file_id_sum,
+            (SELECT COUNT(*) FROM transfer_records) AS transfer_count,
+            (SELECT COUNT(*) FROM file_storage_roots) AS storage_root_count,
+            (SELECT COUNT(*) FROM message_mutation_events) +
+            (SELECT COUNT(*) FROM caller_access_events) +
+            (SELECT COUNT(*) FROM caller_identity_events) +
+            (SELECT COUNT(*) FROM public_information_events) +
+            (SELECT COUNT(*) FROM file_events) +
+            (SELECT COUNT(*) FROM transfer_events) AS audit_count;
+
+        CREATE TABLE operational_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at_utc INTEGER NOT NULL CHECK (occurred_at_utc >= 0),
+            board_day INTEGER NOT NULL CHECK (board_day BETWEEN 19700101 AND 99991231),
+            timezone_policy_version INTEGER NOT NULL CHECK (timezone_policy_version > 0),
+            category TEXT NOT NULL CHECK (category IN (
+                'system','node','session','caller','authentication','message',
+                'file','transfer','storage','backup','operator','error'
+            )),
+            severity TEXT NOT NULL CHECK (severity IN ('info','notice','warning','error','critical')),
+            event_code TEXT NOT NULL CHECK (
+                length(CAST(event_code AS BLOB)) BETWEEN 3 AND 64 AND
+                event_code NOT GLOB '*[^a-z0-9.-]*'
+            ),
+            outcome TEXT NOT NULL CHECK (outcome IN ('succeeded','failed','cancelled','denied','unavailable','observed')),
+            node_id INTEGER CHECK (node_id IS NULL OR node_id > 0),
+            session_id INTEGER CHECK (session_id IS NULL OR session_id > 0),
+            caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            correlation_id TEXT CHECK (correlation_id IS NULL OR length(CAST(correlation_id AS BLOB)) BETWEEN 1 AND 64),
+            idempotency_key TEXT UNIQUE CHECK (idempotency_key IS NULL OR length(CAST(idempotency_key AS BLOB)) BETWEEN 1 AND 96),
+            object_kind TEXT CHECK (object_kind IS NULL OR length(CAST(object_kind AS BLOB)) BETWEEN 1 AND 32),
+            object_id TEXT CHECK (object_id IS NULL OR length(CAST(object_id AS BLOB)) BETWEEN 1 AND 64),
+            retention_class TEXT NOT NULL CHECK (retention_class IN ('operational','summary-source')),
+            attribute_kind TEXT NOT NULL CHECK (attribute_kind IN (
+                'none','session','transfer','message','file','storage','backup','error','operator'
+            )),
+            attribute_version INTEGER NOT NULL DEFAULT 1 CHECK (attribute_version = 1),
+            text_value_1 TEXT CHECK (text_value_1 IS NULL OR length(CAST(text_value_1 AS BLOB)) <= 256),
+            text_value_2 TEXT CHECK (text_value_2 IS NULL OR length(CAST(text_value_2 AS BLOB)) <= 256),
+            text_value_3 TEXT CHECK (text_value_3 IS NULL OR length(CAST(text_value_3 AS BLOB)) <= 256),
+            number_value_1 INTEGER CHECK (number_value_1 IS NULL OR number_value_1 >= 0),
+            number_value_2 INTEGER CHECK (number_value_2 IS NULL OR number_value_2 >= 0),
+            CHECK (
+                length(CAST(COALESCE(text_value_1,'') AS BLOB)) +
+                length(CAST(COALESCE(text_value_2,'') AS BLOB)) +
+                length(CAST(COALESCE(text_value_3,'') AS BLOB)) <= 768
+            )
+        );
+        CREATE INDEX operational_events_time ON operational_events(occurred_at_utc,event_id);
+        CREATE INDEX operational_events_category ON operational_events(category,severity,occurred_at_utc,event_id);
+        CREATE INDEX operational_events_node ON operational_events(node_id,occurred_at_utc,event_id);
+        CREATE INDEX operational_events_session ON operational_events(session_id,occurred_at_utc,event_id);
+        CREATE INDEX operational_events_caller ON operational_events(caller_id,occurred_at_utc,event_id);
+        CREATE INDEX operational_events_correlation ON operational_events(correlation_id,event_id);
+        CREATE TRIGGER operational_events_no_update BEFORE UPDATE ON operational_events
+        BEGIN SELECT RAISE(ABORT, 'operational events are append-only'); END;
+
+        CREATE TABLE operational_daily_summaries (
+            board_day INTEGER NOT NULL CHECK (board_day BETWEEN 19700101 AND 99991231),
+            timezone_policy_version INTEGER NOT NULL CHECK (timezone_policy_version > 0),
+            high_water_event_id INTEGER NOT NULL DEFAULT 0 CHECK (high_water_event_id >= 0),
+            calls_started INTEGER NOT NULL DEFAULT 0 CHECK (calls_started >= 0),
+            calls_completed INTEGER NOT NULL DEFAULT 0 CHECK (calls_completed >= 0),
+            new_callers INTEGER NOT NULL DEFAULT 0 CHECK (new_callers >= 0),
+            messages_posted INTEGER NOT NULL DEFAULT 0 CHECK (messages_posted >= 0),
+            successful_uploads INTEGER NOT NULL DEFAULT 0 CHECK (successful_uploads >= 0),
+            upload_bytes INTEGER NOT NULL DEFAULT 0 CHECK (upload_bytes >= 0),
+            successful_downloads INTEGER NOT NULL DEFAULT 0 CHECK (successful_downloads >= 0),
+            download_bytes INTEGER NOT NULL DEFAULT 0 CHECK (download_bytes >= 0),
+            failed_transfers INTEGER NOT NULL DEFAULT 0 CHECK (failed_transfers >= 0),
+            cancelled_transfers INTEGER NOT NULL DEFAULT 0 CHECK (cancelled_transfers >= 0),
+            warning_events INTEGER NOT NULL DEFAULT 0 CHECK (warning_events >= 0),
+            error_events INTEGER NOT NULL DEFAULT 0 CHECK (error_events >= 0),
+            critical_events INTEGER NOT NULL DEFAULT 0 CHECK (critical_events >= 0),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+            PRIMARY KEY(board_day,timezone_policy_version)
+        );
+
+        CREATE TABLE operational_retention_policy (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            detail_days INTEGER NOT NULL CHECK (detail_days BETWEEN 1 AND 365),
+            summary_days INTEGER NOT NULL CHECK (summary_days BETWEEN 31 AND 3650),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            activated_at INTEGER NOT NULL CHECK (activated_at >= 0),
+            last_cleanup_at INTEGER CHECK (last_cleanup_at IS NULL OR last_cleanup_at >= 0)
+        );
+        INSERT INTO operational_retention_policy(
+            singleton,detail_days,summary_days,activated_at
+        ) VALUES(1,30,400,CAST(strftime('%s','now') AS INTEGER));
+
+        CREATE TABLE operator_notifications (
+            notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_event_id INTEGER NOT NULL UNIQUE REFERENCES operational_events(event_id) ON DELETE RESTRICT,
+            created_at INTEGER NOT NULL CHECK (created_at >= 0),
+            category TEXT NOT NULL CHECK (category IN ('system','node','session','caller','authentication','message','file','transfer','storage','backup','operator','error')),
+            severity TEXT NOT NULL CHECK (severity IN ('warning','error','critical')),
+            reason_key TEXT NOT NULL CHECK (length(CAST(reason_key AS BLOB)) BETWEEN 3 AND 96),
+            remediation_key TEXT CHECK (remediation_key IS NULL OR length(CAST(remediation_key AS BLOB)) BETWEEN 3 AND 96),
+            state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','acknowledged','resolved')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            acknowledged_at INTEGER CHECK (acknowledged_at IS NULL OR acknowledged_at >= 0),
+            acknowledged_by TEXT CHECK (acknowledged_by IS NULL OR length(CAST(acknowledged_by AS BLOB)) BETWEEN 1 AND 64),
+            resolved_at INTEGER CHECK (resolved_at IS NULL OR resolved_at >= 0)
+        );
+        CREATE INDEX operator_notifications_state ON operator_notifications(state,severity,created_at,notification_id);
+
+        CREATE TABLE operator_observability_audit (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at INTEGER NOT NULL CHECK (occurred_at >= 0),
+            action TEXT NOT NULL CHECK (action IN ('notification-acknowledged','notification-resolved','retention-policy-changed','retention-cleanup')),
+            actor_kind TEXT NOT NULL CHECK (actor_kind IN ('host-operator','named-sysop','system')),
+            actor_id TEXT CHECK (actor_id IS NULL OR length(CAST(actor_id AS BLOB)) BETWEEN 1 AND 64),
+            target_kind TEXT NOT NULL CHECK (length(CAST(target_kind AS BLOB)) BETWEEN 1 AND 32),
+            target_id TEXT NOT NULL CHECK (length(CAST(target_id AS BLOB)) BETWEEN 1 AND 64),
+            outcome TEXT NOT NULL CHECK (outcome IN ('succeeded','conflict','failed')),
+            prior_version INTEGER CHECK (prior_version IS NULL OR prior_version > 0),
+            next_version INTEGER CHECK (next_version IS NULL OR next_version > 0),
+            correlation_id TEXT CHECK (correlation_id IS NULL OR length(CAST(correlation_id AS BLOB)) BETWEEN 1 AND 64)
+        );
+        CREATE TRIGGER operator_observability_audit_no_update BEFORE UPDATE ON operator_observability_audit
+        BEGIN SELECT RAISE(ABORT, 'operator observability audit is append-only'); END;
+        CREATE TRIGGER operator_observability_audit_no_delete BEFORE DELETE ON operator_observability_audit
+        BEGIN SELECT RAISE(ABORT, 'operator observability audit is append-only'); END;
+        "#,
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1472,6 +1613,9 @@ impl RuntimeDatabase {
         }
         if required >= 17 {
             validate_schema_17_snapshot(&self.connection)?;
+        }
+        if required >= 18 {
+            validate_schema_18_snapshot(&self.connection)?;
         }
 
         self.load_board_identity()?
@@ -1701,6 +1845,19 @@ impl RuntimeDatabase {
                 params![caller_id.get(), CREDENTIAL_SCHEME, password_hash],
             )
             .map_err(DatabaseError::Sqlite)?;
+        let mut event = NewOperationalEvent::new(
+            now,
+            EventCategory::Caller,
+            EventSeverity::Notice,
+            "caller.created",
+            EventOutcome::Succeeded,
+        );
+        event.caller_id = Some(caller_id);
+        event.object_kind = Some("caller".to_owned());
+        event.object_id = Some(caller_id.get().to_string());
+        event.idempotency_key = Some(format!("caller-created-{}", caller_id.get()));
+        event.retention_class = RetentionClass::SummarySource;
+        insert_operational_event_tx(&transaction, &event)?;
         transaction.commit().map_err(DatabaseError::Sqlite)?;
         self.caller_by_id(caller_id)?
             .ok_or(DatabaseError::MissingCaller(caller_id.get()))
@@ -2115,6 +2272,17 @@ impl RuntimeDatabase {
         now: i64,
         timezone: chrono_tz::Tz,
     ) -> Result<AuthenticatedCaller, DatabaseError> {
+        self.begin_caller_session_observed(caller, config, now, timezone, None)
+    }
+
+    pub fn begin_caller_session_observed(
+        &mut self,
+        caller: &Caller,
+        config: &CallerConfig,
+        now: i64,
+        timezone: chrono_tz::Tz,
+        observation: Option<(u32, u64, &str)>,
+    ) -> Result<AuthenticatedCaller, DatabaseError> {
         if caller.state != CallerState::Active {
             return Err(DatabaseError::CallerUnavailable);
         }
@@ -2197,6 +2365,27 @@ impl RuntimeDatabase {
                 ))
             })
             .transpose()?;
+        let mut event = NewOperationalEvent::new(
+            now,
+            EventCategory::Session,
+            EventSeverity::Info,
+            "session.started",
+            EventOutcome::Succeeded,
+        );
+        event.caller_id = Some(caller.id);
+        event.retention_class = RetentionClass::SummarySource;
+        event.attributes = EventAttributes::Session {
+            public_handle: Some(caller.display_name.clone()),
+            transport: observation.map(|item| item.2.to_owned()),
+            duration_seconds: None,
+            close_reason: None,
+        };
+        if let Some((node_id, session_id, _)) = observation {
+            event.node_id = Some(node_id);
+            event.session_id = Some(session_id);
+            event.correlation_id = Some(format!("session-{session_id}"));
+        }
+        insert_operational_event_tx(&transaction, &event)?;
         transaction.commit().map_err(DatabaseError::Sqlite)?;
         let updated = self
             .caller_by_id(caller.id)?
@@ -2215,14 +2404,36 @@ impl RuntimeDatabase {
     }
 
     pub fn finish_caller_session(
-        &self,
+        &mut self,
         caller_id: CallerId,
         elapsed_seconds: u64,
         daily_elapsed_seconds: u64,
         day: i64,
     ) -> Result<(), DatabaseError> {
-        let changed = self
+        self.finish_caller_session_observed(
+            caller_id,
+            elapsed_seconds,
+            daily_elapsed_seconds,
+            day,
+            None,
+            0,
+        )
+    }
+
+    pub fn finish_caller_session_observed(
+        &mut self,
+        caller_id: CallerId,
+        elapsed_seconds: u64,
+        daily_elapsed_seconds: u64,
+        day: i64,
+        observation: Option<(u32, u64, &str, &str)>,
+        occurred_at: i64,
+    ) -> Result<(), DatabaseError> {
+        let transaction = self
             .connection
+            .transaction()
+            .map_err(DatabaseError::Sqlite)?;
+        let changed = transaction
             .execute(
                 r#"
                 UPDATE callers
@@ -2250,7 +2461,35 @@ impl RuntimeDatabase {
         if changed != 1 {
             return Err(DatabaseError::MissingCaller(caller_id.get()));
         }
-        Ok(())
+        if let Some((node_id, session_id, transport, close_reason)) = observation {
+            let public_handle: String = transaction
+                .query_row(
+                    "SELECT display_name FROM callers WHERE caller_id=?1",
+                    params![caller_id.get()],
+                    |row| row.get(0),
+                )
+                .map_err(DatabaseError::Sqlite)?;
+            let mut event = NewOperationalEvent::new(
+                occurred_at,
+                EventCategory::Session,
+                EventSeverity::Info,
+                "session.completed",
+                EventOutcome::Succeeded,
+            );
+            event.node_id = Some(node_id);
+            event.session_id = Some(session_id);
+            event.caller_id = Some(caller_id);
+            event.correlation_id = Some(format!("session-{session_id}"));
+            event.retention_class = RetentionClass::SummarySource;
+            event.attributes = EventAttributes::Session {
+                public_handle: Some(public_handle),
+                transport: Some(transport.to_owned()),
+                duration_seconds: Some(elapsed_seconds),
+                close_reason: Some(close_reason.to_owned()),
+            };
+            insert_operational_event_tx(&transaction, &event)?;
+        }
+        transaction.commit().map_err(DatabaseError::Sqlite)
     }
 
     #[cfg(test)]
@@ -2738,6 +2977,12 @@ fn run_migration(
             .execute("DROP TABLE migration_17_validation", [])
             .map_err(DatabaseError::Sqlite)?;
     }
+    if migration.version == 18 {
+        validate_observability_migration(transaction)?;
+        transaction
+            .execute("DROP TABLE migration_18_validation", [])
+            .map_err(DatabaseError::Sqlite)?;
+    }
     transaction
         .execute(
             "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
@@ -3212,6 +3457,60 @@ fn validate_schema_17_snapshot(connection: &Connection) -> Result<(), DatabaseEr
     Ok(())
 }
 
+fn validate_observability_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
+    let expected: (i64, i64, i64, i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT caller_count,caller_id_sum,message_count,message_id_sum,file_count,file_id_sum,transfer_count,storage_root_count,audit_count FROM migration_18_validation",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let actual: (i64, i64, i64, i64, i64, i64, i64, i64, i64) = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM callers),(SELECT COALESCE(SUM(caller_id),0) FROM callers),(SELECT COUNT(*) FROM messages),(SELECT COALESCE(SUM(message_id),0) FROM messages),(SELECT COUNT(*) FROM files),(SELECT COALESCE(SUM(file_id),0) FROM files),(SELECT COUNT(*) FROM transfer_records),(SELECT COUNT(*) FROM file_storage_roots),(SELECT COUNT(*) FROM message_mutation_events)+(SELECT COUNT(*) FROM caller_access_events)+(SELECT COUNT(*) FROM caller_identity_events)+(SELECT COUNT(*) FROM public_information_events)+(SELECT COUNT(*) FROM file_events)+(SELECT COUNT(*) FROM transfer_events)",
+            [],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let fabricated: (i64, i64, i64) = transaction
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM operational_events),(SELECT COUNT(*) FROM operational_daily_summaries),(SELECT COUNT(*) FROM operator_notifications)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if expected != actual || fabricated != (0, 0, 0) {
+        return Err(DatabaseError::MigrationValidation(
+            "schema-18 migration changed existing authority or fabricated observability history"
+                .to_owned(),
+        ));
+    }
+    validate_schema_18_snapshot(transaction)
+}
+
+fn validate_schema_18_snapshot(connection: &Connection) -> Result<(), DatabaseError> {
+    let invalid: (i64, i64, i64, i64) = connection
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM operational_events WHERE length(CAST(COALESCE(text_value_1,'') AS BLOB))+length(CAST(COALESCE(text_value_2,'') AS BLOB))+length(CAST(COALESCE(text_value_3,'') AS BLOB))>768),(SELECT COUNT(*) FROM operational_daily_summaries WHERE high_water_event_id<0 OR state_version<=0),(SELECT COUNT(*) FROM operational_retention_policy WHERE singleton<>1 OR detail_days NOT BETWEEN 1 AND 365 OR summary_days NOT BETWEEN 31 AND 3650 OR state_version<=0),(SELECT COUNT(*) FROM operator_notifications WHERE state_version<=0)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    let policy_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM operational_retention_policy",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(DatabaseError::Sqlite)?;
+    if invalid != (0, 0, 0, 0) || policy_count != 1 {
+        return Err(DatabaseError::IntegrityCheck(
+            "schema-18 observability authority is invalid".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_caller_access_migration(transaction: &Transaction<'_>) -> Result<(), DatabaseError> {
     let expected: (i64, i64, i64, i64, i64, i64, i64, i64) = transaction
         .query_row(
@@ -3464,7 +3763,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 17,
+                applied: 18,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -3491,7 +3790,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: 9,
             }
         );
         let table_count: i64 = database
@@ -3559,7 +3858,7 @@ mod tests {
             MigrationReport {
                 starting_version: 10,
                 ending_version: SCHEMA_VERSION,
-                applied: 7,
+                applied: 8,
             }
         );
         let preserved = database
@@ -3722,7 +4021,7 @@ mod tests {
             MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         let caller = database
@@ -3832,7 +4131,7 @@ mod tests {
             MigrationReport {
                 starting_version: 12,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: 6,
             }
         );
         let first = database
@@ -3893,8 +4192,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 13,
-                ending_version: 17,
-                applied: 4
+                ending_version: SCHEMA_VERSION,
+                applied: 5
             }
         );
         let caller = database
@@ -4004,8 +4303,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 14,
-                ending_version: 17,
-                applied: 3,
+                ending_version: SCHEMA_VERSION,
+                applied: 4,
             }
         );
         let preserved: (i64, String, String, i64, String, String, i64) = database.connection.query_row(
@@ -4112,8 +4411,8 @@ mod tests {
             database.migrate().unwrap(),
             MigrationReport {
                 starting_version: 15,
-                ending_version: 17,
-                applied: 2,
+                ending_version: SCHEMA_VERSION,
+                applied: 3,
             }
         );
         let preserved: (i64, String, String, i64, i64, String) = database
@@ -4311,6 +4610,77 @@ mod tests {
     }
 
     #[test]
+    fn schema_seventeen_to_eighteen_preserves_authority_without_fabricated_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(17) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Schema Eighteen Board','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,security_level,account_state,is_new_caller,first_call_at,call_count,messages_posted) VALUES(42,'private-login','Public Handle','PUBLIC HANDLE',25,'active',0,1700000000,8,3)", []).unwrap();
+        apply_migration(&mut connection, &MIGRATIONS[17]).unwrap();
+        assert_eq!(schema_version_from(&connection).unwrap(), 18);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT call_count FROM callers WHERE caller_id=42",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            8
+        );
+        let empty: (i64, i64, i64) = connection.query_row("SELECT (SELECT COUNT(*) FROM operational_events),(SELECT COUNT(*) FROM operational_daily_summaries),(SELECT COUNT(*) FROM operator_notifications)", [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap();
+        assert_eq!(empty, (0, 0, 0));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT detail_days FROM operational_retention_policy WHERE singleton=1",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            30
+        );
+    }
+
+    #[test]
+    fn failed_schema_eighteen_validation_rolls_back_to_unchanged_schema_seventeen() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = database_path(&temp);
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY CHECK(version>0), name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(17) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Rollback Eighteen','Fixture Sysop')", []).unwrap();
+        connection.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,security_level,account_state,is_new_caller,first_call_at,call_count) VALUES(7,'rollback-observe','Rollback Observe','ROLLBACK OBSERVE',10,'active',0,1700000000,9)", []).unwrap();
+        let broken_sql = MIGRATIONS[17]
+            .sql
+            .replace("VALUES(1,30,400", "VALUES(1,0,400");
+        let broken = Migration {
+            version: 18,
+            name: MIGRATIONS[17].name,
+            sql: Box::leak(broken_sql.into_boxed_str()),
+        };
+        assert!(apply_migration(&mut connection, &broken).is_err());
+        assert_eq!(schema_version_from(&connection).unwrap(), 17);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT call_count FROM callers WHERE caller_id=7",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            9
+        );
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='operational_events'", [], |row| row.get::<_,i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
     fn consistent_snapshot_is_read_only_validated_and_excludes_later_writes() {
         let temp = tempfile::tempdir().unwrap();
         let path = database_path(&temp);
@@ -4465,7 +4835,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 16,
+                applied: 17,
             }
         );
         assert_eq!(
@@ -4501,7 +4871,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 15,
+                applied: 16,
             }
         );
         let caller = database
@@ -4548,7 +4918,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 14,
+                applied: 15,
             }
         );
         assert_eq!(
@@ -4588,7 +4958,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 13,
+                applied: 14,
             }
         );
         let caller = database
@@ -4648,7 +5018,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: 13,
             }
         );
         let caller = database
@@ -4688,7 +5058,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: 12,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -4771,7 +5141,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: 11,
             }
         );
         assert_eq!(
@@ -4871,7 +5241,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: 10,
             }
         );
         let caller = database

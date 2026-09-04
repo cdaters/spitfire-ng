@@ -2,7 +2,7 @@
 
 <!-- help-topic: technical.reference -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 17)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -124,6 +124,7 @@ acceptance are implemented.
 ### Backup, recovery, audit, and operator authority
 
 - [Native Backup and Restore](../sfng-backup-restore.md)
+- [Operator Observability](observability.md)
 - [Security Philosophy](../03-security-philosophy.md)
 - [Multinode Runtime](../sfng-multinode-runtime.md)
 
@@ -132,6 +133,20 @@ daemon-authoritative and use typed domain commands; maintenance and offline
 operations require the ownership mode defined by the operator architecture.
 Audit records outcomes and identifiers without retaining secrets, raw terminal
 input, transferred content, or host paths unnecessarily.
+
+### Operator observability and reports
+
+- [Implemented Schema-18/B-017 Observability](observability.md)
+- [B-017 Implementation and Verification](../research/m039-tranche-7-b017-observability-implementation.md)
+- [Tranche 7 Operator Observability and Reports Gate](../research/m039-tranche-7-operator-observability-reports-gate.md)
+- [System Architecture operator boundary](../04-system-architecture.md)
+- [Nodes and Events](../14-nodes-events.md)
+
+Schema 18 and B-017 now implement retained operational events, daily
+summaries, retention, notifications, privacy-safe maintenance/status views,
+and bounded daemon-authoritative read APIs. Screen/export formats, atomic
+publication, the protected B-021 attach/control channel, `sfmonitor`, and
+`sfconfig` remain future clients rather than alternate data owners.
 
 ### Compatibility adapters and historical formats
 

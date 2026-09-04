@@ -40,13 +40,17 @@ schema-13 caller identity separation, secure SSH caller transport, and
 schema-14 privacy-bounded public information. Current source also includes
 schema-15 safe file inspection, private file requests and review, staged file
 maintenance, schema-16 batch transfer policy and logical storage, and the
-schema-17 zero-byte file invariant. Those improvements are not present in the
-published 0.1.0 archive.
+schema-17 zero-byte file invariant. Current source schema 18 additionally
+provides privacy-safe operational events, daily statistics, retention,
+notifications, and board/node/maintenance projections. Those improvements are
+not present in the published 0.1.0 archive.
 
-The public Category-B ledger is now **13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL,
+The public Category-B ledger is now **14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
 and 5 NOT STARTED**. B-024 transfer interoperability, B-011 batch queues,
 B-014 transfer policy/accounting, and B-023 extended storage are VERIFIED;
-M039 Tranche 6 is semantically closed.
+M039 Tranche 6 is semantically closed. B-017 observability is also VERIFIED;
+B-021 operator controls remain PARTIAL and B-022 report publication remains
+NOT STARTED.
 
 Available today:
 
@@ -79,8 +83,13 @@ Available today:
   stable-ID batch queues, atomic daily/ratio accounting, logical read-only
   storage roots, bounded large-source streaming, and all nine B-024 transfer
   choices including TeLink;
+- when built from current source, schema-18 activity history, board-day
+  statistics, bounded retention, actionable notifications, and privacy-safe
+  board, node, recent-caller, error, and maintenance services for future
+  operator clients;
 - multinode operation, operator status, cold backup, and restore, including
-  schema-17 file/transfer/storage state, schema-14 public-information state, caller
+  schema-18 observability state, schema-17 file/transfer/storage state,
+  schema-14 public-information state, caller
   identity/access state, SSH configuration, and SSH host-key continuity when
   built from current source;
 - an en-US localization baseline and versioned language-pack interface; and
@@ -162,6 +171,10 @@ For the complete, verified current-source journey, use the
 - [Tranche 6 implementation](docs/research/m039-tranche-6-batch-transfer-policy-extended-storage-implementation.md)
 - [Tranche 6 verification](docs/research/m039-tranche-6-verification.md)
 - [Independent transfer interoperability](docs/research/m039-tranche-6-transfer-interoperability.md)
+- [Board activity and system statistics](docs/manual/board-activity.md)
+- [Schema-18 observability technical reference](docs/technical/observability.md)
+- [Tranche 7 observability gate](docs/research/m039-tranche-7-operator-observability-reports-gate.md)
+- [B-017 implementation and verification](docs/research/m039-tranche-7-b017-observability-implementation.md)
 - [Cross-project reference policy](docs/cross-project-reference-policy.md)
 - [Roadmap](ROADMAP.md)
 
@@ -195,8 +208,9 @@ The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
 advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
-also predates SSH, schemas 13–17, public-information additions, Tranche 5 file
-inspection/request/maintenance, and Tranche 6 transfer/storage source.
+also predates SSH, schemas 13–18, public-information additions, Tranche 5 file
+inspection/request/maintenance, Tranche 6 transfer/storage source, and B-017
+observability.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

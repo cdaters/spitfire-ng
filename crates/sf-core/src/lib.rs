@@ -29,6 +29,7 @@ pub mod localization;
 pub mod message;
 mod message_session;
 pub mod node;
+pub mod observability;
 pub mod paths;
 pub mod public_information;
 pub mod resources;
@@ -93,6 +94,7 @@ pub use node::{
     MenuRendererPath, NodeChangeHook, NodeDefinition, NodeError, NodeId, NodeLease, NodeManager,
     NodePresentationContext, NodeRuntimeState, NodeSnapshot,
 };
+pub use observability::*;
 pub use paths::{LogicalPath, LogicalPaths, PathError};
 pub use public_information::*;
 pub use resources::{

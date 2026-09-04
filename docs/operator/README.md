@@ -35,6 +35,16 @@ caller identity and SSH caller access; those features are not in the published
 - [Classic SPITFIRE-Inspired Presentation](classic-presentation.md)
 - [Language Packages](localization.md)
 
+## Board activity and system status
+
+Current source schema 18 provides shared privacy-safe activity, node status,
+daily statistics, recent caller, notification, maintenance, and retention
+services. Read [Board Activity and System
+Statistics](../manual/board-activity.md) for operator-facing behavior. A
+general Activity UI, protected attach client, `sfmonitor`, `sfconfig`, and
+report publication remain future work; the existing foreground console limits
+still apply.
+
 ## Status labels
 
 - **Verified** means an acceptance workflow demonstrated the behavior.

@@ -17,7 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use sf_core::{
-    FileStorage, LogicalPath, LogicalPaths, RuntimeConfig, RuntimeDatabase, TerminalInfo,
+    EventAttributes, EventCategory, EventId, EventOutcome, EventSeverity, FileStorage, LogicalPath,
+    LogicalPaths, NewOperationalEvent, RuntimeConfig, RuntimeDatabase, TerminalInfo,
     ValidatedConfig, SCHEMA_VERSION,
 };
 use sha2::{Digest, Sha256};
@@ -93,6 +94,45 @@ struct ValidatedBackup {
     cataloged_files: usize,
 }
 
+struct BackupObservationGuard {
+    database_path: PathBuf,
+    started_event_id: EventId,
+    started_at: i64,
+    finished: bool,
+}
+
+impl BackupObservationGuard {
+    fn mark_finished(&mut self) {
+        self.finished = true;
+    }
+}
+
+impl Drop for BackupObservationGuard {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let mut failed = NewOperationalEvent::new(
+            now_unix_seconds().unwrap_or(self.started_at),
+            EventCategory::Backup,
+            EventSeverity::Error,
+            "backup.failed",
+            EventOutcome::Failed,
+        );
+        failed.correlation_id = Some(format!("backup-{}", self.started_event_id.get()));
+        failed.idempotency_key = Some(format!("backup-failed-{}", self.started_event_id.get()));
+        failed.attributes = EventAttributes::Backup {
+            state: "failed".to_owned(),
+            bytes: None,
+        };
+        let result = RuntimeDatabase::open(&self.database_path)
+            .and_then(|mut database| database.record_operational_event(&failed));
+        if let Err(error) = result {
+            tracing::warn!(error = %error, "backup failure could not be recorded as an operational event");
+        }
+    }
+}
+
 /// Creates one cold, immutable-by-convention directory snapshot. The caller
 /// supplies a nonexistent destination outside the managed board tree.
 pub fn backup_board(
@@ -118,7 +158,7 @@ pub fn backup_board(
     validate_real_logical_directories(&paths)?;
     reject_destination_inside_board(&destination, &root, &paths)?;
 
-    let database = RuntimeDatabase::open_read_only(paths.database())?;
+    let mut database = RuntimeDatabase::open(paths.database())?;
     let identity = database.validate_current_snapshot()?;
     if identity != validated.identity {
         return Err(sf_core::DatabaseError::BoardIdentityMismatch {
@@ -135,6 +175,25 @@ pub fn backup_board(
     if database.schema_version()? >= 16 && !database.transfer_operations_ready_for_cold_backup()? {
         return Err(BoardBackupError::UnnormalizedTransferOperations.into());
     }
+    let backup_started_at = now_unix_seconds()?;
+    let mut started = NewOperationalEvent::new(
+        backup_started_at,
+        EventCategory::Backup,
+        EventSeverity::Notice,
+        "backup.started",
+        EventOutcome::Observed,
+    );
+    started.attributes = EventAttributes::Backup {
+        state: "started".to_owned(),
+        bytes: None,
+    };
+    let started = database.record_operational_event(&started)?;
+    let mut observation = BackupObservationGuard {
+        database_path: paths.database().to_path_buf(),
+        started_event_id: started.id,
+        started_at: backup_started_at,
+        finished: false,
+    };
 
     let parent = destination.parent().expect("validated destination parent");
     let temporary = tempfile::Builder::new()
@@ -203,13 +262,7 @@ pub fn backup_board(
 
     entries.sort_by(|left, right| (left.kind, &left.path).cmp(&(right.kind, &right.path)));
     ensure_entry_set_is_safe(&entries)?;
-    let created_at = i64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| BoardBackupError::Clock)?
-            .as_secs(),
-    )
-    .map_err(|_| BoardBackupError::Clock)?;
+    let created_at = now_unix_seconds()?;
     let manifest = BackupManifest {
         format_version: BACKUP_FORMAT_VERSION,
         created_by_version: sf_core::PRODUCT_VERSION.to_owned(),
@@ -245,6 +298,23 @@ pub fn backup_board(
         let _ = fs::remove_dir_all(&staged_path);
         return Err(io_error("publish backup directory", &destination, source).into());
     }
+    let mut completed = NewOperationalEvent::new(
+        created_at,
+        EventCategory::Backup,
+        EventSeverity::Notice,
+        "backup.completed",
+        EventOutcome::Succeeded,
+    );
+    completed.correlation_id = Some(format!("backup-{}", started.id.get()));
+    completed.idempotency_key = Some(format!("backup-completed-{}", started.id.get()));
+    completed.attributes = EventAttributes::Backup {
+        state: "completed".to_owned(),
+        bytes: Some(total_bytes),
+    };
+    observation.mark_finished();
+    if let Err(error) = database.record_operational_event(&completed) {
+        tracing::warn!(error = %error, "backup completed but its operational event could not be recorded");
+    }
     Ok(BackupReport {
         destination,
         board_name: manifest.board_name,
@@ -253,6 +323,16 @@ pub fn backup_board(
         cataloged_files: catalog.len(),
         total_bytes,
     })
+}
+
+fn now_unix_seconds() -> Result<i64, BoardBackupError> {
+    i64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| BoardBackupError::Clock)?
+            .as_secs(),
+    )
+    .map_err(|_| BoardBackupError::Clock)
 }
 
 /// Restores a validated snapshot to a new directory, or atomically exchanges
@@ -1081,10 +1161,10 @@ pub enum BoardBackupError {
 mod tests {
     use super::*;
     use sf_core::{
-        CallerState, CopyRecipient, CredentialHasher, FileActor, InMemoryTerminal, MessageActor,
-        MessageBackend, MessageKind, MessageRecipient, MessageVisibility, NewMessage, NodeId,
-        PasswordHashConfig, SecurityLevel, TransferMethod, TransferProtocol, TransferQueue,
-        TransferRuntimeState,
+        CallerState, CopyRecipient, CredentialHasher, EventQuery, FileActor, InMemoryTerminal,
+        MessageActor, MessageBackend, MessageKind, MessageRecipient, MessageVisibility, NewMessage,
+        NodeId, ObservabilityService, OperatorPrincipal, OperatorPrincipalKind, PasswordHashConfig,
+        SecurityLevel, TransferMethod, TransferProtocol, TransferQueue, TransferRuntimeState,
     };
 
     use crate::{setup_board, BoardRuntime, ConnectionReport, SetupPlan, BOARD_CONFIG_FILE};
@@ -1211,7 +1291,56 @@ mod tests {
         RuntimeDatabase::open_read_only(paths.database()).unwrap()
     }
 
+    fn downgrade_schema_18_to_17(connection: &rusqlite::Connection) {
+        let has_schema_18: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=18)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if !has_schema_18 {
+            return;
+        }
+        connection
+            .execute_batch(
+                r#"
+                DROP TRIGGER operator_observability_audit_no_delete;
+                DROP TRIGGER operator_observability_audit_no_update;
+                DROP TABLE operator_observability_audit;
+                DROP TABLE operator_notifications;
+                DROP TABLE operational_daily_summaries;
+                DROP TABLE operational_retention_policy;
+                DROP TRIGGER operational_events_no_update;
+                DROP TABLE operational_events;
+                DELETE FROM schema_migrations WHERE version=18;
+                "#,
+            )
+            .unwrap();
+    }
+
+    fn rewrite_backup_database_as_schema_17(backup: &Path) {
+        let database_path = backup.join(DATABASE_BACKUP_PATH);
+        let connection = rusqlite::Connection::open(&database_path).unwrap();
+        downgrade_schema_18_to_17(&connection);
+        drop(connection);
+        let manifest_path = backup.join(BACKUP_MANIFEST_FILE);
+        let mut manifest: BackupManifest =
+            toml::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest.schema_version = 17;
+        let (size_bytes, sha256) = hash_file(&database_path).unwrap();
+        let entry = manifest
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == BackupEntryKind::Database)
+            .unwrap();
+        entry.size_bytes = size_bytes;
+        entry.sha256 = sha256;
+        fs::write(&manifest_path, toml::to_string_pretty(&manifest).unwrap()).unwrap();
+    }
+
     fn downgrade_schema_17_to_16(connection: &rusqlite::Connection) {
+        downgrade_schema_18_to_17(connection);
         let has_schema_17: bool = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=17)",
@@ -1857,7 +1986,7 @@ mod tests {
         assert!(restored_status.contains("Base: modern-ng 1.5.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.8.0"));
+        assert!(restored_status.contains("Package: en-US 1.9.0"));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);
@@ -1995,7 +2124,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 15,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: 3,
             }
         );
         let restored_requests = restored_database
@@ -2046,7 +2175,7 @@ mod tests {
         backup_board(&config_path, &backup).unwrap();
         let restored = temp.path().join("schema-17-zero-restored");
         let report = restore_board(&backup, &restored, false).unwrap();
-        assert_eq!(report.schema_version, 17);
+        assert_eq!(report.schema_version, SCHEMA_VERSION);
         let restored_config = RuntimeConfig::load(&report.config_path)
             .unwrap()
             .validate()
@@ -2071,6 +2200,168 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn schema_18_backup_restore_preserves_observability_and_restarts_live_state_fresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-18-observability-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&source, &validated).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        let mut warning = NewOperationalEvent::new(
+            1_800_000_000,
+            EventCategory::Storage,
+            EventSeverity::Warning,
+            "storage.unavailable",
+            EventOutcome::Unavailable,
+        );
+        warning.idempotency_key = Some("backup-observability-storage-warning".to_owned());
+        warning.attributes = EventAttributes::Storage {
+            state: "unavailable".to_owned(),
+        };
+        let warning = database.record_operational_event(&warning).unwrap();
+        let actor = OperatorPrincipal {
+            kind: OperatorPrincipalKind::HostOperator,
+            stable_id: Some("backup-test-operator".to_owned()),
+        };
+        database
+            .update_retention_policy(1, 45, 500, None, &actor, 1_800_000_001)
+            .unwrap()
+            .unwrap();
+        drop(database);
+
+        let backup = temp.path().join("schema-18-observability-backup");
+        backup_board(&config_path, &backup).unwrap();
+        let restored = temp.path().join("schema-18-observability-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 18);
+        let restored_config = RuntimeConfig::load(&report.config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let restored_paths = LogicalPaths::resolve(&restored, &restored_config).unwrap();
+        let restored_database = RuntimeDatabase::open_read_only(restored_paths.database()).unwrap();
+        restored_database.validate_current_snapshot().unwrap();
+        assert_eq!(
+            restored_database.retention_policy().unwrap().detail_days,
+            45
+        );
+        assert_eq!(restored_database.notifications(false, 10).unwrap().len(), 1);
+        let events = restored_database
+            .query_operational_events(&EventQuery {
+                limit: Some(100),
+                ..EventQuery::default()
+            })
+            .unwrap();
+        assert!(events.events.iter().any(|event| event.id == warning.id));
+        assert!(events
+            .events
+            .iter()
+            .any(|event| event.event_code == "backup.started"));
+        let summary = restored_database
+            .daily_operational_summary(warning.board_day, warning.timezone_policy_version)
+            .unwrap()
+            .unwrap();
+        assert_eq!(summary.warning_events, 1);
+        let audit_count: i64 = rusqlite::Connection::open(restored_paths.database())
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM operator_observability_audit",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(audit_count, 1);
+        let highest_restored_id = events
+            .events
+            .iter()
+            .map(|event| event.id.get())
+            .max()
+            .unwrap();
+        drop(restored_database);
+        let mut writable = RuntimeDatabase::open(restored_paths.database()).unwrap();
+        let mut after_restore = NewOperationalEvent::new(
+            1_800_000_100,
+            EventCategory::System,
+            EventSeverity::Info,
+            "system.restore-verified",
+            EventOutcome::Succeeded,
+        );
+        after_restore.idempotency_key = Some("post-restore-sequence-check".to_owned());
+        let after_restore = writable.record_operational_event(&after_restore).unwrap();
+        assert!(after_restore.id.get() > highest_restored_id);
+        let live = ObservabilityService::new(restored_paths.database(), 1_800_000_101);
+        assert!(live.refresh_live(1_800_000_101).unwrap().is_empty());
+    }
+
+    #[test]
+    fn schema_17_restore_migrates_without_fabricating_observability_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "schema-17-observability-source");
+        let backup = temp.path().join("schema-17-observability-backup");
+        backup_board(&source.join(BOARD_CONFIG_FILE), &backup).unwrap();
+        rewrite_backup_database_as_schema_17(&backup);
+        let restored = temp.path().join("schema-17-observability-restored");
+        let report = restore_board(&backup, &restored, false).unwrap();
+        assert_eq!(report.schema_version, 17);
+        let config = RuntimeConfig::load(&report.config_path).unwrap();
+        let paths = LogicalPaths::resolve(&restored, &config.validate().unwrap()).unwrap();
+        let mut database = RuntimeDatabase::open(paths.database()).unwrap();
+        assert_eq!(
+            database.migrate().unwrap(),
+            sf_core::MigrationReport {
+                starting_version: 17,
+                ending_version: 18,
+                applied: 1,
+            }
+        );
+        assert!(database
+            .query_operational_events(&EventQuery::default())
+            .unwrap()
+            .events
+            .is_empty());
+        assert!(database.notifications(true, 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_cold_backup_creates_a_safe_actionable_notification() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = installed_board(temp.path(), "failed-backup-source");
+        let config_path = source.join(BOARD_CONFIG_FILE);
+        let validated = RuntimeConfig::load(&config_path)
+            .unwrap()
+            .validate()
+            .unwrap();
+        let paths = LogicalPaths::resolve(&source, &validated).unwrap();
+        let database = RuntimeDatabase::open_read_only(paths.database()).unwrap();
+        let (area, file) = database.managed_cataloged_files().unwrap().remove(0);
+        drop(database);
+        let cataloged = paths
+            .get(LogicalPath::External)
+            .join("files")
+            .join(area.storage_key)
+            .join(file.filename);
+        fs::write(cataloged, b"changed after cataloging").unwrap();
+        assert!(backup_board(&config_path, &temp.path().join("failed-backup")).is_err());
+        let database = restored_database(&source);
+        let failures = database
+            .query_operational_events(&EventQuery {
+                category: Some(EventCategory::Backup),
+                outcome: Some(EventOutcome::Failed),
+                limit: Some(10),
+                ..EventQuery::default()
+            })
+            .unwrap();
+        assert_eq!(failures.events.len(), 1);
+        assert_eq!(failures.events[0].event_code, "backup.failed");
+        assert_eq!(database.notifications(false, 10).unwrap().len(), 1);
+        let serialized = format!("{:?}", failures.events[0]);
+        assert!(!serialized.contains(temp.path().to_string_lossy().as_ref()));
     }
 
     #[test]
@@ -2343,7 +2634,7 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 7);
+        assert_eq!(migration.applied, 8);
         migrated.validate_current_snapshot().unwrap();
     }
 
@@ -2369,7 +2660,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: 7,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -2401,7 +2692,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 13,
                 ending_version: SCHEMA_VERSION,
-                applied: 4
+                applied: 5
             }
         );
         assert!(!database.public_directory_policy().unwrap().enabled);
@@ -2435,7 +2726,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 14,
                 ending_version: SCHEMA_VERSION,
-                applied: 3,
+                applied: 4,
             }
         );
         database.validate_current_snapshot().unwrap();

@@ -17,6 +17,15 @@ the historical or architectural material to set up a board.
 - [Documentation Architecture and Source-Header Policy](documentation-policy.md)
   — Audiences, writing standards, source/release labels, publication strategy,
   and the project-source header policy.
+- [Board Activity and System Statistics](manual/board-activity.md) — Human
+  guidance for schema-18 activity, live status, notifications, privacy, and
+  retention.
+- [Operator Observability Technical Reference](technical/observability.md) —
+  Schema-18 event, summary, query, authorization, and recovery contracts.
+- [M039 Tranche 7 Operator Observability and Reports Gate](research/m039-tranche-7-operator-observability-reports-gate.md)
+  — Public-safe B-017/B-021/B-022 architecture and acceptance boundaries.
+- [M039 Tranche 7 B-017 Observability Implementation](research/m039-tranche-7-b017-observability-implementation.md)
+  — Schema-18 implementation and verification record.
 
 ## Getting started
 

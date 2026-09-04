@@ -54,6 +54,10 @@ outcomes rather than internal checkpoint chronology.
   bounded large-source streaming. Schema 17 separately permits valid
   zero-byte catalog objects. B-024, B-011, B-014, and B-023 are VERIFIED, and
   M039 Tranche 6 is semantically closed.
+- Added schema-18 operator observability: privacy-bounded retained events,
+  board-day summaries, versioned retention, actionable notifications, bounded
+  board/node/activity/maintenance projections, and cold recovery. B-017 is
+  VERIFIED; B-021 and B-022 remain separate future work.
 
 ### Modern transport interleave
 
@@ -92,8 +96,8 @@ unsigned/unnotarized macOS first-run workflow have passed.
 Public source `main` now includes post-0.1.0 message-discovery, auditable
 message-mutation, auditable caller-access, schema-13 caller identity, SSH
 caller-transport improvements, schema-14 public information, schema-15
-Tranche 5 file-domain features, and schema-16/17 Tranche 6 transfer/storage
-source. No new binary, tag, or release has been
+Tranche 5 file-domain features, schema-16/17 Tranche 6 transfer/storage source,
+and schema-18 B-017 observability. No new binary, tag, or release has been
 published; the downloadable binary remains the accepted 0.1.0 Development
 Preview and does not contain those later source changes.
 
@@ -110,11 +114,26 @@ zero-byte file authority. Independent original and modern peers close B-024;
 member-aware queue recovery, policy/DST/concurrency acceptance, and external-
 storage restore/adapter acceptance close B-011, B-014, and B-023. All four
 rows are VERIFIED and M039 Tranche 6 is semantically closed. The Category-B
-ledger is now 13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL, and 5 NOT STARTED.
+ledger stood at 13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL, and 5 NOT STARTED at
+that closure.
 
-No subsequent Category-B tranche is started by this source synchronization.
-Future work remains dependency-gated and begins only after its interface and
-evidence boundary are accepted.
+Tranche 7 begins with schema 18 and VERIFIED B-017: structured operational
+events, daily statistics, retention, notifications, and bounded status and
+maintenance services. B-021 Local/Sysop Operator Controls remains PARTIAL and
+is next for a separately authorized architecture/interface gate. B-022
+screen/export/publication work remains NOT STARTED. The Category-B ledger is
+now 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL, and 5 NOT STARTED.
+
+This publication does not begin B-021 or B-022. Future work remains
+dependency-gated and begins only after its interface and evidence boundary are
+accepted.
+
+Future operator products share daemon-authoritative typed services. The
+existing `spitfire setup` command remains the bootstrap/recovery path;
+`sfmonitor` is the planned live operator cockpit; `sfconfig` is the planned
+comprehensive configuration environment; and CLI clients provide
+noninteractive access. None may edit SQLite directly or treat diagnostic text
+logs as authority.
 
 Near-term release work includes:
 
@@ -132,8 +151,10 @@ accepted stock-core tier:
 - advanced display/resource types, including RIP;
 - questionnaires, bulletins, ratios, batch workflows, and deeper maintenance
   controls;
-- QWK/LAKOTA offline mail;
-- SMB/DOVE-Net, FidoNet, and CircuitNet interoperability;
+- QWK/offline mail and QWK networking;
+- DOVE-Net interoperability and FidoNet NetMail/Echomail with BinkP;
+- CircuitNet preservation/adaptation with possible future revival, without
+  assuming an active network;
 - expanded doors and external-program support; and
 - deeper events, maintenance, and multinode administration.
 
@@ -166,7 +187,8 @@ byte-aware saving, board-local override integration, and optional baud-rate
 playback. RIP editing remains deferred until SPITFIRE NG itself supports and
 validates RIP.
 
-SFDraw is a future project; no implementation has begun.
+SFDraw is a future project; no implementation has begun. It remains parked
+while established external ANSI-art tools satisfy near-term authoring needs.
 
 ## Separate preservation work
 

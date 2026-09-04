@@ -18,11 +18,14 @@ use std::thread;
 use std::time::Duration;
 
 use sf_core::{
-    run_stock_session, BoardIdentity, Caller, CallerAccessActor, CallerConfig, CallerState,
-    CredentialHasher, FileStorage, InteractionHub, JokerPolicy, LogicalPath, LogicalPaths,
-    NodeError, NodeManager, NodeRuntimeState, RuntimeConfig, RuntimeDatabase, SecurityLevel,
-    SessionCloseReason, SessionId, SessionState, StockSessionContext, Terminal,
-    TransportAdapterConfig, TransportConfig, TransportKind, VerifiedCallerGrant,
+    run_stock_session, BoardIdentity, Caller, CallerAccessActor, CallerActivity, CallerConfig,
+    CallerState, CredentialHasher, EventCategory, EventOutcome, EventPage, EventQuery,
+    EventSeverity, FileStorage, InteractionHub, JokerPolicy, LogicalPath, LogicalPaths,
+    MaintenanceStatus, MessageActivityPage, NewOperationalEvent, NodeError, NodeManager,
+    NodeRuntimeState, ObservabilityService, OperatorNotification, OperatorPrincipal, RecentCaller,
+    RuntimeConfig, RuntimeDatabase, SecurityLevel, SessionCloseReason, SessionId, SessionState,
+    StockSessionContext, SystemStatistics, Terminal, TransferActivityPage, TransportAdapterConfig,
+    TransportConfig, TransportKind, VerifiedCallerGrant,
 };
 use tracing::{info, warn};
 
@@ -75,6 +78,82 @@ pub struct ListenerReport {
     pub address: SocketAddr,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ObservabilityCapabilities {
+    pub view_board_statistics: bool,
+    pub view_node_status: bool,
+    pub view_operational_events: bool,
+    pub view_caller_activity: bool,
+    pub view_notifications: bool,
+    pub view_maintenance_status: bool,
+    pub acknowledge_notifications: bool,
+}
+
+impl ObservabilityCapabilities {
+    pub const fn host_operator() -> Self {
+        Self {
+            view_board_statistics: true,
+            view_node_status: true,
+            view_operational_events: true,
+            view_caller_activity: true,
+            view_notifications: true,
+            view_maintenance_status: true,
+            acknowledge_notifications: true,
+        }
+    }
+
+    pub const fn named_sysop() -> Self {
+        Self {
+            view_board_statistics: true,
+            view_node_status: true,
+            view_operational_events: true,
+            view_caller_activity: true,
+            view_notifications: true,
+            view_maintenance_status: true,
+            acknowledge_notifications: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorObservabilityContext {
+    pub principal: OperatorPrincipal,
+    pub capabilities: ObservabilityCapabilities,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoardStatus {
+    pub board_name: String,
+    pub running_since_utc: i64,
+    pub uptime_seconds: u64,
+    pub schema_version: u32,
+    pub configured_nodes: usize,
+    pub active_nodes: usize,
+    pub callers_online: usize,
+    pub active_transfers: u64,
+    pub storage_warnings: u64,
+    pub recent_errors: u64,
+    pub open_notifications: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiveNodeStatus {
+    pub node_id: u32,
+    pub lifecycle: String,
+    pub session_id: Option<u64>,
+    pub public_handle: Option<String>,
+    pub transport: Option<String>,
+    pub online_seconds: Option<u64>,
+    pub current_section: Option<String>,
+    pub terminal_type: Option<String>,
+    pub encoding: Option<String>,
+    pub columns: Option<u16>,
+    pub rows: Option<u16>,
+    pub presentation_profile: Option<String>,
+    pub security_context: Option<String>,
+    pub transfer_state: Option<String>,
+}
+
 pub struct BoardRuntime {
     _operation_lock: BoardOperationLock,
     identity: BoardIdentity,
@@ -94,6 +173,8 @@ pub struct BoardRuntime {
     language: sf_core::LanguageResolver,
     joker_policy: JokerPolicy,
     status_path: PathBuf,
+    started_at: i64,
+    observability: ObservabilityService,
 }
 
 impl BoardRuntime {
@@ -148,6 +229,10 @@ impl BoardRuntime {
             database.observe_public_resource(kind, &digest, resource_observed_at)?;
         }
         let schema_version = database.schema_version()?;
+        let started_at = current_unix_seconds()?;
+        if schema_version >= 18 {
+            database.synchronize_transfer_timezone(validated.timezone, started_at)?;
+        }
         if schema_version >= 16 {
             let recovered = database.reconcile_interrupted_transfers(current_unix_seconds()?)?;
             if recovered != 0 {
@@ -170,7 +255,15 @@ impl BoardRuntime {
         let status_transports = validated.transports.clone();
         let status_output = status_path.clone();
         let status_database = paths.database().to_path_buf();
-        let started_at = current_unix_seconds()?;
+        let observability = ObservabilityService::new(paths.database(), started_at);
+        let started = NewOperationalEvent::new(
+            started_at,
+            EventCategory::System,
+            EventSeverity::Notice,
+            "system.started",
+            EventOutcome::Succeeded,
+        );
+        observability.record(&started)?;
         let nodes = NodeManager::with_change_hook(
             validated.nodes,
             Some(Arc::new(move |snapshots| {
@@ -213,6 +306,8 @@ impl BoardRuntime {
             language,
             joker_policy,
             status_path,
+            started_at,
+            observability,
         })
     }
 
@@ -222,6 +317,239 @@ impl BoardRuntime {
 
     pub fn node_snapshots(&self) -> Result<Vec<sf_core::NodeSnapshot>, ApplicationError> {
         self.nodes.snapshots().map_err(Into::into)
+    }
+
+    pub fn board_status(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<BoardStatus, ApplicationError> {
+        require(context.capabilities.view_board_statistics)?;
+        let now = current_unix_seconds()?;
+        let nodes = self.nodes.snapshots()?;
+        let maintenance = RuntimeDatabase::open(self.paths.database())?.maintenance_status(now)?;
+        Ok(BoardStatus {
+            board_name: self.identity.name().to_owned(),
+            running_since_utc: self.started_at,
+            uptime_seconds: u64::try_from(now.saturating_sub(self.started_at)).unwrap_or(0),
+            schema_version: self.schema_version,
+            configured_nodes: nodes.len(),
+            active_nodes: nodes
+                .iter()
+                .filter(|node| {
+                    !matches!(
+                        node.state,
+                        NodeRuntimeState::Waiting | NodeRuntimeState::Disabled
+                    )
+                })
+                .count(),
+            callers_online: nodes
+                .iter()
+                .filter(|node| node.caller_name.is_some())
+                .count(),
+            active_transfers: maintenance.nonterminal_transfers,
+            storage_warnings: maintenance.unavailable_storage_roots,
+            recent_errors: maintenance.recent_error_events,
+            open_notifications: maintenance.open_notifications,
+        })
+    }
+
+    pub fn live_node_statuses(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<Vec<LiveNodeStatus>, ApplicationError> {
+        require(context.capabilities.view_node_status)?;
+        let now = current_unix_seconds()?;
+        Ok(self
+            .nodes
+            .snapshots()?
+            .into_iter()
+            .map(|node| {
+                let presentation = node.presentation.as_ref();
+                LiveNodeStatus {
+                    node_id: node.id.get(),
+                    lifecycle: format!("{:?}", node.state).to_ascii_lowercase(),
+                    session_id: node.session_id.map(SessionId::get),
+                    public_handle: node.caller_name,
+                    transport: node
+                        .transport
+                        .map(|transport| transport.as_str().to_owned()),
+                    online_seconds: node
+                        .connected_at
+                        .map(|started| u64::try_from(now.saturating_sub(started)).unwrap_or(0)),
+                    current_section: presentation.and_then(|value| value.menu_context.clone()),
+                    terminal_type: presentation.and_then(|value| value.terminal_type.clone()),
+                    encoding: presentation.map(|value| value.encoding.clone()),
+                    columns: presentation.and_then(|value| value.columns),
+                    rows: presentation.and_then(|value| value.rows),
+                    presentation_profile: presentation
+                        .map(|value| value.presentation_profile.clone()),
+                    security_context: presentation.and_then(|value| {
+                        value.caller_security.map(|level| {
+                            if level >= value.sysop_threshold {
+                                "sysop-threshold"
+                            } else {
+                                "caller"
+                            }
+                            .to_owned()
+                        })
+                    }),
+                    transfer_state: matches!(
+                        node.state,
+                        NodeRuntimeState::Downloading | NodeRuntimeState::Uploading
+                    )
+                    .then(|| format!("{:?}", node.state).to_ascii_lowercase()),
+                }
+            })
+            .collect())
+    }
+
+    pub fn recent_operational_events(
+        &self,
+        context: &OperatorObservabilityContext,
+        query: &EventQuery,
+    ) -> Result<EventPage, ApplicationError> {
+        require(context.capabilities.view_operational_events)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .query_operational_events(query)
+            .map_err(Into::into)
+    }
+
+    pub fn operator_notifications(
+        &self,
+        context: &OperatorObservabilityContext,
+        include_closed: bool,
+        limit: usize,
+    ) -> Result<Vec<OperatorNotification>, ApplicationError> {
+        require(context.capabilities.view_notifications)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .notifications(include_closed, limit)
+            .map_err(Into::into)
+    }
+
+    pub fn acknowledge_operator_notification(
+        &self,
+        context: &OperatorObservabilityContext,
+        notification_id: sf_core::NotificationId,
+        expected_version: u64,
+    ) -> Result<bool, ApplicationError> {
+        require(context.capabilities.acknowledge_notifications)?;
+        RuntimeDatabase::open(self.paths.database())?
+            .acknowledge_notification(
+                notification_id,
+                expected_version,
+                &context.principal,
+                current_unix_seconds()?,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn system_statistics(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<SystemStatistics, ApplicationError> {
+        require(context.capabilities.view_board_statistics)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .system_statistics(current_unix_seconds()?)
+            .map_err(Into::into)
+    }
+
+    pub fn recent_callers(
+        &self,
+        context: &OperatorObservabilityContext,
+        limit: usize,
+    ) -> Result<Vec<RecentCaller>, ApplicationError> {
+        require(context.capabilities.view_caller_activity)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .recent_callers(limit)
+            .map_err(Into::into)
+    }
+
+    pub fn caller_activity(
+        &self,
+        context: &OperatorObservabilityContext,
+        caller_id: sf_core::CallerId,
+        query: &EventQuery,
+    ) -> Result<Option<CallerActivity>, ApplicationError> {
+        require(context.capabilities.view_caller_activity)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .caller_activity(caller_id, query)
+            .map_err(Into::into)
+    }
+
+    pub fn message_activity(
+        &self,
+        context: &OperatorObservabilityContext,
+        from_utc: i64,
+        through_utc: i64,
+    ) -> Result<MessageActivityPage, ApplicationError> {
+        require(context.capabilities.view_board_statistics)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .message_activity(from_utc, through_utc)
+            .map_err(Into::into)
+    }
+
+    pub fn transfer_activity(
+        &self,
+        context: &OperatorObservabilityContext,
+        from_utc: i64,
+        through_utc: i64,
+    ) -> Result<TransferActivityPage, ApplicationError> {
+        require(context.capabilities.view_board_statistics)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .transfer_activity(from_utc, through_utc)
+            .map_err(Into::into)
+    }
+
+    pub fn file_activity(
+        &self,
+        context: &OperatorObservabilityContext,
+        query: &EventQuery,
+    ) -> Result<EventPage, ApplicationError> {
+        require(context.capabilities.view_board_statistics)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .file_activity(query)
+            .map_err(Into::into)
+    }
+
+    pub fn recent_errors(
+        &self,
+        context: &OperatorObservabilityContext,
+        query: &EventQuery,
+    ) -> Result<EventPage, ApplicationError> {
+        require(context.capabilities.view_maintenance_status)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .recent_errors(query)
+            .map_err(Into::into)
+    }
+
+    pub fn maintenance_status(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<MaintenanceStatus, ApplicationError> {
+        require(context.capabilities.view_maintenance_status)?;
+        RuntimeDatabase::open_read_only(self.paths.database())?
+            .maintenance_status(current_unix_seconds()?)
+            .map_err(Into::into)
+    }
+
+    pub fn live_operational_events(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<Vec<sf_core::OperationalEvent>, ApplicationError> {
+        require(context.capabilities.view_operational_events)?;
+        self.observability
+            .refresh_live(current_unix_seconds()?)
+            .map_err(Into::into)
+    }
+
+    pub fn live_operational_event_batch(
+        &self,
+        context: &OperatorObservabilityContext,
+    ) -> Result<sf_core::LiveEventBatch, ApplicationError> {
+        require(context.capabilities.view_operational_events)?;
+        self.observability
+            .refresh_live_batch(current_unix_seconds()?)
+            .map_err(Into::into)
     }
 
     pub fn interaction(&self) -> InteractionHub {
@@ -296,6 +624,21 @@ impl BoardRuntime {
                 Ok(None)
             }
             sf_core::AuthenticationResult::Invalid => {
+                let at = current_unix_seconds()?;
+                let mut event = NewOperationalEvent::new(
+                    at,
+                    EventCategory::Authentication,
+                    EventSeverity::Notice,
+                    "authentication.failed",
+                    EventOutcome::Denied,
+                );
+                event.attributes = sf_core::EventAttributes::Session {
+                    public_handle: None,
+                    transport: Some("ssh".to_owned()),
+                    duration_seconds: None,
+                    close_reason: Some("invalid-credentials".to_owned()),
+                };
+                self.observability.record(&event)?;
                 warn!("SSH password authentication rejected");
                 Ok(None)
             }
@@ -689,7 +1032,21 @@ impl BoardRuntime {
         let accounting_result = session.accounting(self.timezone)?.map_or(
             Ok(()),
             |(caller, elapsed, daily_elapsed, day)| {
-                database.finish_caller_session(caller, elapsed, daily_elapsed, day)
+                database.finish_caller_session_observed(
+                    caller,
+                    elapsed,
+                    daily_elapsed,
+                    day,
+                    session.close_reason().map(|reason| {
+                        (
+                            session.node_id().get(),
+                            session.id().get(),
+                            terminal_info.transport.as_str(),
+                            reason.as_str(),
+                        )
+                    }),
+                    current_unix_seconds().unwrap_or(connected_at),
+                )
             },
         );
         lease.mark_disconnecting()?;
@@ -739,6 +1096,16 @@ fn current_unix_seconds() -> Result<i64, ApplicationError> {
         .as_secs();
     i64::try_from(seconds)
         .map_err(|_| ApplicationError::Coordination("system clock value is too large"))
+}
+
+fn require(allowed: bool) -> Result<(), ApplicationError> {
+    if allowed {
+        Ok(())
+    } else {
+        Err(ApplicationError::Coordination(
+            "operator observability capability is required",
+        ))
+    }
 }
 
 pub fn run_board(
@@ -3167,6 +3534,12 @@ mod tests {
             .any(|file| file.filename == "CALLER.TXT"));
         assert_eq!(caller.files_uploaded, 1);
         assert_eq!(caller.files_downloaded, 2);
+        let file_events = database.file_activity(&EventQuery::default()).unwrap();
+        assert!(file_events.events.iter().any(|event| {
+            event.event_code == "file.added"
+                && event.caller_id == Some(caller.id)
+                && event.object_kind.as_deref() == Some("file")
+        }));
     }
 
     #[test]
@@ -3520,6 +3893,171 @@ mod tests {
         let area = database.file_area(actor, 1).unwrap().0;
         let welcome = database.file(actor, area.id, "WELCOME.TXT", true).unwrap();
         assert_eq!(welcome.download_count, 2);
+        let events = database
+            .query_operational_events(&sf_core::EventQuery {
+                limit: Some(100),
+                ..sf_core::EventQuery::default()
+            })
+            .unwrap()
+            .events;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_code == "session.completed")
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_code == "transfer.download.completed")
+                .count(),
+            2
+        );
+        assert!(events
+            .iter()
+            .filter(|event| {
+                event.event_code == "session.completed"
+                    || event.event_code == "transfer.download.completed"
+            })
+            .all(|event| event.node_id.is_some()));
+        let latest = events.first().unwrap();
+        let summary = database
+            .daily_operational_summary(latest.board_day, latest.timezone_policy_version)
+            .unwrap()
+            .unwrap();
+        assert_eq!(summary.calls_started, 2);
+        assert_eq!(summary.calls_completed, 2);
+        assert_eq!(summary.successful_downloads, 2);
+        assert_eq!(summary.download_bytes, welcome.size_bytes * 2);
+        let minimum_time = events
+            .iter()
+            .filter(|event| event.category == EventCategory::Transfer)
+            .map(|event| event.occurred_at_utc)
+            .min()
+            .unwrap();
+        let maximum_time = events
+            .iter()
+            .filter(|event| event.category == EventCategory::Transfer)
+            .map(|event| event.occurred_at_utc)
+            .max()
+            .unwrap();
+        let transfer_activity = database
+            .transfer_activity(minimum_time, maximum_time)
+            .unwrap();
+        assert!(transfer_activity.rows.iter().any(|row| {
+            row.direction.as_deref() == Some("download")
+                && row.outcome == EventOutcome::Succeeded
+                && row.transfers == 2
+                && row.bytes == welcome.size_bytes * 2
+        }));
+        let caller_activity = database
+            .caller_activity(first_caller.id, &EventQuery::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(caller_activity.public_handle, "Download One");
+        assert_eq!(caller_activity.lifetime_files_downloaded, 1);
+        let raw = format!("{events:?}");
+        for private in [
+            "test-only download one",
+            "test-only download two",
+            "/Users/",
+            "fixture-board",
+        ] {
+            assert!(!raw.contains(private));
+        }
+        drop(database);
+        let runtime = BoardRuntime::load(&config_path).unwrap();
+        let context = OperatorObservabilityContext {
+            principal: sf_core::OperatorPrincipal {
+                kind: sf_core::OperatorPrincipalKind::HostOperator,
+                stable_id: Some("test-host-operator".to_owned()),
+            },
+            capabilities: ObservabilityCapabilities::host_operator(),
+        };
+        assert_eq!(runtime.board_status(&context).unwrap().configured_nodes, 2);
+        assert_eq!(runtime.live_node_statuses(&context).unwrap().len(), 2);
+        assert_eq!(runtime.recent_callers(&context, 10).unwrap().len(), 2);
+        assert_eq!(
+            runtime
+                .system_statistics(&context)
+                .unwrap()
+                .today
+                .successful_downloads,
+            2
+        );
+        assert!(
+            runtime
+                .maintenance_status(&context)
+                .unwrap()
+                .open_notifications
+                == 0
+        );
+    }
+
+    #[test]
+    fn observability_projections_require_explicit_operator_capabilities() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("fixture-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
+        let denied = OperatorObservabilityContext {
+            principal: sf_core::OperatorPrincipal {
+                kind: sf_core::OperatorPrincipalKind::NamedSysop,
+                stable_id: Some("named-sysop".to_owned()),
+            },
+            capabilities: ObservabilityCapabilities {
+                view_board_statistics: false,
+                view_node_status: false,
+                view_operational_events: false,
+                view_caller_activity: false,
+                view_notifications: false,
+                view_maintenance_status: false,
+                acknowledge_notifications: false,
+            },
+        };
+        assert!(runtime.board_status(&denied).is_err());
+        assert!(runtime.live_node_statuses(&denied).is_err());
+        assert!(runtime
+            .recent_operational_events(&denied, &EventQuery::default())
+            .is_err());
+
+        let mut database = RuntimeDatabase::open(runtime.database_path()).unwrap();
+        let mut warning = NewOperationalEvent::new(
+            current_unix_seconds().unwrap(),
+            EventCategory::Storage,
+            EventSeverity::Warning,
+            "storage.unavailable",
+            EventOutcome::Unavailable,
+        );
+        warning.attributes = sf_core::EventAttributes::Storage {
+            state: "unavailable".to_owned(),
+        };
+        database.record_operational_event(&warning).unwrap();
+        drop(database);
+
+        let named = OperatorObservabilityContext {
+            principal: sf_core::OperatorPrincipal {
+                kind: sf_core::OperatorPrincipalKind::NamedSysop,
+                stable_id: Some("named-sysop".to_owned()),
+            },
+            capabilities: ObservabilityCapabilities::named_sysop(),
+        };
+        let notification = runtime.operator_notifications(&named, false, 10).unwrap()[0].clone();
+        assert!(runtime
+            .acknowledge_operator_notification(&named, notification.id, notification.state_version)
+            .is_err());
+        let host = OperatorObservabilityContext {
+            principal: sf_core::OperatorPrincipal {
+                kind: sf_core::OperatorPrincipalKind::HostOperator,
+                stable_id: Some("host-operator".to_owned()),
+            },
+            capabilities: ObservabilityCapabilities::host_operator(),
+        };
+        assert!(runtime
+            .acknowledge_operator_notification(&host, notification.id, notification.state_version,)
+            .unwrap());
     }
 
     #[test]
@@ -4523,6 +5061,52 @@ mod tests {
             .unwrap()
             .iter()
             .any(|message| message.kind == MessageKind::SysopComment));
+        let message_events = database
+            .query_operational_events(&EventQuery {
+                category: Some(EventCategory::Message),
+                limit: Some(100),
+                ..EventQuery::default()
+            })
+            .unwrap()
+            .events;
+        assert_eq!(
+            message_events
+                .iter()
+                .filter(|event| event.event_code == "message.posted")
+                .count(),
+            4
+        );
+        let minimum_time = message_events
+            .iter()
+            .map(|event| event.occurred_at_utc)
+            .min()
+            .unwrap();
+        let maximum_time = message_events
+            .iter()
+            .map(|event| event.occurred_at_utc)
+            .max()
+            .unwrap();
+        let activity = database
+            .message_activity(minimum_time, maximum_time)
+            .unwrap();
+        assert_eq!(
+            activity
+                .rows
+                .iter()
+                .map(|row| row.messages_posted)
+                .sum::<u64>(),
+            4
+        );
+        assert!(activity.rows.iter().any(|row| row.visibility == "private"));
+        let projected = format!("{message_events:?}");
+        for private in [
+            "Private fixture greeting",
+            "Private message content",
+            "Recipient Caller",
+            "test-only message password",
+        ] {
+            assert!(!projected.contains(private));
+        }
     }
 
     #[test]

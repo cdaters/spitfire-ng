@@ -2,7 +2,7 @@
 
 <!-- help-topic: sysop.quick-start -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 17)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 18)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -112,7 +112,7 @@ interactive terminal so it can read them safely.
 Successful setup reports:
 
 - the configuration and database paths;
-- schema version 17;
+- schema version 18;
 - one configured node;
 - two starter message conferences;
 - two starter file areas; and
@@ -240,7 +240,7 @@ The backup parent already exists from step 3. The target must not exist:
 ```
 
 The command validates the board before publishing the backup. A successful
-summary includes schema 17, the resource count, the cataloged file count, and
+summary includes schema 18, the resource count, the cataloged file count, and
 the number of verified bytes.
 
 Protect the entire backup directory. It contains password hashes, caller and
@@ -280,6 +280,6 @@ replacing a board.
   security of its transport first.
 - Static configuration and cold backup require a stopped board.
 
-This exact source-build, schema-17 setup, loopback OpenSSH call, message post,
+This exact source-build, schema-18 setup, loopback OpenSSH call, message post,
 starter-file ASCII download, clean shutdown, and cold-backup path was exercised
 on a clean board on 2026-09-03.

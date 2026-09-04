@@ -68,7 +68,7 @@ spitfire status /path/to/restored-board/spitfire.toml
 Start the restored board and verify one Sysop login, one message, one file
 listing/download, and configuration identity before depending on it.
 
-Current source restores exact supported schema-10 through schema-17 backups.
+Current source restores exact supported schema-10 through schema-18 backups.
 An older snapshot remains at its exact schema during restore and migrates
 transactionally only on the first normal writable startup. Keep the old
 executable and pre-upgrade backup for rollback; there is no in-place schema

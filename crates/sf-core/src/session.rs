@@ -80,6 +80,21 @@ pub enum SessionCloseReason {
     OperatorDisconnect,
 }
 
+impl SessionCloseReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Goodbye => "goodbye",
+            Self::EndOfInput => "end-of-input",
+            Self::TransportLost => "transport-lost",
+            Self::AuthenticationFailed => "authentication-failed",
+            Self::AccountUnavailable => "account-unavailable",
+            Self::TimeLimit => "time-limit",
+            Self::Inactivity => "inactivity",
+            Self::OperatorDisconnect => "operator-disconnect",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Session {
     id: SessionId,
@@ -956,6 +971,14 @@ fn authenticate_session(
                 return Ok(None);
             }
             Ok(AuthenticationResult::Invalid) | Err(DatabaseError::InvalidCaller(_)) => {
+                let failed_at = unix_seconds()?;
+                database.record_authentication_failure(
+                    failed_at,
+                    session.node_id().get(),
+                    session.id().get(),
+                    terminal.info().transport.as_str(),
+                    "invalid-credentials",
+                )?;
                 if let Some(caller) = known_caller.as_ref() {
                     database.record_caller_access_denial(
                         caller.id,
@@ -1070,6 +1093,14 @@ fn login_existing_caller(
                 return Ok(None);
             }
             Ok(AuthenticationResult::Invalid) | Err(DatabaseError::InvalidCaller(_)) => {
+                let failed_at = unix_seconds()?;
+                database.record_authentication_failure(
+                    failed_at,
+                    session.node_id().get(),
+                    session.id().get(),
+                    terminal.info().transport.as_str(),
+                    "invalid-credentials",
+                )?;
                 if let Some(caller) = known_caller_for_login(database, &name)? {
                     database.record_caller_access_denial(
                         caller.id,
@@ -1383,7 +1414,17 @@ fn begin_or_close(
         terminal.disconnect()?;
         return Ok(None);
     }
-    match database.begin_caller_session(&caller, config, now, stock.timezone) {
+    match database.begin_caller_session_observed(
+        &caller,
+        config,
+        now,
+        stock.timezone,
+        Some((
+            session.node_id().get(),
+            session.id().get(),
+            terminal.info().transport.as_str(),
+        )),
+    ) {
         Ok(authenticated) => {
             session.mark_authenticated(caller.id, now)?;
             Ok(Some(authenticated))

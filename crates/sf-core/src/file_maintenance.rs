@@ -25,9 +25,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    CallerId, CallerState, FileActor, FileArea, FileAreaId, FileEntry, FileError, FileId,
-    FileIntegrity, FileLifecycle, FileStorage, RuntimeDatabase, SessionId,
-    MAX_FILE_DESCRIPTION_BYTES, MAX_FILE_DESCRIPTION_LINES,
+    insert_operational_event_tx, CallerId, CallerState, EventAttributes, EventCategory,
+    EventOutcome, EventSeverity, FileActor, FileArea, FileAreaId, FileEntry, FileError, FileId,
+    FileIntegrity, FileLifecycle, FileStorage, NewOperationalEvent, RetentionClass,
+    RuntimeDatabase, SessionId, MAX_FILE_DESCRIPTION_BYTES, MAX_FILE_DESCRIPTION_LINES,
 };
 
 pub const MAX_TEXT_PREVIEW_BYTES: u64 = 256 * 1024;
@@ -1864,6 +1865,14 @@ impl RuntimeDatabase {
         event: &str,
     ) -> Result<(), FileMaintenanceError> {
         let transaction = self.connection.transaction()?;
+        let size_bytes = transaction
+            .query_row(
+                "SELECT size_bytes FROM files WHERE file_id=?1",
+                params![file_id.get()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .and_then(|value| u64::try_from(value).ok());
         transaction.execute(
             "UPDATE file_operations SET phase='committed',completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
             params![operation_id],
@@ -1876,6 +1885,30 @@ impl RuntimeDatabase {
             "INSERT INTO file_events(operation,actor_caller_id,file_id,operation_id) VALUES(?1,?2,?3,?4)",
             params![event, actor.caller_id().map(CallerId::get), file_id.get(), operation_id],
         )?;
+        let event_code = match event {
+            "file-added" => "file.added",
+            "file-moved" => "file.moved",
+            "file-tombstoned" => "file.removed",
+            _ => "file.changed",
+        };
+        let mut operational = NewOperationalEvent::new(
+            Utc::now().timestamp(),
+            EventCategory::File,
+            EventSeverity::Info,
+            event_code,
+            EventOutcome::Succeeded,
+        );
+        operational.caller_id = actor.caller_id();
+        operational.correlation_id = Some(operation_id.to_owned());
+        operational.idempotency_key = Some(format!("operational-{operation_id}"));
+        operational.object_kind = Some("file".to_owned());
+        operational.object_id = Some(file_id.get().to_string());
+        operational.retention_class = RetentionClass::SummarySource;
+        operational.attributes = EventAttributes::File {
+            operation: event_code.to_owned(),
+            bytes: size_bytes,
+        };
+        insert_operational_event_tx(&transaction, &operational).map_err(FileError::Database)?;
         transaction.commit()?;
         Ok(())
     }

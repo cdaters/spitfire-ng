@@ -19,9 +19,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    Caller, CallerError, CallerId, CallerState, DatabaseError, LogicalPath, LogicalPaths,
-    RuntimeDatabase, SecurityLevel, SessionId, StorageAvailability, StorageRoot, StorageRootKind,
-    Terminal, TerminalError,
+    insert_operational_event_tx, Caller, CallerError, CallerId, CallerState, DatabaseError,
+    EventAttributes, EventCategory, EventOutcome, EventSeverity, LogicalPath, LogicalPaths,
+    NewOperationalEvent, RetentionClass, RuntimeDatabase, SecurityLevel, SessionId,
+    StorageAvailability, StorageRoot, StorageRootKind, Terminal, TerminalError,
 };
 
 pub const MAX_FILE_AREAS: u16 = u16::MAX;
@@ -1966,6 +1967,29 @@ impl FileStorage {
                 params![caller.id.get(), file.id.get(), current_area.id.get(), operation_id, file.sha256, if pending_review { "pending-review" } else { "caller-upload" }],
             )
             .map_err(FileError::Sqlite)?;
+        let mut operational = NewOperationalEvent::new(
+            uploaded_at,
+            EventCategory::File,
+            EventSeverity::Info,
+            "file.added",
+            EventOutcome::Succeeded,
+        );
+        operational.caller_id = Some(caller.id);
+        operational.correlation_id = Some(operation_id.clone());
+        operational.idempotency_key = Some(format!("file-added-{operation_id}"));
+        operational.object_kind = Some("file".to_owned());
+        operational.object_id = Some(file.id.get().to_string());
+        operational.retention_class = RetentionClass::SummarySource;
+        operational.attributes = EventAttributes::File {
+            operation: if pending_review {
+                "pending-review"
+            } else {
+                "added"
+            }
+            .to_owned(),
+            bytes: Some(file.size_bytes),
+        };
+        insert_operational_event_tx(&completion, &operational).map_err(FileError::Database)?;
         completion.commit().map_err(FileError::Sqlite)?;
         staged.committed = true;
         let _ = fs::remove_file(&staged.path);

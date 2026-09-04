@@ -123,6 +123,14 @@ online/disconnecting state with caller, transport, and connection-time fields.
 The configured safety bound is 4,096 nodes rather than the historical 255.
 See [SPITFIRE NG Multinode Runtime](sfng-multinode-runtime.md).
 
+Schema 18 adds a read-only `LiveNodeStatus` projection for future local
+operator clients. It derives from the same node/session authority and may show
+the public handle, transport, online duration, current section, terminal and
+encoding details, dimensions, presentation profile, and transfer state. It
+excludes login/private identity, remote address, terminal bytes, and content.
+It is not a second node authority and does not implement live screen
+observation. See [Operator Observability](technical/observability.md).
+
 ## 8. Who's Online
 
 The classic caller-facing node list should remain available.
@@ -160,6 +168,11 @@ Session-specific state should remain independent.
 A malformed terminal sequence from Node 7 should not crash Node 1 through Node 6.
 
 ## 11. Event Concept
+
+This section's historical Event A–L scheduler meaning is distinct from the
+schema-18 operational-event ledger. An operational event records that a useful
+board fact occurred; it does not schedule work. Future scheduled events can use
+the same bounded observability services without redefining them.
 
 Historical events such as:
 
@@ -574,6 +587,13 @@ work and draining or leasing affected nodes/services. Offline repair requires
 the daemon to be stopped and the exclusive board lock to be held. This is an
 accepted future architecture boundary; admin IPC, `sfconfig`, and `sfmonitor`
 are not implemented by current source.
+
+Schema 18 now provides privacy-safe live status, recent events, statistics,
+notifications, and maintenance projections for future operator clients. B-021
+still owns protected attachment and control, and B-022 owns report rendering
+and publication. Operational events are also distinct from historical Event
+A–L scheduler jobs; no scheduler or external-command execution is introduced
+here.
 
 ## 37. Resource Limits
 

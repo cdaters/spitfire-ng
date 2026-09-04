@@ -14,7 +14,11 @@ use std::num::NonZeroI64;
 use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use thiserror::Error;
 
-use crate::{Caller, CallerError, CallerId, CallerState, RuntimeDatabase, SecurityLevel};
+use crate::{
+    insert_operational_event_tx, Caller, CallerError, CallerId, CallerState, EventAttributes,
+    EventCategory, EventOutcome, EventSeverity, NewOperationalEvent, RetentionClass,
+    RuntimeDatabase, SecurityLevel,
+};
 
 pub const MAX_CONFERENCES: u16 = 784;
 pub const MAX_MESSAGE_SUBJECT_BYTES: usize = 72;
@@ -1607,6 +1611,27 @@ impl RuntimeDatabase {
                 params![caller.id.get(), i64::try_from(delivery_count).map_err(|_| MessageError::MessageNumberOverflow)?],
             )
             .map_err(MessageError::Sqlite)?;
+        let mut event = NewOperationalEvent::new(
+            message.created_at,
+            EventCategory::Message,
+            EventSeverity::Info,
+            "message.posted",
+            EventOutcome::Succeeded,
+        );
+        event.caller_id = Some(caller.id);
+        event.correlation_id = Some(format!("message-fanout-{fanout_id}"));
+        event.object_kind = Some("message-conference".to_owned());
+        event.object_id = Some(message.conference_id.get().to_string());
+        event.idempotency_key = Some(format!("message-posted-{fanout_id}"));
+        event.retention_class = RetentionClass::SummarySource;
+        event.attributes = EventAttributes::Message {
+            conference_id: u64::try_from(message.conference_id.get())
+                .map_err(|_| MessageError::MessageNumberOverflow)?,
+            visibility: message.visibility.as_database_value().to_owned(),
+            count: u64::try_from(delivery_count)
+                .map_err(|_| MessageError::MessageNumberOverflow)?,
+        };
+        insert_operational_event_tx(&transaction, &event)?;
         validate_fanout(&transaction, fanout_id)?;
         transaction.commit().map_err(MessageError::Sqlite)?;
 

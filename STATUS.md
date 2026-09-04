@@ -12,14 +12,17 @@ adds post-0.1.0 advanced message discovery, auditable message mutation, an
 auditable caller-access lifecycle, schema-13 caller identity, secure SSH caller
 transport, schema-14 privacy-bounded public information, schema-15 file
 inspection/maintenance, schema-16 transfer policy and storage, and the
-schema-17 zero-byte invariant; the downloadable 0.1.0 archive is unchanged and
-does not contain those additions.
+schema-17 zero-byte invariant. Schema 18 adds privacy-safe operational events,
+daily summaries, retention, notifications, and status/maintenance projections;
+the downloadable 0.1.0 archive is unchanged and does not contain those
+additions.
 
 ## Current source additions
 
-The Category-B ledger now records 13 VERIFIED, 2 IMPLEMENTED, 5 PARTIAL, and
+The Category-B ledger now records 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL, and
 5 NOT STARTED rows. B-024, B-011, B-014, and B-023 are VERIFIED, and M039
-Tranche 6 is semantically closed.
+Tranche 6 is semantically closed. B-017 is VERIFIED; B-021 remains PARTIAL and
+B-022 remains NOT STARTED.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -138,6 +141,9 @@ selection, visibility, or result presentation.
   source. B-013 is VERIFIED; B-015 and B-012 remain IMPLEMENTED.
 - Schema-16/17 transfer, batch-policy, accounting, and extended-storage source.
   B-024, B-011, B-014, and B-023 are VERIFIED.
+- Schema-18 privacy-bounded operational events, board-day statistics,
+  retention, notifications, board/node status, recent caller and activity
+  projections, and maintenance/error views. B-017 is VERIFIED.
 - ASCII, XMODEM, YMODEM, ZMODEM, and TeLink transfer support as documented
 - Multinode runtime and session isolation
 - Operator configuration, status, and renderer diagnostics
@@ -185,8 +191,9 @@ until they are built and tested.
 - Caller-selectable presentation profiles
 - Production non-English translations and caller locale selection
 - Remaining advanced Category-B commands and resources
-- QWK/LAKOTA and other offline-mail ecosystems
-- SMB/DOVE-Net, FidoNet, and CircuitNet interoperability
+- QWK, DOVE-Net, and FidoNet networking
+- CircuitNet adapter/revival work beyond preserved compatibility knowledge
+- `sfmonitor` and comprehensive `sfconfig` operator clients
 - Web administration
 - SFDraw, the planned display-authoring companion tool
 - SFDATE and SFREG preservation tools
@@ -205,6 +212,7 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary. M039 Tranche 6 is publicly
-closed with B-024, B-011, B-014, and B-023 VERIFIED. B-015 and B-012 remain
-IMPLEMENTED. No subsequent Category-B tranche has begun.
+Preserve the accepted 0.1.0 release boundary. Schema 18 and B-017 are available
+in current source, while B-021 remains PARTIAL and B-022 remains NOT STARTED.
+The next separate work item is the B-021 Local/Sysop Operator Controls
+architecture/interface gate; it has not begun in this synchronization.

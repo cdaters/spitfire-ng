@@ -31,6 +31,21 @@ pub enum TransportKind {
     HayesModem,
 }
 
+impl TransportKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InMemory => "in-memory",
+            Self::Telnet => "telnet",
+            Self::RawTcp => "raw-tcp",
+            Self::Rlogin => "rlogin",
+            Self::UnixShell => "unix-shell",
+            Self::Ssh => "ssh",
+            Self::DirectSerial => "direct-serial",
+            Self::HayesModem => "hayes-modem",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TerminalSize {
     pub width: u16,
