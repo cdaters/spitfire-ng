@@ -35,7 +35,9 @@ jobs:
         run: ./tools/verify-windows-operator.ps1
 
       - name: Build and test the Windows workspace
-        run: cargo test --workspace --locked
+        # Bound concurrency so timing-sensitive transport journeys are not
+        # starved by the shared hosted runner during the full regression pass.
+        run: cargo test --workspace --locked -- --test-threads=2
 
       - name: Lint the Windows workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
