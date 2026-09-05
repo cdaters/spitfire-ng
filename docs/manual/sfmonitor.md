@@ -13,7 +13,7 @@ leave it open to see callers arrive, nodes change, activity appear, and
 conditions that need attention. Monitoring is read-only by default. Explicitly
 enrolled controls add notification acknowledgement, time adjustment, page/chat,
 confirmed caller disconnect, and graceful daemon shutdown. Quitting or losing
-the monitor does not itself stop the board. Configuration mutation is unavailable.
+the monitor does not itself stop the board. System Configuration opens the separate [sfconfig application](sfconfig.md).
 
 ## Start the monitor
 
@@ -101,9 +101,11 @@ reported without mutation.
 files awaiting review, active or incomplete transfers, and retention periods.
 It cannot run cleanup, backup, repair, or other maintenance.
 
-**System Configuration** establishes the route that will later open
-`sfconfig`. Current source says clearly that configuration is not available;
-it does not show fake editors or write board state.
+**System Configuration** opens [sfconfig](sfconfig.md) for the same explicit
+board. Press Enter to hand over the terminal; Q in sfconfig returns to a
+refreshed monitor. Install the matching executables beside each other.
+Configuration permissions are independent of monitor permissions; bootstrap
+remains read-only. The daemon and callers continue during the handoff.
 
 ## Explicit mutation enrollment
 

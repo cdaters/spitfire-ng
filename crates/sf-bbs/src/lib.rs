@@ -14,6 +14,11 @@
 mod admin;
 mod backup;
 mod board_lock;
+mod configuration;
+pub use configuration::{
+    configuration_version, current_operator_identity, ConfigurationDomainSummary,
+    ConfigurationResult, ConfigurationSnapshot, OfflineConfiguration, SecretStatus,
+};
 mod error;
 mod fixture;
 mod live_control;

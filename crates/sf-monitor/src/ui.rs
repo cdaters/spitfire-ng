@@ -639,15 +639,12 @@ fn render_system_configuration(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(vec![
             Line::styled(
-                text(
-                    "sfmonitor-configuration-unavailable",
-                    &LocalizationArgs::new(),
-                ),
+                text("sfmonitor-configuration-open", &LocalizationArgs::new()),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Line::raw(""),
             Line::raw(text(
-                "sfmonitor-configuration-future",
+                "sfmonitor-configuration-handoff",
                 &LocalizationArgs::new(),
             )),
             Line::raw(""),
@@ -1081,7 +1078,7 @@ mod tests {
         };
         let output = rendered(&model, 100, 30);
         assert!(output.contains("System Configuration"));
-        assert!(output.contains("not available"));
+        assert!(output.contains("Enter opens sfconfig"));
     }
 
     #[test]

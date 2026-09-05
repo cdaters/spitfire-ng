@@ -585,18 +585,19 @@ audited by the daemon.
 Maintenance mode keeps the administrative channel alive while fencing new
 work and draining or leasing affected nodes/services. Offline repair requires
 the daemon to be stopped and the exclusive board lock to be held. `sfconfig`
-and state-changing attached controls are not implemented by current source.
+provides explicit locked offline configuration; online configuration and
+B021-B state-changing controls use daemon authority.
 
 Schema 18 provides privacy-safe live status, recent events, statistics,
 notifications, and maintenance projections. Schema 19/B021-A transports those
 views through protected Unix sockets and Windows named pipes, with daemon
 generation and explicit subscription-gap recovery. `sfmonitor` 0.1 consumes
 those same node/event projections, preserves bounded live-event gap recovery,
-and never renders event attributes or private session data. Future page, chat,
-time, disconnect, and shutdown actions must also carry fresh NodeId, SessionId,
-session generation, daemon generation, and CommandId identity so a reused node
-slot cannot receive an action intended for a previous caller. Those
-state-changing commands are not implemented.
+and never renders event attributes or private session data. Implemented caller
+page/chat/time/disconnect controls use exact session/occupancy identity and
+CommandId protection so a reused node cannot receive a prior caller's action.
+Daemon shutdown uses its separate authorized consequence-bound preflight and
+shared admission/drain lifecycle. B021-B implements these state-changing controls.
 
 B-022 still owns report rendering and publication. Operational events are
 also distinct from historical Event A–L scheduler jobs; no scheduler or
@@ -637,3 +638,11 @@ The classic SPITFIRE Sysop should still think in terms of:
 The implementation underneath may be thoroughly modern.
 
 The vocabulary does not need to change merely because DOS is gone.
+
+
+B021-C configuration retains runtime ownership: active nodes and listeners stay
+unchanged while restart-required values are pending. Existing callers retain
+captured policy; new callers use validated published configuration. Operator
+capability changes apply at dispatch. The [configuration reference](technical/configuration.md)
+explains these effect classes and explicit online/offline authority. sfconfig
+handoff/return never restarts the daemon or competes for its sessions.

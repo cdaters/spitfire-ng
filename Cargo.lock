@@ -2263,6 +2263,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sf-config"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "rand",
+ "ratatui",
+ "serde_json",
+ "sf-bbs",
+ "sf-core",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "sf-core"
 version = "0.1.0"
 dependencies = [

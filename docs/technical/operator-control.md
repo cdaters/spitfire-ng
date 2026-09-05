@@ -304,3 +304,15 @@ available. Restart is external; an old shutdown cannot be replayed onto it.
 
 See the [B3/integrated report](../research/m039-tranche-7-b021b3-shutdown-integrated.md)
 for exact bounds, races, failure boundaries, native evidence, and Windows deferrals.
+
+## B021-C typed configuration (protocol 1.5)
+
+The authenticated minor-gated `configuration` feature adds typed snapshots and
+ApplyConfiguration over the existing session/generation/CommandId boundary.
+ReadConfiguration, ChangeOnlineConfiguration, and ChangeSensitiveConfiguration
+are independent explicit grants; the six-read bootstrap is unchanged. Older
+clients receive only their negotiated vocabulary. The daemon serializes CAS,
+validation, atomic file replacement, session-policy publication, and schema-19
+receipt/audit recovery. No raw configuration editor or direct client database
+access exists. See [Configuration Authority](configuration.md) and the
+[sfconfig manual](../manual/sfconfig.md).

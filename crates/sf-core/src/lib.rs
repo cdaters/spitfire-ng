@@ -19,6 +19,7 @@ pub mod board;
 pub mod caller;
 pub mod caller_access;
 pub mod config;
+pub mod configuration;
 pub mod credentials;
 pub mod database;
 pub mod file;

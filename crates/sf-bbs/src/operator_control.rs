@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 4;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 5;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -126,6 +126,7 @@ pub enum OperatorFeature {
     CallerChat,
     SessionDisconnect,
     GracefulShutdown,
+    Configuration,
 }
 
 impl OperatorFeature {
@@ -142,6 +143,9 @@ impl OperatorFeature {
         }
         if minor >= crate::shutdown::SHUTDOWN_MINOR {
             features.push(Self::GracefulShutdown);
+        }
+        if minor >= crate::configuration::CONFIGURATION_MINOR {
+            features.push(Self::Configuration);
         }
         features
     }
@@ -162,7 +166,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 18] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -180,6 +184,7 @@ impl OperatorFeature {
         Self::CallerChat,
         Self::SessionDisconnect,
         Self::GracefulShutdown,
+        Self::Configuration,
     ];
 }
 
@@ -211,6 +216,14 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             .iter()
             .copied()
             .filter(|capability| {
+                if matches!(
+                    capability,
+                    LocalOperatorCapability::ReadConfiguration
+                        | LocalOperatorCapability::ChangeOnlineConfiguration
+                        | LocalOperatorCapability::ChangeSensitiveConfiguration
+                ) {
+                    return minor >= crate::configuration::CONFIGURATION_MINOR;
+                }
                 if *capability == LocalOperatorCapability::RequestGracefulShutdown {
                     return minor >= crate::shutdown::SHUTDOWN_MINOR;
                 }
@@ -296,6 +309,23 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             zero_minutes_allowed: false,
         });
     }
+    if minor >= crate::configuration::CONFIGURATION_MINOR {
+        for capability in [
+            LocalOperatorCapability::ChangeOnlineConfiguration,
+            LocalOperatorCapability::ChangeSensitiveConfiguration,
+        ] {
+            result.controls.push(OperatorControlDescriptor {
+                feature: OperatorFeature::Configuration,
+                capability,
+                preflight_required: false,
+                confirmation_required: true,
+                expected_version_required: true,
+                minimum_minutes: None,
+                maximum_minutes: None,
+                zero_minutes_allowed: false,
+            });
+        }
+    }
     result
 }
 
@@ -331,6 +361,10 @@ enum ClientMessage {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "command", rename_all = "kebab-case")]
 enum MutationCommand {
+    ApplyConfiguration {
+        command_id: String,
+        candidate: sf_core::configuration::ConfigurationCandidate,
+    },
     LiveControl {
         command_id: String,
         action: crate::LiveControlAction,
@@ -363,6 +397,7 @@ enum MutationCommand {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "kebab-case")]
 enum ReadOperation {
+    ConfigurationSnapshot,
     ShutdownStatus,
     LiveInteractions,
     BeginChatStream { join_token: String },
@@ -429,6 +464,7 @@ enum ErrorCode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum MutationResult {
+    Configuration(crate::ConfigurationResult),
     LiveControl {
         command_id: String,
         value: crate::LiveControlResult,
@@ -492,6 +528,7 @@ fn command_fingerprint(command: &MutationCommand, daemon_generation: &str) -> St
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "result", content = "value", rename_all = "kebab-case")]
 enum ReadResult {
+    ConfigurationSnapshot(Box<crate::ConfigurationSnapshot>),
     ShutdownStatus(crate::ShutdownImpact),
     ChatStarted,
     LiveInteractions(crate::InteractionSnapshot),
@@ -898,6 +935,34 @@ impl OperatorClient {
         &self.features
     }
 
+    pub async fn configuration_snapshot(
+        &mut self,
+    ) -> Result<crate::ConfigurationSnapshot, OperatorControlError> {
+        if self.negotiated_minor < crate::configuration::CONFIGURATION_MINOR {
+            return Err(OperatorControlError::UnsupportedFeature);
+        }
+        self.describe_operator_controls().await?;
+        match self.request(ReadOperation::ConfigurationSnapshot).await? {
+            ReadResult::ConfigurationSnapshot(value) => Ok(*value),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+    pub async fn apply_configuration(
+        &mut self,
+        command_id: String,
+        candidate: sf_core::configuration::ConfigurationCandidate,
+    ) -> Result<crate::ConfigurationResult, OperatorControlError> {
+        match self
+            .mutation(MutationCommand::ApplyConfiguration {
+                command_id,
+                candidate,
+            })
+            .await?
+        {
+            MutationResult::Configuration(value) => Ok(value),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
     pub fn supports_mutation(&self, feature: OperatorFeature) -> bool {
         self.features.contains(&feature)
     }
@@ -939,6 +1004,7 @@ impl OperatorClient {
         command: MutationCommand,
     ) -> Result<MutationResult, OperatorControlError> {
         let feature = match &command {
+            MutationCommand::ApplyConfiguration { .. } => OperatorFeature::Configuration,
             MutationCommand::LiveControl { action, .. } => action.feature(),
             MutationCommand::AcknowledgeNotification { .. } => {
                 OperatorFeature::NotificationAcknowledgement
@@ -1650,6 +1716,7 @@ mod server {
             .filter(|item| {
                 requested.contains(item)
                     && *item != OperatorFeature::GracefulShutdown
+                    && *item != OperatorFeature::Configuration
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
                         || !OperatorFeature::LIVE.contains(item))
@@ -1888,6 +1955,7 @@ mod server {
             }
             if mutation.as_ref().is_some_and(|command| {
                 let feature = match command {
+                    MutationCommand::ApplyConfiguration { .. } => OperatorFeature::Configuration,
                     MutationCommand::LiveControl { action, .. } => action.feature(),
                     MutationCommand::AcknowledgeNotification { .. } => {
                         OperatorFeature::NotificationAcknowledgement
@@ -1952,14 +2020,32 @@ mod server {
                 .await;
             }
             let result = tokio::time::timeout(Duration::from_millis(deadline_ms), async {
-                if let Some(operation) = operation {
+                if let Some(ReadOperation::ConfigurationSnapshot) = operation {
+                    Ok(ServerMessage::Response {
+                        request_id,
+                        result: ReadResult::ConfigurationSnapshot(Box::new(
+                            service.configuration_snapshot(&peer.stable_id())?,
+                        )),
+                    })
+                } else if let Some(operation) = operation {
                     Ok(ServerMessage::Response {
                         request_id,
                         result: dispatch(&service, &context, operation, &mut live_subscription)
                             .await?,
                     })
                 } else if let Some(command) = mutation {
-                    if let MutationCommand::LiveControl { command_id, action } = &command {
+                    if let MutationCommand::ApplyConfiguration {
+                        command_id,
+                        candidate,
+                    } = &command
+                    {
+                        service
+                            .apply_configuration(&peer.stable_id(), command_id, candidate)
+                            .map(|value| ServerMessage::MutationResponse {
+                                request_id,
+                                result: MutationResult::Configuration(value),
+                            })
+                    } else if let MutationCommand::LiveControl { command_id, action } = &command {
                         let policy_path = config_path.clone();
                         let policy_peer = peer.clone();
                         let authority: sf_core::ChatAuthorization = Arc::new(move || {
@@ -2887,6 +2973,7 @@ mod windows_tests {
 impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
+            Self::ConfigurationSnapshot => OperatorFeature::Configuration,
             Self::ShutdownStatus => OperatorFeature::GracefulShutdown,
             Self::LiveInteractions => OperatorFeature::CallerPages,
             Self::BeginChatStream { .. } => OperatorFeature::CallerChat,
@@ -2913,6 +3000,7 @@ fn all_read_capabilities() -> Vec<LocalOperatorCapability> {
 
 fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability]) -> bool {
     let required = match feature {
+        OperatorFeature::Configuration => LocalOperatorCapability::ReadConfiguration,
         OperatorFeature::PageAvailability
         | OperatorFeature::CallerPages
         | OperatorFeature::SessionDisconnect => LocalOperatorCapability::NodeStatus,
@@ -2966,6 +3054,9 @@ async fn dispatch(
     live_subscription: &mut Option<sf_core::LiveEventSubscription>,
 ) -> Result<ReadResult, crate::ApplicationError> {
     Ok(match operation {
+        ReadOperation::ConfigurationSnapshot => {
+            return Err(OperatorControlError::InvalidCommand.into())
+        }
         ReadOperation::ShutdownStatus => ReadResult::ShutdownStatus(service.shutdown_status()?),
         ReadOperation::LiveInteractions => {
             ReadResult::LiveInteractions(service.live_interactions()?)
@@ -3107,7 +3198,7 @@ async fn dispatch_mutation(
     let _work = runtime.live_controls.track();
     let (command_id, command_type, target_kind, target_id, target_generation, capability) =
         match &command {
-            MutationCommand::LiveControl { .. } => {
+            MutationCommand::ApplyConfiguration { .. } | MutationCommand::LiveControl { .. } => {
                 return Err(OperatorControlError::InvalidCommand.into())
             }
             MutationCommand::AcknowledgeNotification {
@@ -3286,7 +3377,9 @@ async fn dispatch_mutation(
         });
     }
     let (class, version) = match command {
-        MutationCommand::LiveControl { .. } => unreachable!(),
+        MutationCommand::ApplyConfiguration { .. } | MutationCommand::LiveControl { .. } => {
+            unreachable!()
+        }
         MutationCommand::AcknowledgeNotification {
             notification_id,
             expected_version,

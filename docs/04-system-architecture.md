@@ -553,13 +553,14 @@ through a protected board-local Unix-domain socket or Windows named pipe,
 using verified OS peer identity, a typed host-operator allowlist, protocol and
 feature negotiation, daemon generation, and dispatch-time authorization. The
 same `OperatorService` serves the foreground console, `OperatorClient`, CLI,
-and the read-only `sfmonitor` application. See [Operator
+and the read-only-by-default `sfmonitor` application. See [Operator
 Observability](technical/observability.md), [Protected Operator
 Attachment](technical/operator-control.md), and the [B-021 operator-controls
 gate](research/m039-tranche-7-b021-operator-controls-gate.md).
 
-The current operator endpoint and `sfmonitor` remain read-only. Live controls,
-`sfconfig`, and B-022 report publication remain future work. Generated reports,
+B021-B adds explicitly enrolled live controls and B021-C adds typed
+configuration and sfconfig. Bootstrap remains read-only. B-022 report publication
+remains future work. Generated reports,
 diagnostic logs, transient status files, and operator clients never become
 alternate domain authority.
 
@@ -646,3 +647,19 @@ Unix/macOS acceptance close the B021-A portability slice. The separate
 client, with bounded snapshot/subscription channels and no runtime/database
 authority. All live and configuration mutations remain later B-021 work;
 B-022 publication, networking, doors, and scheduler domains remain separate.
+
+## Typed configuration product boundary
+
+B021-C implements a separate sfconfig process over shared RuntimeConfig,
+OperatorService/OperatorClient, validation, and localization. The daemon owns
+all online configuration transitions; explicit offline mode holds the existing
+exclusive board lock. Revision/digest CAS, atomic complete-file replacement,
+bounded prior backup, and schema-19 receipt recovery prevent stale overwrite
+and partial configuration. No new database schema is needed. Caller policy is
+captured for new sessions, operator policy is checked at dispatch, and pending
+node/listener/presentation changes remain restart-required until external restart.
+
+sfmonitor hands terminal ownership to sfconfig and refreshes on return. Neither
+frontend owns SQL, generic file editing, secrets, or host commands. Read-only
+bootstrap and explicit bounded enrollment remain mandatory. See the
+[Configuration Technical Reference](technical/configuration.md).

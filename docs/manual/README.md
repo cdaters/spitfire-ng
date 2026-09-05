@@ -60,7 +60,7 @@ compatibility detail for advanced Sysops and developers.
   Preview](../operator/installation.md).
 - **macOS first run:** [Verify and open the unsigned Development Preview](../operator/macos-first-run.md).
 - **Initial setup:** [Create and review your first board](../operator/getting-started.md#2-create-the-first-board).
-- **Configuration:** [Use the supported configuration menu](../operator/configuration.md).
+- **Configuration:** [Use sfconfig online or offline](sfconfig.md); the [legacy stopped-board menu](../operator/configuration.md) retains identity and domain editors.
 - **Directory layout:** [Understand board-owned files and directories](../13-directory-layout.md).
 
 ### Running the board

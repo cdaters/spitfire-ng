@@ -31,6 +31,31 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    pub fn configuration_snapshot(
+        &self,
+        principal: &str,
+    ) -> Result<crate::ConfigurationSnapshot, ApplicationError> {
+        self.runtime.configuration.snapshot(principal, false)
+    }
+    pub(crate) fn apply_configuration(
+        &self,
+        principal: &str,
+        command_id: &str,
+        candidate: &sf_core::configuration::ConfigurationCandidate,
+    ) -> Result<crate::ConfigurationResult, ApplicationError> {
+        let _work = self.runtime.live_controls.track();
+        if self.runtime.shutdown_in_progress()? {
+            return Err(crate::OperatorControlError::InvalidCommand.into());
+        }
+        self.runtime.configuration.apply(
+            principal,
+            self.runtime.daemon_generation(),
+            command_id,
+            candidate,
+            false,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn dispatch_live_control(
         &self,

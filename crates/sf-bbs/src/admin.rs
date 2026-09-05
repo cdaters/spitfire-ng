@@ -46,6 +46,7 @@ impl BoardAdmin {
             .to_path_buf();
         let operation_lock = BoardOperationLock::acquire(&root)?;
         let config = RuntimeConfig::load(&config_path)?;
+        crate::configuration::ConfigurationAuthority::new(config_path.clone(), config.clone())?;
         let validated = config.validate()?;
         let paths = LogicalPaths::resolve(&root, &validated)?;
         Ok(Self {
@@ -61,7 +62,20 @@ impl BoardAdmin {
         &self.config
     }
 
-    pub fn save_static(&mut self, replacement: RuntimeConfig) -> Result<(), ApplicationError> {
+    pub fn save_static(&mut self, mut replacement: RuntimeConfig) -> Result<(), ApplicationError> {
+        let disk = RuntimeConfig::load(&self.config_path)?;
+        if crate::configuration_version(&disk)? != crate::configuration_version(&self.config)? {
+            return Err(crate::OperatorControlError::Conflict.into());
+        }
+        replacement.revision = self
+            .config
+            .revision
+            .checked_add(1)
+            .filter(|v| *v <= i64::MAX as u64)
+            .ok_or(ApplicationError::Coordination(
+                "configuration revision exhausted",
+            ))?;
+        replacement.configuration_commit = None;
         let previous = self.config.validate()?;
         let replacement_validated = replacement.validate()?;
         if previous.paths != replacement_validated.paths
@@ -74,6 +88,8 @@ impl BoardAdmin {
             return Err(ApplicationError::ConfigurationRelocationUnsupported);
         }
         let database = RuntimeDatabase::open(self.paths.database())?;
+        self.config
+            .save_atomic(&self.config_path.with_extension("toml.previous"))?;
         let identity_changed = previous.identity != replacement_validated.identity;
         if identity_changed {
             database.replace_board_identity(&previous.identity, &replacement_validated.identity)?;
@@ -955,6 +971,7 @@ mod tests {
             *listen = "127.0.0.1:4323".parse().unwrap();
         }
         admin.save_static(replacement.clone()).unwrap();
+        replacement.revision += 1;
         assert_eq!(RuntimeConfig::load(&config_path).unwrap(), replacement);
         drop(admin);
         assert_eq!(

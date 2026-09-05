@@ -1,5 +1,10 @@
 # Configuration
 
+Current source also provides [sfconfig](../manual/sfconfig.md), the native typed
+online/offline configuration application. This chapter documents the established
+stopped-board compatibility menu, including its identity/conference/file editors.
+Both paths retain shared parsing/validation and exclusive offline ownership.
+
 ## Status
 
 - **Verified:** Normal setup/configuration has created and reopened board

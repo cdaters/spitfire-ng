@@ -51,6 +51,8 @@ impl SetupPlan {
         };
         let initial_sysop_security = caller.sysop_security;
         let config = RuntimeConfig {
+            revision: 0,
+            configuration_commit: None,
             format_version: CONFIG_FORMAT_VERSION,
             board: BoardConfig {
                 name: board_name.into(),

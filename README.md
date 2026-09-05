@@ -234,7 +234,9 @@ web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
 also predates SSH, schemas 13–19, public-information additions, Tranche 5 file
 inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
 observability, B021-A protected operator attachment, `sfmonitor`, and B021-B
-live controls. Comprehensive B021-C configuration / `sfconfig`, B021-D, and
+live controls and B021-C configuration / `sfconfig`. Current source includes
+the [native sfconfig application](docs/manual/sfconfig.md), typed versioned
+configuration authority, and sfmonitor System Configuration handoff. B021-D and
 B-022 report publication remain future current-source work.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility

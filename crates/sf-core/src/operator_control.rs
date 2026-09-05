@@ -158,6 +158,47 @@ impl RuntimeDatabase {
         self.connection.execute("UPDATE operator_command_journal SET state='completed',result_class=?2,result_version=?3,completed_at=?4 WHERE command_id=?1 AND state='accepted'", params![command_id,result_class,result_version,completed_at]).map(|count| count == 1).map_err(DatabaseError::Sqlite)
     }
 
+    /// Finish a file-backed configuration transition and its semantic audit in
+    /// one transaction. The synced configuration commit link proves persistence.
+    pub fn finish_configuration_command(
+        &mut self,
+        commit: &crate::configuration::ConfigurationCommit,
+        revision: u64,
+        now: i64,
+    ) -> Result<(), DatabaseError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(DatabaseError::Sqlite)?;
+        let changed = transaction.execute(
+            "UPDATE operator_command_journal SET state='completed', result_class=?5, result_version=?6, completed_at=MAX(received_at,?7) WHERE command_id=?1 AND operator_id=?2 AND daemon_generation=?3 AND request_fingerprint=?4 AND state='accepted'",
+            params![commit.command_id, commit.principal, commit.generation, commit.fingerprint, commit.result_class, i64::try_from(revision).map_err(|_| DatabaseError::IntegrityCheck("configuration revision overflow".into()))?, now],
+        ).map_err(DatabaseError::Sqlite)?;
+        if changed == 1 {
+            transaction.execute(
+                "INSERT INTO operator_control_audit(occurred_at,operator_kind,operator_id,operation,authorization_result,target_kind,target_id,command_id,outcome,detail_code) VALUES(?1,'host-operator',?2,'configuration.apply','allowed','configuration',?3,?4,'succeeded',?5)",
+                params![now, commit.principal, revision.to_string(), commit.command_id, commit.result_class],
+            ).map_err(DatabaseError::Sqlite)?;
+        }
+        transaction.commit().map_err(DatabaseError::Sqlite)
+    }
+
+    /// Called only by exclusive configuration authority after reconciling the
+    /// current file's commit link. Remaining accepted configuration commands
+    /// did not replace that file and must never be reported as successful.
+    pub fn reject_uncommitted_configuration_commands(
+        &mut self,
+        now: i64,
+    ) -> Result<(), DatabaseError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(DatabaseError::Sqlite)?;
+        transaction.execute("INSERT INTO operator_control_audit(occurred_at,operator_kind,operator_id,operation,authorization_result,target_kind,command_id,outcome,detail_code) SELECT ?1,'host-operator',operator_id,'configuration.recover','allowed','configuration',command_id,'failed','configuration-not-committed' FROM operator_command_journal WHERE command_family='configuration' AND state='accepted'", [now]).map_err(DatabaseError::Sqlite)?;
+        transaction.execute("UPDATE operator_command_journal SET state='rejected', result_class='configuration-not-committed', completed_at=MAX(received_at,?1) WHERE command_family='configuration' AND state='accepted'", [now]).map_err(DatabaseError::Sqlite)?;
+        transaction.commit().map_err(DatabaseError::Sqlite)
+    }
+
     pub fn cleanup_operator_command_journal(
         &mut self,
         now_utc: i64,

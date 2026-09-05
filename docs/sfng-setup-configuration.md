@@ -255,3 +255,16 @@ For node allocation and live status behavior, see
   remote web administration.
 - Full stock SPITFIRE configuration fields remain checklist work; the menu
   intentionally shows only settings backed by current behavior.
+
+## B021-C versioned configuration clients
+
+Current source provides [sfconfig](manual/sfconfig.md) and its
+[typed authority](technical/configuration.md). Static configuration remains TOML;
+optional revision/recovery metadata defaults safely for pre-B021-C boards. Setup
+starts at revision zero. sfconfig uses expected revision/digest, shared validation,
+atomic complete-file replacement, one previous-file backup, and schema-19
+receipt/audit recovery. The legacy offline BoardAdmin static save also increments
+revision and retires obsolete commit metadata. A running daemon is sole online
+authority. Node/listener/timezone/presentation changes report pending restart;
+caller policy is captured per new session; operator grants are checked live.
+No new database migration, generic text editor, or restart command is introduced.

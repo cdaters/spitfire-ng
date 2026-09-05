@@ -53,7 +53,7 @@ subscription, or daemon generation.
 
 The eight implemented destinations are Dashboard, Nodes, Callers, Activity,
 Statistics, Notifications, Maintenance / Errors, and System Configuration.
-The last is an informational doorway only. Transfers remain on Dashboard and
+The last hands the terminal to the separate sfconfig executable for the same board. Transfers remain on Dashboard and
 node detail because B-017 currently supplies an aggregate active-transfer
 count and per-node transfer state, not a dedicated transfer-list projection.
 
@@ -63,7 +63,7 @@ Rendering uses only `BoardStatusWire`, `NodeStatusWire`, `EventWire`,
 session identifiers are deliberately not rendered. B021-B1 adds only the
 typed notification acknowledgement and +/-5-minute session-time actions;
 page/chat and disconnect now use the same capability-aware boundary in B2.
-Dashboard additionally exposes B3 shutdown; configuration remains unavailable.
+Dashboard additionally exposes B3 shutdown; System Configuration launches sfconfig.
 Tests place a sentinel secret in typed event attributes and verify it cannot
 reach the terminal buffer.
 
@@ -104,8 +104,10 @@ after a fresh connection. These B021-B controls are now implemented, and `Q` rem
 monitor-only quit. See the
 [B021-B gate](../research/m039-tranche-7-b021b-live-operator-controls-gate.md).
 
-B021-C will add versioned typed configuration and the separate `sfconfig`
-binary. Those additions must not move business logic into this TUI. B-022
+B021-C adds [typed configuration authority](configuration.md) and the separate
+`sfconfig` binary. sfmonitor restores terminal state before spawning its sibling
+executable with the explicit board argument, waits for it, then resumes and
+refreshes. Business logic remains in shared domain authority. B-022
 reports/publication, networking, doors, and scheduler/jobs remain separate
 domains.
 
@@ -138,7 +140,7 @@ conversation running. Normal projections refresh after semantic transitions.
 F1 routes to `operator.actions`, `operator.page-chat`, or `operator.disconnect`
 for the focused control. Q outside chat still quits this process only; inside
 chat Q is text, Esc ends, and Ctrl-C quits. Terminal-restoration ownership is
-unchanged. B3 adds shutdown; configuration remains unavailable.
+unchanged. B3 adds shutdown; B021-C adds the separate sfconfig handoff.
 
 See [protocol and lifecycle](operator-control.md#b021-b2-pagechat-and-disconnect-protocol-13)
 and [canonical evidence](../research/m039-tranche-7-b021b2-chat-disconnect.md#b021-b2-implementation).

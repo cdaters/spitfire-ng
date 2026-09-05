@@ -129,7 +129,10 @@ pub struct OperatorObservabilityContext {
 impl OperatorObservabilityContext {
     pub fn capabilities_for(&self, capability: sf_core::LocalOperatorCapability) -> bool {
         match capability {
-            sf_core::LocalOperatorCapability::ManagePageAvailability
+            sf_core::LocalOperatorCapability::ReadConfiguration
+            | sf_core::LocalOperatorCapability::ChangeOnlineConfiguration
+            | sf_core::LocalOperatorCapability::ChangeSensitiveConfiguration
+            | sf_core::LocalOperatorCapability::ManagePageAvailability
             | sf_core::LocalOperatorCapability::ManageCallerPages
             | sf_core::LocalOperatorCapability::ChatWithCaller
             | sf_core::LocalOperatorCapability::RequestGracefulShutdown
@@ -194,10 +197,9 @@ pub struct LiveNodeStatus {
 
 pub struct BoardRuntime {
     _operation_lock: BoardOperationLock,
+    pub(crate) configuration: crate::configuration::ConfigurationAuthority,
     identity: BoardIdentity,
     timezone: chrono_tz::Tz,
-    board_access: sf_core::BoardAccessMode,
-    private_security_level: SecurityLevel,
     paths: LogicalPaths,
     nodes: NodeManager,
     next_session: AtomicU64,
@@ -365,9 +367,6 @@ impl BoardRuntime {
         }
         let credential_hasher = CredentialHasher::new(&validated.caller.password)?;
         let timezone = validated.timezone;
-        let board_access = validated.board_access;
-        let private_security_level = SecurityLevel::new(validated.private_security_level)
-            .map_err(sf_core::DatabaseError::from)?;
         let configured_nodes = validated.nodes.len();
         let status_path = paths
             .get(sf_core::LogicalPath::Work)
@@ -409,11 +408,13 @@ impl BoardRuntime {
         );
 
         Ok(Self {
+            configuration: crate::configuration::ConfigurationAuthority::new(
+                canonical_config,
+                config,
+            )?,
             _operation_lock: operation_lock,
             identity,
             timezone,
-            board_access,
-            private_security_level,
             paths,
             nodes,
             next_session: AtomicU64::new(1),
@@ -727,7 +728,7 @@ impl BoardRuntime {
         login_identifier: &str,
         password: &str,
     ) -> Result<Option<VerifiedCallerGrant>, ApplicationError> {
-        if password.len() > self.caller_config.maximum_password_length
+        if password.len() > self.configuration.current()?.caller.maximum_password_length
             || sf_core::canonicalize_login_identifier(login_identifier.as_bytes()).is_err()
         {
             warn!("SSH password authentication rejected");
@@ -1092,6 +1093,7 @@ impl BoardRuntime {
         &self,
         terminal: &mut dyn Terminal,
     ) -> Result<ConnectionReport, ApplicationError> {
+        let session_config = self.configuration.current()?;
         let terminal_info = terminal.info();
         let resources = load_stock_resources(&self.paths, &terminal_info, &self.presentation)?;
         let mut text_info = terminal_info.clone();
@@ -1188,13 +1190,16 @@ impl BoardRuntime {
                 &mut session,
                 &mut controlled_terminal,
                 &mut database,
-                &self.caller_config,
+                &session_config.caller,
                 &self.credential_hasher,
                 StockSessionContext {
                     board: &self.identity,
                     timezone: self.timezone,
-                    board_access: self.board_access,
-                    private_security_level: self.private_security_level,
+                    board_access: session_config.board.access,
+                    private_security_level: SecurityLevel::new(
+                        session_config.board.private_security_level,
+                    )
+                    .map_err(sf_core::DatabaseError::from)?,
                     resources: &resources,
                     text_resources: &text_resources,
                     status: &lease,

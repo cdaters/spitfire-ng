@@ -184,3 +184,8 @@ already-validated package bytes.
 
 Current `main` includes post-0.1.0 source improvements. The release documents
 continue to describe the unchanged 0.1.0 Development Preview binary.
+
+## Native configuration
+
+- [sfconfig Sysop Manual](manual/sfconfig.md) — Online/offline editing, validation, saving, permissions, conflicts, and recovery.
+- [Typed Configuration Technical Reference](technical/configuration.md) — Ownership, CAS, atomicity, effects, privacy, and terminal handoff.

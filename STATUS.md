@@ -29,8 +29,8 @@ Tranche 6 is semantically closed. B-017 is VERIFIED; B-021 remains PARTIAL and
 B-022 remains NOT STARTED.
 
 B021-B1/B2/B3 and B021-B are COMPLETE / ACCEPTED as an internal B-021 slice.
-B021-C typed configuration / sfconfig is next; B021-D remains later. Schema
-remains 19; all thirteen current read/control capabilities fit the bounded
+B021-C typed configuration / sfconfig is also COMPLETE / ACCEPTED; B021-D
+remains later. Schema remains 19; all sixteen current capabilities fit the bounded
 32-entry profile, and mutations require explicit enrollment. Chat is ephemeral;
 transfer/file/accounting authority is preserved. Q quits only sfmonitor, while
 confirmed Shutdown SPITFIRE NG stops only the selected daemon. No restart exists.
@@ -232,7 +232,7 @@ until they are built and tested.
 - Remaining advanced Category-B commands and resources
 - QWK, DOVE-Net, and FidoNet networking
 - CircuitNet adapter/revival work beyond preserved compatibility knowledge
-- Comprehensive typed configuration / `sfconfig` and B021-D integration
+- B021-D maintenance/platform and integrated acceptance
 - Web administration
 - SFDraw, the planned display-authoring companion tool
 - SFDATE and SFREG preservation tools
@@ -254,5 +254,30 @@ See [Support and Bug Reports](docs/operator/support.md),
 Preserve the accepted 0.1.0 release boundary. Schema 19, cross-platform
 B021-A attachment, and accepted B021-B live controls are available in current
 source, while B-021 remains PARTIAL and B-022 remains NOT STARTED. The exact
-next separately authorized development step is B021-C typed configuration /
-`sfconfig`; B021-D follows later. Neither is implemented by this milestone.
+next separately scoped development step is B021-D. B021-C and the first
+`sfconfig` MVP are COMPLETE / ACCEPTED; overall B-021 remains PARTIAL.
+
+## B021-C configuration source milestone
+
+The separate [sfconfig application](docs/manual/sfconfig.md) works directly or
+through sfmonitor System Configuration. It provides typed staged edits, shared
+validation, semantic review/save/cancel, conflict reload, contextual keyboard
+help, and eight implemented sections. Messages/Files show actual read-only
+summaries; storage/backup guidance retains existing cold-board maintenance.
+
+The daemon is sole online configuration authority. Explicit offline mode holds
+the board lock. Revision/digest CAS rejects stale writers; complete-file atomic
+replacement, one prior configuration, and existing schema-19 receipts provide
+recoverable saves. Operator profiles require explicit bounded enrollment;
+bootstrap stays read-only. SSH key state is status-only and opaque device
+commands are redacted. Live/new-session/restart effects are explicit; there is
+no restart command. See the [technical reference](docs/technical/configuration.md)
+and [acceptance report](docs/research/m039-tranche-7-b021c-sfconfig.md).
+
+Native Apple Silicon macOS acceptance covers terminal handoff/return, two
+sfconfig clients, caller continuity, live permissions, new-session policy,
+external restart, offline editing, and cold recovery. Windows named-pipe config,
+SID enrollment UI, rendered TUI/handoff, and filesystem behavior remain
+**DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**. Linux/BSD source architecture
+is preserved without a new runtime claim. en-US is 1.15.0 / 984 semantic messages.
+The downloadable Development Preview is unchanged; no release/tag/binary is added.

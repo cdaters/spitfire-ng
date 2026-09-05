@@ -158,8 +158,9 @@ dispatch-time authorization. Current `sfmonitor` presents those reads plus
 explicitly enrolled B021-B Actions in a responsive local TUI. The accepted
 [integrated live-control milestone](../research/m039-tranche-7-b021b3-shutdown-integrated.md)
 adds acknowledgement, time, page/chat, disconnect, and daemon shutdown without
-moving authority into the monitor. Screen/export formats, atomic publication,
-and B021-C / `sfconfig` remain future work rather than alternate data owners.
+moving authority into the monitor. B021-C / sfconfig now provides shared typed
+configuration authority. Screen/export formats and report publication remain
+future work rather than alternate data owners.
 
 ### Compatibility adapters and historical formats
 
@@ -216,3 +217,11 @@ continuity are not folded into this reference merely to simplify the tree.
 
 The governing documentation and source-header rules are in [Documentation
 Architecture and Source-Header Policy](../documentation-policy.md).
+
+### Typed configuration and sfconfig
+
+B021-C is implemented: [Configuration Authority](configuration.md) specifies
+daemon-only online ownership, explicit locked offline ownership, revision/digest
+CAS, validated atomic replacement, receipt recovery, secret-safe projection, and
+sfmonitor handoff. The [sfconfig manual](../manual/sfconfig.md) documents the
+separate usable application. B021-D remains a later integration/maintenance slice.

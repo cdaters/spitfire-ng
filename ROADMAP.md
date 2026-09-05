@@ -138,8 +138,8 @@ STARTED. The Category-B ledger remains 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
 and 5 NOT STARTED.
 
 The `sfmonitor` 0.1 operator-product interleave and B021-B live controls are
-implemented and accepted over the completed client. B021-C next adds
-typed configuration and the first `sfconfig`; B021-D closes maintenance/
+implemented and accepted over the completed client. B021-C implements
+typed configuration and the first `sfconfig`; B021-D remains for maintenance/
 platform and integrated acceptance. B-022 remains later report/publication
 work.
 
@@ -147,9 +147,9 @@ Future operator products share daemon-authoritative typed services. The
 existing `spitfire setup` command remains the bootstrap/recovery path;
 `sfmonitor` is the implemented read-only-by-default live operator cockpit with
 explicitly enrolled B021-B Actions; `sfconfig` is
-the planned comprehensive configuration environment; and CLI clients provide
-noninteractive access. `sfmonitor` provides **System Configuration** as an
-honest future route to independently launchable `sfconfig`. None may edit
+the implemented typed configuration application; and CLI clients provide
+noninteractive access. `sfmonitor` provides **System Configuration** as a real
+terminal handoff to independently launchable `sfconfig`. None may edit
 SQLite directly or treat diagnostic text logs as authority.
 
 Near-term release work includes:
@@ -232,5 +232,16 @@ remain binding. Windows live B021-B acceptance remains deferred to a real Window
 environment. See the [integrated report](docs/research/m039-tranche-7-b021b3-shutdown-integrated.md).
 
 B-021 remains PARTIAL; B-022 NOT STARTED; totals remain 14/2/4/5. Exact next
-development action: separately authorize B021-C typed configuration / sfconfig.
-B021-D remains later. No networking, doors, scheduler, exports, or release work.
+development action after B021-C: separately scope B021-D. No networking, doors, scheduler, exports, or release work.
+
+## Completed B021-C source milestone
+
+Typed configuration authority and the first native sfconfig MVP are COMPLETE /
+ACCEPTED. Shared validation, explicit daemon/offline ownership, CAS, atomic
+recoverable saves, effect presentation, bounded operator profiles, secret-safe
+status, and sfmonitor terminal handoff pass native macOS acceptance. Schema 19;
+en-US 1.15.0. The [configuration report](docs/research/m039-tranche-7-b021c-sfconfig.md)
+records scope, tests, and limits. Real Windows sfconfig acceptance remains deferred.
+B-021 stays PARTIAL because B021-D remains; B-022 NOT STARTED; totals 14/2/4/5.
+Next: a separately scoped B021-D pass, without beginning networking, doors,
+scheduler, report publication, or release work in this milestone.

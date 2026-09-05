@@ -5,7 +5,7 @@ SPITFIRE NG presentation and language are separate. Selecting
 engine-owned prompts and generated-menu labels. Neither setting changes
 commands, security, authentication, or stored caller data.
 
-Current source setup installs `en-US` 1.14.0 under
+Current source setup installs `en-US` 1.15.0 under
 `SYSTEM/language-packs/en-US/` and writes:
 
 ```toml
@@ -52,3 +52,7 @@ Cold backup/restore includes the locale selection, manifest, catalogs,
 licenses, and provenance automatically. Never edit package hashes manually on
 a live board. See [Localization Contract](../localization.md) for format,
 translation, fallback, encoding, and security requirements.
+
+Version 1.15.0 adds sfconfig sections, fields, validation, save/review,
+mode/conflict/recovery state, capability descriptions, and contextual help.
+The complete en-US catalog contains 984 semantic messages.

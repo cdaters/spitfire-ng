@@ -278,3 +278,15 @@ authentication challenges, subscription cursors, endpoint objects, and UI
 state are excluded. Restore always creates a new daemon generation, so a
 preserved receipt cannot make a former live SessionId target valid. See
 [Protected Operator Attachment](technical/operator-control.md).
+
+## Versioned configuration recovery
+
+B021-C configuration saves keep one complete prior validated configuration at
+`spitfire.toml.previous`. This convenience copy is bounded and separate from the
+cold-backup manifest. The authoritative current configuration contains its
+revision and a privacy-safe receipt recovery link; existing cold backup/restore
+retains it exactly with consistent SQLite. Restored startup reconciles pending
+configuration evidence through the same typed authority. Never use the prior
+file as an online undo or replace files beneath a running daemon. See the
+[sfconfig recovery instructions](manual/sfconfig.md#secrets-and-recovery) and
+[atomic configuration contract](technical/configuration.md#atomic-commit-and-recovery).

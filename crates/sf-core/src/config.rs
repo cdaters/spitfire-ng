@@ -32,6 +32,10 @@ const LEGACY_CONFIG_FORMAT_VERSION: u32 = 1;
 #[serde(deny_unknown_fields)]
 pub struct RuntimeConfig {
     pub format_version: u32,
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration_commit: Option<crate::configuration::ConfigurationCommit>,
     pub board: BoardConfig,
     /// Legacy Increment 0 singleton-node configuration. New configurations
     /// serialize `nodes`; loading remains supported so existing boards can be
@@ -105,6 +109,9 @@ pub enum LocalOperatorCapability {
     ChatWithCaller,
     DisconnectSession,
     RequestGracefulShutdown,
+    ReadConfiguration,
+    ChangeOnlineConfiguration,
+    ChangeSensitiveConfiguration,
 }
 
 /// Matches the existing bounded operator discovery capability-list capacity.
@@ -672,6 +679,8 @@ impl RuntimeConfig {
     pub fn synthetic_fixture() -> Self {
         Self {
             format_version: CONFIG_FORMAT_VERSION,
+            revision: 0,
+            configuration_commit: None,
             board: BoardConfig {
                 name: "SPITFIRE NG Fixture Board".to_owned(),
                 sysop: "Fixture Sysop".to_owned(),

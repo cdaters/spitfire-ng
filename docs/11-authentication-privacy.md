@@ -629,3 +629,21 @@ events, logs, or SQLite. Monitor loss ends its chat, not the caller session;
 an already accepted daemon shutdown continues independently of its requester.
 See the [sfmonitor Technical
 Architecture](technical/sfmonitor.md).
+
+## Typed configuration privacy and authorization
+
+B021-C exposes configuration through the same authenticated local operator
+boundary. Its three independent grants cover read, ordinary change, and sensitive
+change; the six-read bootstrap remains unchanged and every mutation requires
+explicit enrollment. Operator profiles remain bounded at 32 unique recognized
+capabilities, without wildcard or automatic root/Administrator mutation authority.
+Offline enrollment requires exclusive board ownership through the established
+cold-board lock; it is not an IPC-error fallback.
+
+SSH private keys are status-only (Missing/Configured/Invalid). Opaque modem
+commands are redacted in snapshots and preserved in canonical storage. No secret
+values enter UI fields, argv, review, journal, audit, events, or diagnostics.
+Preparation audit names semantic field categories; a separate successful apply
+record proves durable commit. See the [configuration authority reference](technical/configuration.md)
+and [sfconfig manual](manual/sfconfig.md) for CAS, recovery, permission enrollment,
+and explicit online/offline behavior.

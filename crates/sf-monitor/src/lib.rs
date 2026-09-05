@@ -142,7 +142,7 @@ fn run_monitor(board: PathBuf) -> Result<(), MonitorError> {
     }
     let mut model = MonitorModel::default();
     let initial_query = model.filter.query(Utc::now().timestamp());
-    let worker = MonitorWorker::start(board, initial_query);
+    let worker = MonitorWorker::start(board.clone(), initial_query);
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -160,7 +160,7 @@ fn run_monitor(board: PathBuf) -> Result<(), MonitorError> {
         }
     };
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
-        event_loop(&mut terminal, &worker, &mut model)
+        event_loop(&mut terminal, &worker, &mut model, &board, &mut restoration)
     }));
     drop(terminal);
     restoration.restore();
@@ -175,6 +175,8 @@ fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     worker: &MonitorWorker,
     model: &mut MonitorModel,
+    board: &std::path::Path,
+    restoration: &mut TerminalRestoration,
 ) -> Result<(), MonitorError> {
     let mut dirty = true;
     loop {
@@ -188,8 +190,33 @@ fn event_loop(
         }
         match event::read()? {
             Event::Key(key) if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) => {
-                if handle_key(model, worker, key) == InputOutcome::Quit {
-                    return Ok(());
+                match handle_key(model, worker, key) {
+                    InputOutcome::Quit => return Ok(()),
+                    InputOutcome::Configuration => {
+                        restoration.restore();
+                        let result = std::env::current_exe().and_then(|executable| {
+                            let name = if cfg!(windows) {
+                                "sfconfig.exe"
+                            } else {
+                                "sfconfig"
+                            };
+                            std::process::Command::new(executable.with_file_name(name))
+                                .arg("--board")
+                                .arg(board)
+                                .status()
+                        });
+                        enable_raw_mode()?;
+                        restoration.active = true;
+                        execute!(terminal.backend_mut(), EnterAlternateScreen, Hide)?;
+                        terminal.clear()?;
+                        request_refresh(model, worker);
+                        model.status_key = Some(if result.is_ok_and(|status| status.success()) {
+                            "sfmonitor-configuration-returned"
+                        } else {
+                            "sfmonitor-configuration-handoff-error"
+                        });
+                    }
+                    InputOutcome::Continue => {}
                 }
                 dirty = true;
             }
@@ -272,6 +299,7 @@ fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> boo
             WorkerUpdate::MutationResult(result) => {
                 model.show_actions = false;
                 model.action_result = Some(match result {
+                    sf_bbs::MutationResult::Configuration(_) => live_ui::result_text("unsupported"),
                     sf_bbs::MutationResult::LiveControl { command_id, value } => {
                         let message = match &value {
                             sf_bbs::LiveControlResult::Pending { result_class } => {
@@ -325,6 +353,7 @@ fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> boo
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum InputOutcome {
+    Configuration,
     Continue,
     Quit,
 }
@@ -452,7 +481,7 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
             model.show_node_detail = !model.show_node_detail;
         }
         KeyCode::Enter if model.view == View::SystemConfiguration => {
-            model.status_key = Some("sfmonitor-configuration-unavailable");
+            return InputOutcome::Configuration;
         }
         KeyCode::Esc if model.show_node_detail => model.show_node_detail = false,
         KeyCode::Char('?') | KeyCode::F(1) => model.show_help = true,
@@ -571,6 +600,33 @@ mod tests {
             OsString::from("two.toml")
         ])
         .is_err());
+    }
+
+    #[test]
+    fn configuration_doorway_hands_off_without_sending_a_daemon_command() {
+        let (worker, commands) = MonitorWorker::test_channels();
+        let mut model = MonitorModel {
+            view: View::SystemConfiguration,
+            ..MonitorModel::default()
+        };
+        assert!(matches!(
+            handle_key(
+                &mut model,
+                &worker,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)
+            ),
+            InputOutcome::Configuration
+        ));
+        assert!(commands.try_recv().is_err());
+        assert!(matches!(
+            handle_key(
+                &mut model,
+                &worker,
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)
+            ),
+            InputOutcome::Quit
+        ));
+        assert!(commands.try_recv().is_err());
     }
 
     #[test]

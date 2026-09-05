@@ -2,6 +2,7 @@
 members = [
     "crates/sf-bbs",
     "crates/sf-core",
+    "crates/sf-config",
     "crates/sf-legacy",
     "crates/sf-monitor",
 ]
