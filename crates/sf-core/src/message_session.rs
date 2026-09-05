@@ -446,7 +446,7 @@ fn list_messages(
             )
             .as_bytes(),
         )?;
-        write_cp437_line(terminal, &message.subject)?;
+        write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
         if terminal.output_aborted() {
             break;
         }
@@ -761,12 +761,12 @@ fn read_conferences(
                         return Ok(ComposeOutcome::Disconnected);
                     };
                     if subject.is_empty() {
-                        message.subject.clone()
+                        message.encoding.display_cp437(&message.subject)
                     } else {
                         subject
                     }
                 } else {
-                    message.subject.clone()
+                    message.encoding.display_cp437(&message.subject)
                 };
                 if compose_message(
                     terminal,
@@ -1484,7 +1484,11 @@ fn display_message(
     }
     write_key_line(
         terminal,
-        "message-field-from",
+        if message.origin == crate::message::MessageOrigin::ExternalNetwork {
+            "message-field-from-network"
+        } else {
+            "message-field-from"
+        },
         &crate::LocalizationArgs::new().with("name", message.author_name.clone()),
     )?;
     write_key(
@@ -1492,7 +1496,7 @@ fn display_message(
         "message-field-subject",
         &crate::LocalizationArgs::new(),
     )?;
-    write_cp437_line(terminal, &message.subject)?;
+    write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
     write_line(
         terminal,
         &format!("Date/Time: {}", format_timestamp_utc(message.created_at)),
@@ -1521,7 +1525,7 @@ fn display_message(
         )?;
     }
     terminal.write_all(b"\r\n")?;
-    terminal.write_all(&message.body)?;
+    terminal.write_all(&message.encoding.display_cp437(&message.body))?;
     ensure_line_ending(terminal, &message.body)
 }
 
@@ -2208,7 +2212,8 @@ fn quote_original(
     lines: &mut Vec<EditorLine>,
     source: &Message,
 ) -> Result<(), SessionError> {
-    let original = message_body_lines(&source.body);
+    let display_body = source.encoding.display_cp437(&source.body);
+    let original = message_body_lines(&display_body);
     terminal.begin_output();
     write_key_line(
         terminal,
@@ -2389,7 +2394,7 @@ fn show_personal_message_list(
             )
             .as_bytes(),
         )?;
-        write_cp437_line(terminal, &message.subject)?;
+        write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
         if terminal.output_aborted() {
             terminal.begin_output();
             return Ok(());
@@ -2855,6 +2860,8 @@ mod tests {
             active: true,
         };
         let source = Message {
+            encoding: crate::message::MessageEncoding::LegacyCp437,
+            origin: crate::message::MessageOrigin::Native,
             id: MessageId::new(1).unwrap(),
             conference_id: conference.id,
             number: 1,

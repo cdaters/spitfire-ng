@@ -109,3 +109,8 @@ The authoritative format, validation, rollback, and exclusion contract is
 
 For self-revoked permissions, damaged configuration, and restored-board operator
 enrollment, follow [Operator Startup and Recovery](../manual/operator-recovery.md).
+
+## N2 QWK networking
+
+Schema-21/22 network queues, private envelopes, receipts and provenance participate in cold backup. Restored unsent work is held for operator review; manual inbox candidates and live sessions do not resume.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

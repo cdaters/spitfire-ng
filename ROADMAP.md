@@ -1,7 +1,22 @@
 # SPITFIRE NG Roadmap
 
+## N2 QWK networking — COMPLETE / ACCEPTED
+
+Current source schema **22** implements typed multi-partner QWK networking,
+conference mapping, native private mailbox/transit, durable queues, receipts,
+provenance, duplicate/loop prevention and explicit manual artifact exchange.
+Controlled Synchronet 3.19c imported public/private NG packets and generated
+public/private replies plus transit packets imported by the same macOS daemon.
+DOVE-compatible behavior uses the shared QWK architecture. No public DOVE-Net
+traffic or membership is claimed. N1 remains accepted; native messages are canonical;
+SMB, FTN/FidoNet and BinkP remain unimplemented. B-021 VERIFIED; B-022 NOT STARTED.
+en-US **1.19.0 / 1,047 messages**. No release/tag/package is created. Real Windows
+networking acceptance remains deferred to a real Windows environment.
+See [M046](docs/research/m046-networking-n2-qwk-dove.md) for evidence and limitations.
+
+
 > Current source checkpoint: **M045 / N1 caller QWK offline COMPLETE / ACCEPTED**.
-> Schema 20; QWK networking, DOVE-Net and FidoNet/BinkP remain unimplemented.
+> Schema 22; N1/N2 are accepted. FTN/FidoNet/BinkP remain unimplemented.
 
 
 SPITFIRE NG is moving from historical research and stock-core implementation
@@ -175,8 +190,8 @@ accepted stock-core tier:
 - advanced display/resource types, including RIP;
 - questionnaires, bulletins, ratios, batch workflows, and deeper maintenance
   controls;
-- QWK/offline mail and QWK networking;
-- DOVE-Net interoperability and FidoNet NetMail/Echomail with BinkP;
+- Further historical LAKOTA format evidence;
+- FTN/FidoNet NetMail/EchoMail and BinkP;
 - CircuitNet preservation/adaptation with possible future revival, without
   assuming an active network;
 - expanded doors and external-program support; and

@@ -254,3 +254,8 @@ The desired result is not:
 It is:
 
 > enough security that a SPITFIRE Sysop can confidently put the board online, without making the software miserable to use.
+
+## N2 QWK networking
+
+N2 network ingress uses authenticated operator context, configured partner identity and exact packet checks. Public conference eligibility, explicit private mailbox/transit policy, native external attribution, durable duplicate/path receipts, confined artifact custody and bounded quarantine prevent packet fields from acquiring local caller authority. No public network traffic or credentials are configured by the manual profile.
+See [QWK networking](technical/qwk-networking.md) for the implemented scope and interoperability limits.

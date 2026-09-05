@@ -156,3 +156,8 @@ versioning, recovery, and extension boundaries.
 
 For the complete first-start, permission recovery, invalid configuration, and
 cold-backup journey, see [Operator Startup and Recovery](operator-recovery.md).
+
+## N2 QWK networking
+
+Use the existing operator capability editor to enroll network-status, network-run and network-queue explicitly. Partner/map requests currently use the typed CLI; there is no new Networks TUI page.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

@@ -200,3 +200,8 @@ is reconciled against the preserved journal before another typed save.
 Fault-injection tests require preparation-audit failure to prevent replacement,
 post-replacement receipt failure to recover once, and no fabricated success.
 No repair, shell, key editor, schema change, or extra durable authority is added.
+
+## N2 QWK networking
+
+QWK partner/mapping policy and private mailbox/routes are typed relational schema-21/22 configuration with expected versions. sfconfig enrolls explicit network capabilities; the minimal partner editor is the protected typed CLI, documented in the Sysop manual. Full Networks TUI remains later scope.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

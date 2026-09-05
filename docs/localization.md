@@ -250,3 +250,11 @@ key hints. Presentation-package versions remain unchanged.
 ## M045 caller QWK strings
 
 en-US 1.17.0 contains 1014 messages. New strings cover Messages L, D/U/S/Q, selection, protocol constraints, pointer confirmation/reset, packet errors, duplicate/new-submission review, import counts and concise help. Modern/Minimal profiles are 1.6.0; Classic is 1.7.0 for QWK menu placement. No future network operator strings are added. Older version statements above describe their dated milestones.
+
+## M046 QWK network strings
+
+en-US 1.19.0 has 1,047 unique semantic messages. Added strings cover implemented
+network capability enrollment, partner/mapping/queue vocabulary, action/error labels
+and explicit external-network author display, plus private mailbox/transit policy,
+alias, destination and unresolved-recipient terminology. Protocol JSON keys remain stable wire
+identifiers. Modern/Minimal 1.6.0 and Classic 1.7.0 remain unchanged.

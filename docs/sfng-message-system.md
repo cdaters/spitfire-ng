@@ -445,3 +445,25 @@ with proprietary corpus data in committed tests.
 ## M045 / schema 20 caller QWK integration
 
 The [QWK offline Technical Reference](technical/qwk-offline.md) defines the implemented adapter, native authority, delivery/pointer semantics, private artifact custody, transactional receipts and recovery. Caller QWK uses ordinary authenticated message permissions and existing binary transfers. No QWK networking, DOVE-Net, FTN, scheduler or separate message store is added. Earlier dated schema/milestone descriptions retain their historical scope.
+
+## M046 / schema 21 external public network origin and encoding
+
+[N2](technical/qwk-networking.md) adds a native/external-network origin discriminator
+and explicit CP437/UTF-8 payload encoding. Existing rows/bytes remain native CP437.
+External public messages use the same payload/fan-out/delivery, conference permissions
+and native numbering, with no fabricated caller author. Source IDs, paths, time and
+recipient attribution are relational provenance, never local caller authority.
+Strict Unicode rendering/search/quote/copy respects encoding; CP437 display uses
+explicit escapes when needed. Known reply IDs bind unique native parents. Schema 22 adds private
+mailbox/transit containers as described below; SMB and FTN are absent.
+
+## N2 private QWK containers (schema 22)
+
+Private QWK mailbox/transit semantics extend the same native message authority;
+FTN NetMail remains excluded. Explicit enrolled recipients and configured next hops
+preserve privacy; transit has no conference number or caller-visible mailbox.
+Native payloads, durable queues, receipts and provenance survive restart/restore;
+restored unsent work is held. No private bodies enter operator diagnostics, and no
+SMB compatibility or separate QWK store exists. See the canonical
+[QWK networking reference](technical/qwk-networking.md) and
+[Sysop procedure](manual/qwk-networking.md) for interfaces, policy and limits.

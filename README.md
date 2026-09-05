@@ -1,12 +1,13 @@
 <p align="center">
 
-Current source implements **caller QWK offline mail** on schema **20**, with native
-message authority, authenticated reply import and durable duplicate protection.
-[Caller instructions](docs/caller-guide/qwk-offline.md) and the
-[N1 implementation report](docs/research/m045-networking-n1-qwk-offline.md) describe
-accepted behavior. **QWK networking, DOVE-Net and FidoNet/BinkP are not implemented.**
-B-021 remains VERIFIED; B-022 remains NOT STARTED. The downloadable 0.1.0
-Development Preview remains older; this source publication creates no release.
+Current source implements **QWK networking**, including public conferences, native
+private mailboxes and configured private transit on schema **22**. Controlled
+Synchronet public/private interoperability demonstrates the shared DOVE-compatible
+profile. [Sysop instructions](docs/manual/qwk-networking.md) and the
+[N2 report](docs/research/m046-networking-n2-qwk-dove.md) state the tested level.
+Native messages remain canonical; N1 offline QWK remains accepted. No SMB, FTN or
+BinkP implementation and no public DOVE-Net membership are claimed. B-021 remains
+VERIFIED; B-022 NOT STARTED. The downloadable 0.1.0 preview is unchanged.
 
   <img src="docs/assets/branding/spitfire-ng-banner.png"
        alt="SPITFIRE NG — Next Generation BBS Software"
@@ -245,9 +246,9 @@ behavior maps to the modern implementation.
 
 The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
-advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
+advanced Category-B command set, exact original LAKOTA compatibility, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
-also predates QWK offline mail, SSH, schemas 13–20, public-information additions, Tranche 5 file
+also predates QWK offline mail, SSH, schemas 13–22, public-information additions, Tranche 5 file
 inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
 observability, B021-A protected operator attachment, `sfmonitor`, and B021-B
 live controls and B021-C configuration / `sfconfig`. Current source includes

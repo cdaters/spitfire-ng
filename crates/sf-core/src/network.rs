@@ -244,7 +244,7 @@ impl RuntimeDatabase {
             })
             .collect()
     }
-    fn preserve_artifact(
+    pub(crate) fn preserve_artifact(
         &mut self,
         store: &dyn NetworkArtifactStore,
         bytes: &[u8],
@@ -482,8 +482,14 @@ impl RuntimeDatabase {
                     received: m.received,
                     to,
                     from,
-                    subject: m.subject.clone(),
-                    body: m.body.clone(),
+                    subject: m
+                        .encoding
+                        .cp437(&m.subject)
+                        .ok_or(qwk::Error::Unrepresentable)?,
+                    body: m
+                        .encoding
+                        .cp437(&m.body)
+                        .ok_or(qwk::Error::Unrepresentable)?,
                     wall_time: timestamp,
                 });
                 high = high.max(n);

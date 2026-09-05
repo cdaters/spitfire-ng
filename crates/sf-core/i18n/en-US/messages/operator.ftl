@@ -699,3 +699,40 @@ sfconfig-reopen-required = Online authority was lost. Edits remain staged. Quit 
 operator-maintenance-files-guidance = Files: review counts and storage errors here; repairs remain with the approved file services. See operator.errors.
 operator-maintenance-retention-guidance = Retention: displayed policy belongs to Activity services. No cleanup or scheduler command is exposed here. See operator.retention.
 operator-maintenance-backup-guidance = Backup/recovery: stop the daemon and exit offline sfconfig, then use spitfire backup or restore. Inspect backup outcomes in Activity. See configuration.storage.
+
+# N2 typed manual QWK network control and enrollment.
+network-cap-status = Read QWK network status
+network-cap-run = Build and ingest QWK network packets
+network-cap-queue = Acknowledge handoff and retry QWK network work
+network-result-unexpected = Reopen the network status to inspect the result.
+network-title = QWK Network
+network-partner = Partner
+network-link = Link
+network-mapping = Mapping
+network-queue = Queue
+network-pending = Pending
+network-held = Held
+network-retry = Retry
+network-sent = Sent
+network-failed = Failed
+network-last-exchange = Last exchange
+network-dove-profile = DOVE-Net profile
+network-build = Build packet
+network-ingest = Ingest packet
+network-duplicate = Duplicate suppressed
+network-loop = Loop suppressed
+network-invalid-partner = Invalid partner
+network-invalid-mapping = Invalid mapping
+
+operator-network-unavailable = QWK network operation unavailable.
+operator-network-invalid-request = Invalid typed QWK network request.
+
+# Implemented private QWK configuration and native container terminology.
+network-private-mail = Private QWK mail
+network-mailbox = Network mailbox
+network-transit = Private transit
+network-mailbox-alias = Mailbox alias
+network-destination = Destination system
+network-next-hop = Next partner
+network-private-policy = Private mail policy
+network-recipient-unresolved = Private recipient could not be resolved.

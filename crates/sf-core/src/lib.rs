@@ -35,6 +35,7 @@ pub mod observability;
 pub mod operator_control;
 pub mod paths;
 pub mod public_information;
+pub mod qwk_network;
 mod qwk_session;
 pub mod resources;
 pub mod session;

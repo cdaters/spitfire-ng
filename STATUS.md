@@ -1,5 +1,22 @@
 # SPITFIRE NG Status
 
+## N2 QWK networking — COMPLETE / ACCEPTED
+
+Current source schema **22** implements typed multi-partner QWK networking,
+conference mapping, native private mailbox/transit, durable queues, receipts,
+provenance, duplicate/loop prevention and explicit manual artifact exchange.
+Controlled Synchronet 3.19c imported public/private NG packets and generated
+public/private replies plus transit packets imported by the same macOS daemon.
+DOVE-compatible behavior uses the shared QWK architecture. No public DOVE-Net
+traffic or membership is claimed. N1 remains accepted; native messages are canonical;
+SMB, FTN/FidoNet and BinkP remain unimplemented. B-021 VERIFIED; B-022 NOT STARTED.
+en-US **1.19.0 / 1,047 messages**. No release/tag/package is created. Real Windows
+networking acceptance remains deferred to a real Windows environment.
+See [M046](docs/research/m046-networking-n2-qwk-dove.md) for evidence and limitations.
+Public validation: 535 tests, zero failures, two existing ignored, doctests, 82
+headers, fmt, Clippy, diff and 108 Markdown/link checks pass. cargo-audit is unavailable.
+
+
 ## Development Preview 0.1.0
 
 SPITFIRE NG 0.1.0 Development Preview is publicly available. The published
@@ -230,7 +247,7 @@ until they are built and tested.
 - Caller-selectable presentation profiles
 - Production non-English translations and caller locale selection
 - Remaining advanced Category-B commands and resources
-- QWK, DOVE-Net, and FidoNet networking
+- FTN/FidoNet networking and BinkP
 - CircuitNet adapter/revival work beyond preserved compatibility knowledge
 - Web administration
 - SFDraw, the planned display-authoring companion tool

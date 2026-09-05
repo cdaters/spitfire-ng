@@ -206,3 +206,8 @@ See [Operator Recovery](../manual/operator-recovery.md).
 ## M045 / schema 20 caller QWK integration
 
 The [QWK offline Technical Reference](qwk-offline.md) defines the implemented adapter, native authority, delivery/pointer semantics, private artifact custody, transactional receipts and recovery. Caller QWK uses ordinary authenticated message permissions and existing binary transfers. No QWK networking, DOVE-Net, FTN, scheduler or separate message store is added. Earlier dated schema/milestone descriptions retain their historical scope.
+
+## N2 QWK networking
+
+N2 uses content-free message.qwk-network events and existing operator audit/command journals for configured links, packet build/receive, import, duplicate/loop suppression, quarantine, retries, acceptance and failed exchange. Typed network-status/network-queue are bounded read-only projections; no full Networks cockpit is added.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

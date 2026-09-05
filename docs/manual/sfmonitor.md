@@ -260,3 +260,8 @@ details, see [sfmonitor Technical Architecture](../technical/sfmonitor.md).
 
 For the complete first-start, permission recovery, invalid configuration, and
 cold-backup journey, see [Operator Startup and Recovery](operator-recovery.md).
+
+## N2 QWK networking
+
+QWK network events appear through existing Activity/Errors. Use the typed network-status/network-queue CLI for bounded partner and queue detail; no full Networks cockpit is added.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

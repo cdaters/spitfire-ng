@@ -129,7 +129,10 @@ pub struct OperatorObservabilityContext {
 impl OperatorObservabilityContext {
     pub fn capabilities_for(&self, capability: sf_core::LocalOperatorCapability) -> bool {
         match capability {
-            sf_core::LocalOperatorCapability::ReadConfiguration
+            sf_core::LocalOperatorCapability::NetworkStatus
+            | sf_core::LocalOperatorCapability::NetworkRun
+            | sf_core::LocalOperatorCapability::NetworkQueue
+            | sf_core::LocalOperatorCapability::ReadConfiguration
             | sf_core::LocalOperatorCapability::ChangeOnlineConfiguration
             | sf_core::LocalOperatorCapability::ChangeSensitiveConfiguration
             | sf_core::LocalOperatorCapability::ManagePageAvailability
@@ -208,7 +211,8 @@ pub struct BoardRuntime {
     caller_config: CallerConfig,
     credential_hasher: CredentialHasher,
     file_storage: FileStorage,
-    network_artifacts: crate::DiskArtifactStore,
+    pub(crate) network_artifacts: crate::DiskArtifactStore,
+    pub(crate) network_lock: Mutex<()>,
     interaction: InteractionHub,
     presentation: PresentationResolver,
     language: sf_core::LanguageResolver,
@@ -428,6 +432,7 @@ impl BoardRuntime {
             credential_hasher,
             file_storage,
             network_artifacts,
+            network_lock: Mutex::new(()),
             interaction: InteractionHub::new(),
             presentation,
             language,

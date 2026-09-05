@@ -147,3 +147,8 @@ passwords and content to anyone able to observe the connection. Default
 loopback binds are deliberate. Restrict non-loopback listeners to an
 appropriate trusted network/VPN and firewall, or use the separately configured
 SSH caller transport.
+
+## N2 QWK networking
+
+The N2 typed QWK partner/queue workflow is documented in the Sysop manual. Caller offline QWK remains separate, and FTN/BinkP are not implemented.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

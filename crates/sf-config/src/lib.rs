@@ -56,7 +56,7 @@ const SECTIONS: [&str; 8] = [
     "messages-files",
     "storage",
 ];
-const CAPS: [Cap; 16] = Cap::ALL;
+const CAPS: [Cap; 19] = Cap::ALL;
 
 fn cap_key(cap: Cap) -> &'static str {
     match cap {
@@ -76,6 +76,9 @@ fn cap_key(cap: Cap) -> &'static str {
         Cap::ReadConfiguration => "sfconfig-cap-read-config",
         Cap::ChangeOnlineConfiguration => "sfconfig-cap-config",
         Cap::ChangeSensitiveConfiguration => "sfconfig-cap-sensitive",
+        Cap::NetworkStatus => "network-cap-status",
+        Cap::NetworkRun => "network-cap-run",
+        Cap::NetworkQueue => "network-cap-queue",
     }
 }
 fn identity_name(identity: &LocalOperatorIdentity) -> String {

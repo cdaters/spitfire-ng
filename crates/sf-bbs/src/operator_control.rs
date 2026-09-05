@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 5;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 6;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -127,6 +127,7 @@ pub enum OperatorFeature {
     SessionDisconnect,
     GracefulShutdown,
     Configuration,
+    QwkNetwork,
 }
 
 impl OperatorFeature {
@@ -147,6 +148,9 @@ impl OperatorFeature {
         if minor >= crate::configuration::CONFIGURATION_MINOR {
             features.push(Self::Configuration);
         }
+        if minor >= crate::qwk_network::NETWORK_MINOR {
+            features.push(Self::QwkNetwork);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -166,7 +170,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 18] = [
+    const ALL: [Self; 19] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -185,6 +189,7 @@ impl OperatorFeature {
         Self::SessionDisconnect,
         Self::GracefulShutdown,
         Self::Configuration,
+        Self::QwkNetwork,
     ];
 }
 
@@ -223,6 +228,14 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
                         | LocalOperatorCapability::ChangeSensitiveConfiguration
                 ) {
                     return minor >= crate::configuration::CONFIGURATION_MINOR;
+                }
+                if matches!(
+                    capability,
+                    LocalOperatorCapability::NetworkStatus
+                        | LocalOperatorCapability::NetworkRun
+                        | LocalOperatorCapability::NetworkQueue
+                ) {
+                    return minor >= crate::qwk_network::NETWORK_MINOR;
                 }
                 if *capability == LocalOperatorCapability::RequestGracefulShutdown {
                     return minor >= crate::shutdown::SHUTDOWN_MINOR;
@@ -326,6 +339,24 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             });
         }
     }
+    if minor >= crate::qwk_network::NETWORK_MINOR {
+        for capability in [
+            LocalOperatorCapability::NetworkRun,
+            LocalOperatorCapability::NetworkQueue,
+            LocalOperatorCapability::ChangeSensitiveConfiguration,
+        ] {
+            result.controls.push(OperatorControlDescriptor {
+                feature: OperatorFeature::QwkNetwork,
+                capability,
+                preflight_required: false,
+                confirmation_required: false,
+                expected_version_required: true,
+                minimum_minutes: None,
+                maximum_minutes: None,
+                zero_minutes_allowed: false,
+            });
+        }
+    }
     result
 }
 
@@ -361,6 +392,10 @@ enum ClientMessage {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "command", rename_all = "kebab-case")]
 enum MutationCommand {
+    QwkNetwork {
+        command_id: String,
+        action: crate::NetworkAction,
+    },
     ApplyConfiguration {
         command_id: String,
         candidate: sf_core::configuration::ConfigurationCandidate,
@@ -397,6 +432,8 @@ enum MutationCommand {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "kebab-case")]
 enum ReadOperation {
+    QwkNetwork,
+    QwkNetworkQueue { link: String, after: Option<String> },
     ConfigurationSnapshot,
     ShutdownStatus,
     LiveInteractions,
@@ -464,6 +501,7 @@ enum ErrorCode {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum MutationResult {
+    QwkNetwork(crate::NetworkResult),
     Configuration(crate::ConfigurationResult),
     LiveControl {
         command_id: String,
@@ -528,6 +566,8 @@ fn command_fingerprint(command: &MutationCommand, daemon_generation: &str) -> St
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "result", content = "value", rename_all = "kebab-case")]
 enum ReadResult {
+    QwkNetwork(Vec<sf_core::qwk_network::LinkStatus>),
+    QwkNetworkQueue(sf_core::qwk_network::QueuePage),
     ConfigurationSnapshot(Box<crate::ConfigurationSnapshot>),
     ShutdownStatus(crate::ShutdownImpact),
     ChatStarted,
@@ -828,6 +868,41 @@ impl Drop for LiveAttachmentGuard {
 }
 
 impl OperatorClient {
+    pub async fn qwk_network_status(
+        &mut self,
+    ) -> Result<Vec<sf_core::qwk_network::LinkStatus>, OperatorControlError> {
+        match self.request(ReadOperation::QwkNetwork).await? {
+            ReadResult::QwkNetwork(v) => Ok(v),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+    pub async fn qwk_network_queue(
+        &mut self,
+        link: String,
+        after: Option<String>,
+    ) -> Result<sf_core::qwk_network::QueuePage, OperatorControlError> {
+        match self
+            .request(ReadOperation::QwkNetworkQueue { link, after })
+            .await?
+        {
+            ReadResult::QwkNetworkQueue(v) => Ok(v),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+    pub async fn qwk_network_action(
+        &mut self,
+        command_id: String,
+        action: crate::NetworkAction,
+    ) -> Result<crate::NetworkResult, OperatorControlError> {
+        match self
+            .mutation(MutationCommand::QwkNetwork { command_id, action })
+            .await?
+        {
+            MutationResult::QwkNetwork(v) => Ok(v),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+
     pub async fn shutdown_status(&mut self) -> Result<crate::ShutdownImpact, OperatorControlError> {
         match self.request(ReadOperation::ShutdownStatus).await? {
             ReadResult::ShutdownStatus(value) => Ok(value),
@@ -1004,6 +1079,7 @@ impl OperatorClient {
         command: MutationCommand,
     ) -> Result<MutationResult, OperatorControlError> {
         let feature = match &command {
+            MutationCommand::QwkNetwork { .. } => OperatorFeature::QwkNetwork,
             MutationCommand::ApplyConfiguration { .. } => OperatorFeature::Configuration,
             MutationCommand::LiveControl { action, .. } => action.feature(),
             MutationCommand::AcknowledgeNotification { .. } => {
@@ -1717,6 +1793,7 @@ mod server {
                 requested.contains(item)
                     && *item != OperatorFeature::GracefulShutdown
                     && *item != OperatorFeature::Configuration
+                    && *item != OperatorFeature::QwkNetwork
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
                         || !OperatorFeature::LIVE.contains(item))
@@ -1955,6 +2032,7 @@ mod server {
             }
             if mutation.as_ref().is_some_and(|command| {
                 let feature = match command {
+                    MutationCommand::QwkNetwork { .. } => OperatorFeature::QwkNetwork,
                     MutationCommand::ApplyConfiguration { .. } => OperatorFeature::Configuration,
                     MutationCommand::LiveControl { action, .. } => action.feature(),
                     MutationCommand::AcknowledgeNotification { .. } => {
@@ -2034,7 +2112,14 @@ mod server {
                             .await?,
                     })
                 } else if let Some(command) = mutation {
-                    if let MutationCommand::ApplyConfiguration {
+                    if let MutationCommand::QwkNetwork { command_id, action } = &command {
+                        service
+                            .network_action(&peer.stable_id(), &current, command_id, action)
+                            .map(|value| ServerMessage::MutationResponse {
+                                request_id,
+                                result: MutationResult::QwkNetwork(value),
+                            })
+                    } else if let MutationCommand::ApplyConfiguration {
                         command_id,
                         candidate,
                     } = &command
@@ -2973,6 +3058,7 @@ mod windows_tests {
 impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
+            Self::QwkNetwork | Self::QwkNetworkQueue { .. } => OperatorFeature::QwkNetwork,
             Self::ConfigurationSnapshot => OperatorFeature::Configuration,
             Self::ShutdownStatus => OperatorFeature::GracefulShutdown,
             Self::LiveInteractions => OperatorFeature::CallerPages,
@@ -3000,6 +3086,7 @@ fn all_read_capabilities() -> Vec<LocalOperatorCapability> {
 
 fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability]) -> bool {
     let required = match feature {
+        OperatorFeature::QwkNetwork => LocalOperatorCapability::NetworkStatus,
         OperatorFeature::Configuration => LocalOperatorCapability::ReadConfiguration,
         OperatorFeature::PageAvailability
         | OperatorFeature::CallerPages
@@ -3054,6 +3141,10 @@ async fn dispatch(
     live_subscription: &mut Option<sf_core::LiveEventSubscription>,
 ) -> Result<ReadResult, crate::ApplicationError> {
     Ok(match operation {
+        ReadOperation::QwkNetwork => ReadResult::QwkNetwork(service.network_status()?),
+        ReadOperation::QwkNetworkQueue { link, after } => {
+            ReadResult::QwkNetworkQueue(service.network_queue(&link, after.as_deref())?)
+        }
         ReadOperation::ConfigurationSnapshot => {
             return Err(OperatorControlError::InvalidCommand.into())
         }
@@ -3198,7 +3289,9 @@ async fn dispatch_mutation(
     let _work = runtime.live_controls.track();
     let (command_id, command_type, target_kind, target_id, target_generation, capability) =
         match &command {
-            MutationCommand::ApplyConfiguration { .. } | MutationCommand::LiveControl { .. } => {
+            MutationCommand::QwkNetwork { .. }
+            | MutationCommand::ApplyConfiguration { .. }
+            | MutationCommand::LiveControl { .. } => {
                 return Err(OperatorControlError::InvalidCommand.into())
             }
             MutationCommand::AcknowledgeNotification {
@@ -3377,7 +3470,9 @@ async fn dispatch_mutation(
         });
     }
     let (class, version) = match command {
-        MutationCommand::ApplyConfiguration { .. } | MutationCommand::LiveControl { .. } => {
+        MutationCommand::QwkNetwork { .. }
+        | MutationCommand::ApplyConfiguration { .. }
+        | MutationCommand::LiveControl { .. } => {
             unreachable!()
         }
         MutationCommand::AcknowledgeNotification {

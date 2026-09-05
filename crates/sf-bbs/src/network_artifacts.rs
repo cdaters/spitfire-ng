@@ -174,6 +174,63 @@ impl NetworkArtifactStore for DiskArtifactStore {
     }
 }
 
+impl DiskArtifactStore {
+    /// A fixed link-scoped operator handoff slot. No wire-provided path is used.
+    pub(crate) fn prepare_handoff(&self, link: &str) -> Result<PathBuf, NetworkError> {
+        if link.is_empty()
+            || link.len() > 32
+            || !link.bytes().all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_' | b'.')
+            })
+            || matches!(link, "." | "..")
+        {
+            return Err(NetworkError::Unavailable);
+        }
+        let system = self.root.parent().ok_or(NetworkError::Unavailable)?;
+        let mut path = system.to_path_buf();
+        for component in ["qwk-handoff", link] {
+            path.push(component);
+            if !path.exists() {
+                let mut builder = fs::DirBuilder::new();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::DirBuilderExt;
+                    builder.mode(0o700);
+                }
+                builder.create(&path)?;
+            }
+            let meta = fs::symlink_metadata(&path)?;
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                return Err(NetworkError::Unavailable);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if meta.permissions().mode() & 0o077 != 0 {
+                    return Err(NetworkError::Unavailable);
+                }
+            }
+        }
+        Ok(path)
+    }
+    pub(crate) fn read_handoff(&self, link: &str) -> Result<Vec<u8>, NetworkError> {
+        let path = self.prepare_handoff(link)?.join("inbound.packet");
+        let meta = fs::symlink_metadata(&path)?;
+        if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > qwk::MAX_ARCHIVE as u64
+        {
+            return Err(NetworkError::Capacity);
+        }
+        let mut bytes = Vec::new();
+        fs::File::open(path)?
+            .take(qwk::MAX_ARCHIVE as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > qwk::MAX_ARCHIVE {
+            return Err(NetworkError::Capacity);
+        }
+        Ok(bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

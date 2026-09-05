@@ -166,3 +166,8 @@ metadata from sf-core. Up/Down, Page Up/Page Down, and Home scroll monitor help
 at compact sizes without dispatching an action. No maintenance execute key exists.
 [Operator Startup and Recovery](../manual/operator-recovery.md) links setup,
 explicit offline enrollment, daemon loss, invalid configuration, and cold restore.
+
+## N2 QWK networking
+
+No Networks cockpit is added in N2. Existing monitor Activity/Errors shows privacy-safe network events; typed CLI network-status/network-queue provides link/queue detail. Existing sfmonitor status/configuration interactions remain unchanged.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

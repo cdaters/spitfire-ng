@@ -3,8 +3,7 @@
 Current source implements caller QWK offline mail (M045/N1). Native SPITFIRE NG
 messages remain the only message authority. QWK is an interchange adapter; there
 is no separate QWK message store and no SMB dependency or compatibility layer.
-QWK networking, DOVE-Net, FidoNet/BinkP, network scheduling and network operator
-views are not implemented. The downloadable 0.1.0 Development Preview predates N1.
+[N2 public network exchange](qwk-networking.md) reuses this codec. FidoNet/BinkP and network scheduling remain unimplemented. The downloadable 0.1.0 Development Preview predates N1.
 
 ## Authority and implementation
 
@@ -215,3 +214,9 @@ The [M045 report](../research/m045-networking-n1-qwk-offline.md) records reprodu
 codec, native authority, migration, recovery, transfer and independent MultiMail
 acceptance. Windows live QWK acceptance is **DEFERRED — REAL WINDOWS ENVIRONMENT
 REQUIRED**. Source portability is preserved without a Windows interactive claim.
+
+N2 preserves the caller workflow. Its shared ZIP inspector permits a bounded 4 KiB
+small-member compression floor for real peer advisory files; larger members still
+use the 100:1 ratio cap. N2-only network header markers and metadata do not enable
+those profiles for caller reply upload. Native UTF-8 imported content is exported
+to the offline CP437 profile only when exactly representable.

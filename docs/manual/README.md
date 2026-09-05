@@ -5,7 +5,7 @@ Current source: [QWK offline mail](qwk-offline.md) adds caller packet download/r
 
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 20)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 22)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -164,3 +164,7 @@ Stable topic names in this manual are designed for future use by local help,
 the website, and operator tools. The repository Markdown remains the editable
 source; website and downloadable versions should be generated or synchronized
 from it rather than maintained as separate copies.
+
+## QWK network partners
+
+[Sysop manual](../manual/qwk-networking.md) and [Technical Reference](../technical/qwk-networking.md) cover implemented public/private and transit exchange, controlled DOVE interoperability, typed partner configuration, queues, replay/loop prevention and recovery. M046 records the controlled interoperability evidence and limits.

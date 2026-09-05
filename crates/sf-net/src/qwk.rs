@@ -51,6 +51,8 @@ pub enum Error {
 pub enum Profile {
     ClassicCp437,
     ExtendedCp437,
+    /// Explicit HEADERS.DAT UTF-8; never selected by the caller offline workflow.
+    NetworkUtf8,
 }
 
 /// Asserted wire information only; authenticated ingress supplies native authority.
@@ -211,7 +213,7 @@ fn preflight(bytes: &[u8]) -> Result<(usize, usize), Error> {
         let compressed = u32_at(bytes, pos + 20)?;
         let size = u32_at(bytes, pos + 24)?;
         expanded = expanded.checked_add(size).ok_or(Error::Limit)?;
-        if expanded > MAX_EXPANDED || size > compressed.saturating_mul(100) {
+        if expanded > MAX_EXPANDED || size > compressed.saturating_mul(100).max(4096) {
             return Err(Error::Limit);
         }
         let local = u32_at(bytes, pos + 42)?;
@@ -376,6 +378,11 @@ fn number(bytes: &[u8], blank: bool) -> Result<u32, Error> {
 fn text_ok(bytes: &[u8]) -> bool {
     bytes.iter().all(|b| *b >= 32 && *b != 127 && *b != 0xe3)
 }
+fn record_text_ok(bytes: &[u8], profile: Profile) -> bool {
+    bytes
+        .iter()
+        .all(|b| *b >= 32 && *b != 127 && (*b != 0xe3 || profile == Profile::NetworkUtf8))
+}
 fn put(dst: &mut [u8], value: &[u8]) -> Result<(), Error> {
     if value.len() > dst.len() || !text_ok(value) {
         return Err(Error::Unrepresentable);
@@ -408,6 +415,16 @@ pub fn decode_records(
     reply_board: Option<&str>,
     profile: Profile,
 ) -> Result<Vec<Member>, Error> {
+    decode_records_profiled(bytes, reply_board, profile, &BTreeSet::new(), false)
+}
+
+pub(crate) fn decode_records_profiled(
+    bytes: &[u8],
+    reply_board: Option<&str>,
+    default_profile: Profile,
+    utf8_offsets: &BTreeSet<usize>,
+    network_headers: bool,
+) -> Result<Vec<Member>, Error> {
     if bytes.len() < RECORD || !bytes.len().is_multiple_of(RECORD) {
         return Err(Error::Malformed);
     }
@@ -425,6 +442,11 @@ pub fn decode_records(
         if members.len() >= MAX_MESSAGES {
             return Err(Error::Limit);
         }
+        let profile = if utf8_offsets.contains(&offset) {
+            Profile::NetworkUtf8
+        } else {
+            default_profile
+        };
         let h = bytes.get(offset..offset + RECORD).ok_or(Error::Malformed)?;
         let blocks = number(&h[116..122], false)? as usize;
         if blocks < 2 {
@@ -435,7 +457,10 @@ pub fn decode_records(
             return Err(Error::Limit);
         }
         let raw = bytes.get(offset..offset + size).ok_or(Error::Malformed)?;
-        if h[122] != 225 || !matches!(h[0], b' ' | b'-' | b'*' | b'+') || h[127] != b' ' {
+        if h[122] != 225
+            || !matches!(h[0], b' ' | b'-' | b'*' | b'+')
+            || (h[127] != b' ' && !(network_headers && h[127] == b'*'))
+        {
             return Err(Error::Unsupported);
         }
         if h[96..108].iter().any(|b| *b != b' ' && *b != 0) {
@@ -460,7 +485,7 @@ pub fn decode_records(
         };
         if [&msg.to, &msg.from, &msg.subject]
             .iter()
-            .any(|v| !text_ok(v))
+            .any(|v| !record_text_ok(v, profile))
         {
             return Err(Error::Unsupported);
         }
@@ -469,7 +494,7 @@ pub fn decode_records(
         let mut last_cr = false;
         for b in text {
             match b {
-                0xe3 | b'\r' => {
+                b if b == b'\r' || (b == 0xe3 && profile != Profile::NetworkUtf8) => {
                     body.push(b'\n');
                     last_cr = b == b'\r';
                 }
@@ -534,6 +559,14 @@ pub fn decode_records(
         {
             return Err(Error::Limit);
         }
+        if profile == Profile::NetworkUtf8 {
+            std::str::from_utf8(&body).map_err(|_| Error::Unsupported)?;
+            if !network_headers {
+                for value in [&msg.to, &msg.from, &msg.subject] {
+                    std::str::from_utf8(value).map_err(|_| Error::Unsupported)?;
+                }
+            }
+        }
         msg.body = body;
         members.push(Member {
             ordinal: members.len(),
@@ -551,6 +584,15 @@ pub fn encode_records(
     reply_board: Option<&str>,
     profile: Profile,
 ) -> Result<(Vec<u8>, Vec<usize>), Error> {
+    encode_records_profiled(messages, reply_board, profile, &BTreeSet::new())
+}
+
+pub(crate) fn encode_records_profiled(
+    messages: &[Message],
+    reply_board: Option<&str>,
+    default_profile: Profile,
+    utf8_ordinals: &BTreeSet<usize>,
+) -> Result<(Vec<u8>, Vec<usize>), Error> {
     if messages.len() > MAX_MESSAGES {
         return Err(Error::Limit);
     }
@@ -562,22 +604,37 @@ pub fn encode_records(
     put(&mut result, banner.as_bytes())?;
     let mut offsets = Vec::new();
     for (ordinal, m) in messages.iter().enumerate() {
+        let profile = if utf8_ordinals.contains(&ordinal) {
+            Profile::NetworkUtf8
+        } else {
+            default_profile
+        };
+        let newline = if profile == Profile::NetworkUtf8 {
+            b'\n'
+        } else {
+            0xe3
+        };
+        if profile == Profile::NetworkUtf8 {
+            for value in [&m.to, &m.from, &m.subject, &m.body] {
+                std::str::from_utf8(value).map_err(|_| Error::Unrepresentable)?;
+            }
+        }
         if m.body.len() > MAX_BODY {
             return Err(Error::Limit);
         }
         let mut body = Vec::new();
         for (label, value) in [("To", &m.to), ("From", &m.from), ("Subject", &m.subject)] {
-            if !text_ok(value) {
+            if !record_text_ok(value, profile) {
                 return Err(Error::Unrepresentable);
             }
             if value.len() > 25 {
-                if profile == Profile::ClassicCp437 {
+                if profile != Profile::ExtendedCp437 {
                     return Err(Error::Unrepresentable);
                 }
                 body.extend_from_slice(label.as_bytes());
                 body.extend_from_slice(b": ");
                 body.extend_from_slice(value);
-                body.push(0xe3);
+                body.push(newline);
             }
         }
         // QWKE readers can consume leading header-like body lines even after
@@ -602,19 +659,19 @@ pub fn encode_records(
             return Err(Error::Unrepresentable);
         }
         if !body.is_empty() {
-            body.push(0xe3)
+            body.push(newline)
         }
         let mut last_cr = false;
         for &b in &m.body {
             match b {
-                0xe3 => return Err(Error::Unrepresentable),
+                0xe3 if profile != Profile::NetworkUtf8 => return Err(Error::Unrepresentable),
                 b'\r' => {
-                    body.push(0xe3);
+                    body.push(newline);
                     last_cr = true;
                 }
                 b'\n' => {
                     if !last_cr {
-                        body.push(0xe3)
+                        body.push(newline)
                     }
                     last_cr = false;
                 }
@@ -629,8 +686,8 @@ pub fn encode_records(
                 _ => return Err(Error::Unrepresentable),
             }
         }
-        if body.last() != Some(&0xe3) {
-            body.push(0xe3)
+        if body.last() != Some(&newline) {
+            body.push(newline)
         }
         let blocks = 1 + body.len().div_ceil(RECORD);
         let mut header = [b' '; RECORD];
@@ -655,7 +712,8 @@ pub fn encode_records(
             m.wall_time.format("%m-%d-%y%H:%M").to_string().as_bytes(),
         )?;
         for (range, value) in [(21..46, &m.to), (46..71, &m.from), (71..96, &m.subject)] {
-            put(&mut header[range], &value[..value.len().min(25)])?;
+            let value = &value[..value.len().min(25)];
+            header[range.start..range.start + value.len()].copy_from_slice(value);
         }
         put(&mut header[108..116], m.reference.to_string().as_bytes())?;
         put(&mut header[116..122], blocks.to_string().as_bytes())?;
@@ -983,5 +1041,19 @@ mod tests {
         let mut bad = b;
         bad[136..144].copy_from_slice(b"02-29-01");
         assert!(decode_records(&bad, None, Profile::ClassicCp437).is_err());
+    }
+    #[test]
+    fn bounded_small_compressed_advisory_member_is_not_an_archive_bomb() {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file(
+                "NETFLAGS.DAT",
+                zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Deflated),
+            )
+            .unwrap();
+        writer.write_all(&vec![0; 2022]).unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+        assert_eq!(inspect(&bytes).unwrap().members["NETFLAGS.DAT"].len(), 2022);
     }
 }

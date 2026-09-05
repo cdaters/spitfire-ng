@@ -1,6 +1,6 @@
 # SPITFIRE NG Documentation
 
-Current source: [QWK offline mail](technical/qwk-offline.md) adds caller packet download/reply upload; QWK networking, DOVE-Net and FidoNet/BinkP remain unimplemented.
+Current source: [QWK offline mail](technical/qwk-offline.md) adds caller packet download/reply upload; N2 public/private QWK networking and native transit are implemented with controlled DOVE-compatible interoperability. FidoNet/BinkP remain unimplemented.
 
 
 Choose the section that matches what you want to do. You do not need to read
@@ -198,3 +198,7 @@ continue to describe the unchanged 0.1.0 Development Preview binary.
 B021-D is COMPLETE / ACCEPTED and B-021 VERIFIED. B021-A/B/C remain accepted;
 B-022 remains NOT STARTED. See the [closure and outcome map](research/m039-tranche-7-b021d-operator-closure.md)
 and the [Sysop startup/recovery journey](manual/operator-recovery.md).
+
+## QWK networking (N2)
+
+[QWK network reference](technical/qwk-networking.md) documents typed partners, public/private exchange, native mailbox/transit, durable queues, provenance and recovery. [Sysop procedure](manual/qwk-networking.md) provides the operator path. Controlled Synchronet interoperability is tested; no public DOVE membership is claimed.

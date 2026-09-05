@@ -348,3 +348,5 @@ qwk-import-summary = Replies imported: { $imported }. Duplicates skipped: { $dup
 
 menu-action-message-qwk = QWK Offline Mail
 qwk-menu-entry = <L> QWK Offline Mail
+
+message-field-from-network = From (QWK network): { $name }

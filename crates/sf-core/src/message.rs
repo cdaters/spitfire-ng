@@ -243,8 +243,49 @@ impl MessageKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MessageEncoding {
+    LegacyCp437,
+    Utf8,
+}
+impl MessageEncoding {
+    pub fn cp437(self, bytes: &[u8]) -> Option<Vec<u8>> {
+        match self {
+            Self::LegacyCp437 => Some(bytes.to_vec()),
+            Self::Utf8 => crate::encode_text(
+                std::str::from_utf8(bytes).ok()?,
+                crate::TerminalTextEncoding::Cp437,
+            ),
+        }
+    }
+    /// Explicit display fallback for a legacy terminal; authoritative UTF-8 is unchanged.
+    pub fn display_cp437(self, bytes: &[u8]) -> Vec<u8> {
+        if let Some(bytes) = self.cp437(bytes) {
+            return bytes;
+        }
+        let mut result = Vec::new();
+        for c in String::from_utf8_lossy(bytes).chars() {
+            if let Some(bytes) =
+                crate::encode_text(&c.to_string(), crate::TerminalTextEncoding::Cp437)
+            {
+                result.extend(bytes);
+            } else {
+                result.extend(format!("[U+{:04X}]", u32::from(c)).bytes());
+            }
+        }
+        result
+    }
+}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MessageOrigin {
+    Native,
+    ExternalNetwork,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Message {
+    pub encoding: MessageEncoding,
+    pub origin: MessageOrigin,
     pub id: MessageId,
     pub conference_id: ConferenceId,
     pub number: u64,
@@ -268,6 +309,8 @@ pub struct Message {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MessageSummary {
+    pub origin: MessageOrigin,
+    pub encoding: MessageEncoding,
     pub id: MessageId,
     pub number: u64,
     pub author_caller_id: Option<CallerId>,
@@ -287,6 +330,8 @@ pub struct MessageSummary {
 impl From<&Message> for MessageSummary {
     fn from(message: &Message) -> Self {
         Self {
+            origin: message.origin,
+            encoding: message.encoding,
             id: message.id,
             number: message.number,
             author_caller_id: message.author_caller_id,
@@ -927,7 +972,7 @@ impl RuntimeDatabase {
     ) -> Result<Option<Message>, MessageError> {
         self.connection
             .query_row(
-                &format!("{MESSAGE_SELECT} WHERE m.conference_id = ?1 AND m.author_caller_id IS NULL AND p.subject = ?2 LIMIT 1"),
+                &format!("{MESSAGE_SELECT} WHERE m.conference_id = ?1 AND m.author_caller_id IS NULL AND m.origin_kind='native' AND p.subject = ?2 LIMIT 1"),
                 params![conference_id.get(), subject],
                 message_from_row,
             )
@@ -2053,9 +2098,9 @@ impl RuntimeDatabase {
                     message_id, fanout_id, conference_id, message_number,
                     author_caller_id, author_name, created_at, placed_at,
                     parent_message_id, audience_kind, visibility, lifecycle_state,
-                    state_version, delivery_role, delivery_ordinal, primary_delivery_id
+                    state_version, delivery_role, delivery_ordinal, primary_delivery_id, origin_kind
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                          'active', 1, ?12, 0, ?13)
+                          'active', 1, ?12, 0, ?13, ?14)
                 "#,
                 params![
                     id.get(),
@@ -2070,7 +2115,12 @@ impl RuntimeDatabase {
                     audience,
                     source.visibility.as_database_value(),
                     role.as_database_value(),
-                    primary_id.map(MessageId::get)
+                    primary_id.map(MessageId::get),
+                    if source.origin == MessageOrigin::ExternalNetwork {
+                        "external-network"
+                    } else {
+                        "native"
+                    }
                 ],
             )
             .map_err(MessageError::Sqlite)?;
@@ -2128,7 +2178,7 @@ const MESSAGE_SELECT: &str = r#"
            p.subject, p.body, m.created_at, m.parent_message_id, m.visibility,
            p.content_kind, m.lifecycle_state, m.state_version, m.delivery_role,
            m.delivery_ordinal, pr.display_name_snapshot,
-           EXISTS(SELECT 1 FROM caller_message_receipts AS rr WHERE rr.message_id = m.message_id)
+           EXISTS(SELECT 1 FROM caller_message_receipts AS rr WHERE rr.message_id = m.message_id), p.encoding, m.origin_kind
       FROM messages AS m
       JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id
       JOIN message_payloads AS p ON p.payload_id = f.payload_id
@@ -2141,13 +2191,13 @@ const MESSAGE_SELECT_BY_ID: &str = r#"
            p.subject, p.body, m.created_at, m.parent_message_id, m.visibility,
            p.content_kind, m.lifecycle_state, m.state_version, m.delivery_role,
            m.delivery_ordinal, pr.display_name_snapshot,
-           EXISTS(SELECT 1 FROM caller_message_receipts AS rr WHERE rr.message_id = m.message_id)
+           EXISTS(SELECT 1 FROM caller_message_receipts AS rr WHERE rr.message_id = m.message_id), p.encoding, m.origin_kind
       FROM messages AS m
       JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id
       JOIN message_payloads AS p ON p.payload_id = f.payload_id
       LEFT JOIN message_delivery_recipients AS r ON r.message_id = m.message_id
       LEFT JOIN message_delivery_recipients AS pr ON pr.message_id = m.primary_delivery_id
-     WHERE m.message_id = ?1
+     WHERE m.message_id = ?1 AND m.container_kind='conference'
 "#;
 
 fn conference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conference> {
@@ -2182,9 +2232,41 @@ fn message_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
     let delivery_role = row.get::<_, String>(15)?;
     let subject = row.get::<_, Vec<u8>>(7)?;
     let body = row.get::<_, Vec<u8>>(8)?;
-    validate_message_contents(&subject, &body, MAX_MESSAGE_LINES as u16)
-        .map_err(to_sql_conversion_error)?;
+    let encoding = match row.get::<_, String>(19)?.as_str() {
+        "cp437" => MessageEncoding::LegacyCp437,
+        "utf8" => MessageEncoding::Utf8,
+        _ => return Err(to_sql_conversion_error(MessageError::InvalidBody)),
+    };
+    let origin = match row.get::<_, String>(20)?.as_str() {
+        "native" => MessageOrigin::Native,
+        "external-network" => MessageOrigin::ExternalNetwork,
+        _ => return Err(to_sql_conversion_error(MessageError::InvalidBody)),
+    };
+    if encoding == MessageEncoding::Utf8 {
+        for value in [&subject, &body] {
+            let text = std::str::from_utf8(value)
+                .map_err(|_| to_sql_conversion_error(MessageError::InvalidBody))?;
+            if text
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\r' | '\n' | '\t'))
+            {
+                return Err(to_sql_conversion_error(MessageError::InvalidBody));
+            }
+        }
+    }
+    validate_message_contents(
+        &subject,
+        &body,
+        if origin == MessageOrigin::ExternalNetwork {
+            u16::MAX
+        } else {
+            MAX_MESSAGE_LINES as u16
+        },
+    )
+    .map_err(to_sql_conversion_error)?;
     Ok(Message {
+        encoding,
+        origin,
         id: MessageId::new(row.get(0)?).map_err(to_sql_conversion_error)?,
         conference_id: ConferenceId::new(row.get(1)?).map_err(to_sql_conversion_error)?,
         number: sqlite_u64(row.get(2)?).map_err(to_sql_conversion_error)?,
@@ -2273,9 +2355,14 @@ fn discovery_query_matches(
                 MessageCallerSearchDirection::Both => from || to,
             }
         }
-        MessageDiscoveryQuery::Text { terms } => terms
-            .iter()
-            .all(|term| contains_bytes_ascii_case_insensitive(&message.body, term)),
+        MessageDiscoveryQuery::Text { terms } => terms.iter().all(|term| {
+            let query = if message.encoding == MessageEncoding::Utf8 {
+                crate::file_maintenance::decode_cp437(term).into_bytes()
+            } else {
+                term.clone()
+            };
+            contains_bytes_ascii_case_insensitive(&message.body, &query)
+        }),
     }
 }
 
@@ -2333,7 +2420,7 @@ fn validate_message_contents(
     }
     let lines =
         body.iter().filter(|byte| **byte == b'\n').count() + usize::from(!body.ends_with(b"\n"));
-    if lines > usize::from(maximum_lines) || lines > MAX_MESSAGE_LINES {
+    if lines > usize::from(maximum_lines) {
         return Err(MessageError::TooManyLines {
             actual: lines,
             maximum: usize::from(maximum_lines),
@@ -2551,7 +2638,7 @@ fn validate_fanout(connection: &rusqlite::Connection, fanout_id: i64) -> Result<
     Ok(())
 }
 
-fn next_message_number(
+pub(crate) fn next_message_number(
     transaction: &rusqlite::Transaction<'_>,
     conference_id: ConferenceId,
 ) -> Result<u64, MessageError> {
@@ -2567,7 +2654,9 @@ fn next_message_number(
         .ok_or(MessageError::MessageNumberOverflow)
 }
 
-fn next_message_id(transaction: &rusqlite::Transaction<'_>) -> Result<MessageId, MessageError> {
+pub(crate) fn next_message_id(
+    transaction: &rusqlite::Transaction<'_>,
+) -> Result<MessageId, MessageError> {
     let current: i64 = transaction
         .query_row(
             "SELECT COALESCE(MAX(message_id), 0) FROM messages",

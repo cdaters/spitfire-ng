@@ -23,6 +23,8 @@ mod error;
 mod fixture;
 mod live_control;
 mod network_artifacts;
+mod qwk_network;
+pub use qwk_network::{NetworkAction, NetworkResult};
 mod operator;
 mod operator_control;
 mod presentation;
@@ -159,6 +161,62 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
         }
         [command, config] if command == "config" => interactive_config(&PathBuf::from(config)),
         [command, config] if command == "status" => board_status(&PathBuf::from(config)),
+        [command, config] if command == "network-status" => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))?;
+            let status = runtime.block_on(async {
+                let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
+                client.describe_operator_controls().await?;
+                client.qwk_network_status().await
+            })?;
+            serde_json::to_string_pretty(&status)
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
+        }
+        [command, config, link, after] if command == "network-queue" => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))?;
+            let page = runtime.block_on(async {
+                let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
+                client.describe_operator_controls().await?;
+                client
+                    .qwk_network_queue(
+                        link.to_string_lossy().into_owned(),
+                        if after == "-" {
+                            None
+                        } else {
+                            Some(after.to_string_lossy().into_owned())
+                        },
+                    )
+                    .await
+            })?;
+            serde_json::to_string_pretty(&page)
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
+        }
+        [command, config, command_id, request] if command == "network" => {
+            let request = request
+                .to_str()
+                .filter(|s| s.len() <= 64 * 1024)
+                .ok_or_else(|| ApplicationError::Usage(op("operator-network-invalid-request")))?;
+            let action: NetworkAction = serde_json::from_str(request)
+                .map_err(|_| ApplicationError::Usage(op("operator-network-invalid-request")))?;
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))?;
+            let result = runtime.block_on(async {
+                let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
+                client.describe_operator_controls().await?;
+                client
+                    .qwk_network_action(command_id.to_string_lossy().into_owned(), action)
+                    .await
+            })?;
+            serde_json::to_string_pretty(&result)
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
+        }
         [command, action, config] if command == "operator" => {
             run_operator_attach_cli(action.to_string_lossy().as_ref(), &PathBuf::from(config))
         }

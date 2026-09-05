@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 20;
+pub const SCHEMA_VERSION: u32 = 22;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 20] = [
+const MIGRATIONS: [Migration; 22] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1491,6 +1491,16 @@ const MIGRATIONS: [Migration; 20] = [
         version: 20,
         name: "qwk_offline_authority",
         sql: crate::network::MIGRATION,
+    },
+    Migration {
+        version: 21,
+        name: "qwk_network_authority",
+        sql: crate::qwk_network::MIGRATION,
+    },
+    Migration {
+        version: 22,
+        name: "qwk_private_native_containers",
+        sql: crate::qwk_network::PRIVATE_MIGRATION,
     },
 ];
 
@@ -2980,7 +2990,7 @@ fn apply_migration(
     connection: &mut Connection,
     migration: &Migration,
 ) -> Result<(), DatabaseError> {
-    let rebuilds_referenced_file_table = migration.version == 17;
+    let rebuilds_referenced_file_table = matches!(migration.version, 17 | 22);
     if rebuilds_referenced_file_table {
         connection
             .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;")
@@ -3009,6 +3019,18 @@ fn run_migration(
     transaction
         .execute_batch(migration.sql)
         .map_err(DatabaseError::Sqlite)?;
+    if migration.version == 22 {
+        let invalid: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(DatabaseError::Sqlite)?;
+        if invalid {
+            return Err(DatabaseError::Sqlite(rusqlite::Error::InvalidQuery));
+        }
+    }
     if migration.version == 11 {
         validate_message_mutation_migration(transaction)?;
         transaction
@@ -3887,7 +3909,7 @@ mod tests {
             MigrationReport {
                 starting_version: 0,
                 ending_version: SCHEMA_VERSION,
-                applied: 20,
+                applied: SCHEMA_VERSION as usize,
             }
         );
         assert_eq!(database.schema_version().unwrap(), SCHEMA_VERSION);
@@ -3914,7 +3936,7 @@ mod tests {
             MigrationReport {
                 starting_version: 9,
                 ending_version: SCHEMA_VERSION,
-                applied: 11,
+                applied: SCHEMA_VERSION as usize - 9,
             }
         );
         let table_count: i64 = database
@@ -3982,7 +4004,7 @@ mod tests {
             MigrationReport {
                 starting_version: 10,
                 ending_version: SCHEMA_VERSION,
-                applied: 10,
+                applied: SCHEMA_VERSION as usize - 10,
             }
         );
         let preserved = database
@@ -4145,7 +4167,7 @@ mod tests {
             MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 9,
+                applied: SCHEMA_VERSION as usize - 11,
             }
         );
         let caller = database
@@ -4255,7 +4277,7 @@ mod tests {
             MigrationReport {
                 starting_version: 12,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: SCHEMA_VERSION as usize - 12,
             }
         );
         let first = database
@@ -4317,7 +4339,7 @@ mod tests {
             MigrationReport {
                 starting_version: 13,
                 ending_version: SCHEMA_VERSION,
-                applied: 7
+                applied: SCHEMA_VERSION as usize - 13
             }
         );
         let caller = database
@@ -4428,7 +4450,7 @@ mod tests {
             MigrationReport {
                 starting_version: 14,
                 ending_version: SCHEMA_VERSION,
-                applied: 6,
+                applied: SCHEMA_VERSION as usize - 14,
             }
         );
         let preserved: (i64, String, String, i64, String, String, i64) = database.connection.query_row(
@@ -4536,7 +4558,7 @@ mod tests {
             MigrationReport {
                 starting_version: 15,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: SCHEMA_VERSION as usize - 15,
             }
         );
         let preserved: (i64, String, String, i64, i64, String) = database
@@ -5000,7 +5022,7 @@ mod tests {
             MigrationReport {
                 starting_version: 1,
                 ending_version: SCHEMA_VERSION,
-                applied: 19,
+                applied: SCHEMA_VERSION as usize - 1,
             }
         );
         assert_eq!(
@@ -5036,7 +5058,7 @@ mod tests {
             MigrationReport {
                 starting_version: 2,
                 ending_version: SCHEMA_VERSION,
-                applied: 18,
+                applied: SCHEMA_VERSION as usize - 2,
             }
         );
         let caller = database
@@ -5083,7 +5105,7 @@ mod tests {
             MigrationReport {
                 starting_version: 3,
                 ending_version: SCHEMA_VERSION,
-                applied: 17,
+                applied: SCHEMA_VERSION as usize - 3,
             }
         );
         assert_eq!(
@@ -5123,7 +5145,7 @@ mod tests {
             MigrationReport {
                 starting_version: 4,
                 ending_version: SCHEMA_VERSION,
-                applied: 16,
+                applied: SCHEMA_VERSION as usize - 4,
             }
         );
         let caller = database
@@ -5183,7 +5205,7 @@ mod tests {
             MigrationReport {
                 starting_version: 5,
                 ending_version: SCHEMA_VERSION,
-                applied: 15,
+                applied: SCHEMA_VERSION as usize - 5,
             }
         );
         let caller = database
@@ -5223,7 +5245,7 @@ mod tests {
             MigrationReport {
                 starting_version: 6,
                 ending_version: SCHEMA_VERSION,
-                applied: 14,
+                applied: SCHEMA_VERSION as usize - 6,
             }
         );
         let caller = database.caller_by_name(b"Profile Caller").unwrap().unwrap();
@@ -5306,7 +5328,7 @@ mod tests {
             MigrationReport {
                 starting_version: 7,
                 ending_version: SCHEMA_VERSION,
-                applied: 13,
+                applied: SCHEMA_VERSION as usize - 7,
             }
         );
         assert_eq!(
@@ -5406,7 +5428,7 @@ mod tests {
             MigrationReport {
                 starting_version: 8,
                 ending_version: SCHEMA_VERSION,
-                applied: 12,
+                applied: SCHEMA_VERSION as usize - 8,
             }
         );
         let caller = database
@@ -5849,7 +5871,99 @@ mod qwk_migration_tests {
         assert_eq!(history, 0);
         drop(connection);
         let mut db = RuntimeDatabase::open(&path).unwrap();
-        assert_eq!(db.migrate().unwrap().applied, 0);
+        assert_eq!(db.migrate().unwrap().applied, SCHEMA_VERSION as usize - 20);
         db.validate_current_snapshot().unwrap();
+    }
+    #[test]
+    fn schema_twenty_one_failure_rolls_back_native_alters_and_upgrade_is_empty() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("native.db");
+        let mut connection = Connection::open(&path).unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(20) {
+            apply_migration(&mut connection, migration).unwrap();
+        }
+        connection.execute("INSERT INTO board_identity(singleton,board_name,sysop_name) VALUES(1,'Synthetic','Sysop')",[]).unwrap();
+        connection
+            .execute_batch("CREATE TABLE network_quarantine(sentinel TEXT);")
+            .unwrap();
+        assert!(apply_migration(&mut connection, &MIGRATIONS[20]).is_err());
+        assert_eq!(schema_version_from(&connection).unwrap(), 20);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='origin_kind'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name='qwk_links'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        connection
+            .execute_batch("DROP TABLE network_quarantine;")
+            .unwrap();
+        apply_migration(&mut connection, &MIGRATIONS[20]).unwrap();
+        assert_eq!(connection.query_row("SELECT (SELECT COUNT(*) FROM qwk_links)+(SELECT COUNT(*) FROM network_publications)+(SELECT COUNT(*) FROM network_outbound_queue)",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+        drop(connection);
+        let mut db = RuntimeDatabase::open(&path).unwrap();
+        assert_eq!(db.migrate().unwrap().applied, SCHEMA_VERSION as usize - 21);
+        db.validate_current_snapshot().unwrap();
+    }
+    #[test]
+    fn schema_twenty_two_rebuild_failure_is_atomic_and_restores_foreign_keys() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for m in MIGRATIONS.iter().take(21) {
+            apply_migration(&mut c, m).unwrap();
+        }
+        c.execute_batch("CREATE TABLE qwk_private_routes(sentinel TEXT);")
+            .unwrap();
+        assert!(apply_migration(&mut c, &MIGRATIONS[21]).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 21);
+        assert_eq!(
+            c.query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name='container_kind'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='messages_n22'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        c.execute_batch("DROP TABLE qwk_private_routes;").unwrap();
+        apply_migration(&mut c, &MIGRATIONS[21]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 22);
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+        assert_eq!(c.query_row("SELECT (SELECT COUNT(*) FROM qwk_private_policy)+(SELECT COUNT(*) FROM network_private_envelopes)",[],|r|r.get::<_,i64>(0)).unwrap(),0);
     }
 }

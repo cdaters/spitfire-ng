@@ -299,6 +299,9 @@ fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> boo
             WorkerUpdate::MutationResult(result) => {
                 model.show_actions = false;
                 model.action_result = Some(match result {
+                    sf_bbs::MutationResult::QwkNetwork(_) => {
+                        text("network-result-unexpected", &LocalizationArgs::new())
+                    }
                     sf_bbs::MutationResult::Configuration(_) => live_ui::result_text("unsupported"),
                     sf_bbs::MutationResult::LiveControl { command_id, value } => {
                         let message = match &value {

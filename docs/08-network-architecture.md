@@ -1,9 +1,9 @@
 # SPITFIRE Message Network Architecture
 
-Status: **M045/N1 caller QWK offline implemented; external networking NOT IMPLEMENTED**.
+Status: **N1 and N2 accepted: public/private QWK networking and native transit implemented**.
 See the [N1 Technical Reference](technical/qwk-offline.md) for implemented authority;
 the future design below retains M044 scope.
-Current schema is 20. The canonical implementation-ready design, evidence, contracts,
+Current schema is 22. The canonical implementation-ready design, evidence, contracts,
 limits and N1–N7 acceptance sequence are in the
 [M044 networking foundation gate](research/m044-networking-foundation-gate.md).
 
@@ -86,3 +86,7 @@ scheduler, door or release is added.
 ## M045 / schema 20 caller QWK integration
 
 The [QWK offline Technical Reference](technical/qwk-offline.md) defines the implemented adapter, native authority, delivery/pointer semantics, private artifact custody, transactional receipts and recovery. Caller QWK uses ordinary authenticated message permissions and existing binary transfers. No QWK networking, DOVE-Net, FTN, scheduler or separate message store is added. Earlier dated schema/milestone descriptions retain their historical scope.
+
+## N2 implemented authority
+
+The [QWK network reference](technical/qwk-networking.md) owns schema 21/22 partner/maps, native private mailbox/transit, receipts, immutable queue decisions and manual exchange. M044 remains binding. Native messages remain canonical; no SMB store/codec or FTN/BinkP implementation exists.

@@ -31,6 +31,31 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    pub(crate) fn network_status(
+        &self,
+    ) -> Result<Vec<sf_core::qwk_network::LinkStatus>, ApplicationError> {
+        crate::qwk_network::status(&self.runtime)
+    }
+    pub(crate) fn network_queue(
+        &self,
+        link: &str,
+        after: Option<&str>,
+    ) -> Result<sf_core::qwk_network::QueuePage, ApplicationError> {
+        Ok(
+            sf_core::RuntimeDatabase::open_read_only(self.runtime.database_path())?
+                .qwk_network_queue(link, after)?,
+        )
+    }
+    pub(crate) fn network_action(
+        &self,
+        principal: &str,
+        capabilities: &[sf_core::LocalOperatorCapability],
+        command_id: &str,
+        action: &crate::NetworkAction,
+    ) -> Result<crate::NetworkResult, ApplicationError> {
+        crate::qwk_network::dispatch(&self.runtime, principal, capabilities, command_id, action)
+    }
+
     pub fn configuration_snapshot(
         &self,
         principal: &str,

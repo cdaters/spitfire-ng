@@ -11,3 +11,4 @@
 
 //! Bounded interchange codecs. No database, authentication, or transport authority.
 pub mod qwk;
+pub mod qwk_network;

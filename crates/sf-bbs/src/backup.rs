@@ -573,6 +573,11 @@ fn stage_restored_board(
             })?;
     }
 
+    if restored_database.schema_version()? >= 21 {
+        restored_database.hold_restored_qwk_network().map_err(|_| {
+            BoardBackupError::ResourceValidation("network restore state could not be held".into())
+        })?;
+    }
     if restored_database.schema_version()? >= 16 {
         restored_database.normalize_external_storage_after_restore(
             i64::try_from(
@@ -713,6 +718,11 @@ fn copy_resource_tree(
     entries: &mut Vec<BackupEntry>,
 ) -> Result<(), BoardBackupError> {
     for (relative, source) in collect_regular_files(source_root)? {
+        // Completed network artifacts have separate durable custody. A manual
+        // inbox candidate is temporary and must never replay automatically on restore.
+        if kind == BackupEntryKind::SystemResource && relative.starts_with("qwk-handoff/") {
+            continue;
+        }
         let path = format!("{prefix}/{relative}");
         entries.push(copy_entry(&source, staging, &path, kind)?);
     }
@@ -1328,6 +1338,60 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
+        if connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=22)",
+                [],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap()
+        {
+            connection.execute_batch(r#"PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;
+DROP TRIGGER network_private_envelope_immutable; DROP TRIGGER network_private_envelope_retained; DROP TABLE network_private_envelopes; DROP TABLE qwk_private_routes; DROP TABLE qwk_mailbox_aliases; DROP TABLE qwk_private_policy;
+CREATE TABLE messages_prior (
+            message_id INTEGER PRIMARY KEY,
+            fanout_id INTEGER NOT NULL REFERENCES message_fanouts(fanout_id) ON DELETE RESTRICT,
+            conference_id INTEGER NOT NULL REFERENCES message_conferences(conference_id) ON DELETE RESTRICT,
+            message_number INTEGER NOT NULL CHECK (message_number > 0),
+            author_caller_id INTEGER REFERENCES callers(caller_id) ON DELETE RESTRICT,
+            author_name TEXT NOT NULL CHECK (length(author_name) BETWEEN 1 AND 60),
+            created_at INTEGER NOT NULL,
+            placed_at INTEGER NOT NULL,
+            parent_message_id INTEGER REFERENCES messages(message_id) ON DELETE RESTRICT,
+            audience_kind TEXT NOT NULL CHECK (audience_kind IN ('all-callers', 'local-recipient')),
+            visibility TEXT NOT NULL CHECK (visibility IN ('public', 'private')),
+            lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('active', 'deleted')),
+            state_version INTEGER NOT NULL DEFAULT 1 CHECK (state_version > 0),
+            delivery_role TEXT NOT NULL CHECK (delivery_role IN ('single', 'primary', 'cc')),
+            delivery_ordinal INTEGER NOT NULL CHECK (delivery_ordinal BETWEEN 0 AND 9),
+            primary_delivery_id INTEGER REFERENCES messages(message_id) ON DELETE RESTRICT,
+            origin_kind TEXT NOT NULL DEFAULT 'native' CHECK(origin_kind IN ('native','external-network')),
+            UNIQUE (conference_id, message_number),
+            UNIQUE (fanout_id, delivery_ordinal),
+            UNIQUE (message_id, fanout_id),
+            CHECK (
+                (delivery_role = 'single' AND delivery_ordinal = 0 AND primary_delivery_id IS NULL)
+                OR (delivery_role = 'primary' AND delivery_ordinal = 0 AND primary_delivery_id = message_id)
+                OR (delivery_role = 'cc' AND delivery_ordinal BETWEEN 1 AND 9 AND primary_delivery_id IS NOT NULL)
+            ),
+            CHECK (visibility = 'public' OR audience_kind = 'local-recipient')
+        );
+INSERT INTO messages_prior(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,state_version,delivery_role,delivery_ordinal,primary_delivery_id,origin_kind) SELECT message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,state_version,delivery_role,delivery_ordinal,primary_delivery_id,origin_kind FROM messages; DROP TABLE messages; ALTER TABLE messages_prior RENAME TO messages;
+CREATE TRIGGER network_external_author_update BEFORE UPDATE OF origin_kind,author_caller_id ON messages WHEN NEW.origin_kind='external-network' AND NEW.author_caller_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'network author is not a caller'); END;
+CREATE TRIGGER network_external_author BEFORE INSERT ON messages WHEN NEW.origin_kind='external-network' AND NEW.author_caller_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'network author is not a caller'); END;
+CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,lifecycle_state); CREATE INDEX messages_author_scan ON messages(author_caller_id,visibility,lifecycle_state); DELETE FROM schema_migrations WHERE version=22; PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;"#).unwrap();
+        }
+        if connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=21)",
+                [],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap()
+        {
+            connection.execute_batch("DROP TRIGGER network_history_receipt_budget; DROP TRIGGER network_history_publication_budget; DROP TABLE network_history_capacity; DROP TRIGGER network_external_author_update; DROP TRIGGER network_route_immutable; DROP TRIGGER network_route_retained; DROP TRIGGER network_path_immutable; DROP TRIGGER network_path_retained; DROP TRIGGER network_external_author; DROP TRIGGER network_publication_immutable; DROP TRIGGER network_publication_retained; DROP TRIGGER qwk_network_receipt_immutable; DROP TRIGGER qwk_network_receipt_retained; DROP TABLE qwk_network_import_receipts; DROP TABLE network_quarantine; DROP TABLE network_delivery_attempts; DROP TABLE network_outbound_queue; DROP TABLE network_routing_decisions; DROP TABLE network_publication_path; DROP TABLE network_publications; DROP TABLE qwk_link_mappings; DROP TABLE qwk_link_state; DROP TABLE qwk_links; ALTER TABLE messages DROP COLUMN origin_kind; ALTER TABLE message_payloads DROP COLUMN encoding; DELETE FROM schema_migrations WHERE version=21;").unwrap();
+        }
+
         let has: bool = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=20)",

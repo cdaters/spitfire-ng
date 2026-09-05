@@ -91,7 +91,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite and require current schema 20, exact migration names,
+3. open SQLite and require current schema 22, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -112,9 +112,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-20 snapshots.
+target. This build accepts exact schema-10 through schema-21 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 20. Validation rejects
+applies the transactional migrations through schema 22. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -230,7 +230,7 @@ one; clients will correctly report a changed host fingerprint. See
 
 ## Schema-14 public-information recovery boundary
 
-M043 schema-14 state remains preserved within current schema 20. Cold backup preserves directory policy, each
+M043 schema-14 state remains preserved within current schema 22. Cold backup preserves directory policy, each
 caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
 contributors/versions, recognized resource generations/digests, semantic
 events, and authoritative bulletin/newsletter/native-thought bytes under the
@@ -306,3 +306,23 @@ is the canonical practical path, including deliberate permission recovery.
 ## M045 / schema 20 caller QWK integration
 
 The [QWK offline Technical Reference](technical/qwk-offline.md) defines the implemented adapter, native authority, delivery/pointer semantics, private artifact custody, transactional receipts and recovery. Caller QWK uses ordinary authenticated message permissions and existing binary transfers. No QWK networking, DOVE-Net, FTN, scheduler or separate message store is added. Earlier dated schema/milestone descriptions retain their historical scope.
+
+## M046 / schema 21 QWK network exchange
+
+Cold snapshots preserve typed link/mapping policy, native external-message encoding,
+publications, paths, route decisions, queues, attempts, receipts, quarantine and
+complete artifact custody. Uncommitted `qwk-handoff` inbox candidates are excluded.
+Restore holds Pending/Ready/Retry entries for explicit review; no live exchange
+session resumes. Restart retains ordinary retry/due state. Native receipt/identity
+replay remains coherent after restore. See [N2 recovery semantics](technical/qwk-networking.md).
+
+## N2 private QWK containers (schema 22)
+
+Private QWK mailbox/transit semantics extend the same native message authority;
+FTN NetMail remains excluded. Explicit enrolled recipients and configured next hops
+preserve privacy; transit has no conference number or caller-visible mailbox.
+Native payloads, durable queues, receipts and provenance survive restart/restore;
+restored unsent work is held. No private bodies enter operator diagnostics, and no
+SMB compatibility or separate QWK store exists. See the canonical
+[QWK networking reference](technical/qwk-networking.md) and
+[Sysop procedure](manual/qwk-networking.md) for interfaces, policy and limits.

@@ -60,3 +60,10 @@ The complete en-US catalog contains 988 semantic messages.
 B021-D advances en-US to 1.16.0 with 988 unique semantic messages, shared
 maintenance-owner guidance, explicit online-loss recovery, and concise monitor
 key hints. Presentation-package versions remain unchanged.
+
+## M046 QWK network strings
+
+en-US 1.19.0 has 1,047 unique semantic messages. Added strings cover implemented
+network capability enrollment, partner/mapping/queue vocabulary, action/error labels
+and explicit external-network author display plus private mailbox/transit policy terminology. Protocol JSON keys remain stable wire
+identifiers. Modern/Minimal 1.6.0 and Classic 1.7.0 remain unchanged.

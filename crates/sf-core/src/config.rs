@@ -112,6 +112,9 @@ pub enum LocalOperatorCapability {
     ReadConfiguration,
     ChangeOnlineConfiguration,
     ChangeSensitiveConfiguration,
+    NetworkStatus,
+    NetworkRun,
+    NetworkQueue,
 }
 
 /// Matches the existing bounded operator discovery capability-list capacity.
@@ -120,7 +123,7 @@ pub const MAX_LOCAL_OPERATOR_CAPABILITIES: usize = 32;
 
 impl LocalOperatorCapability {
     /// Complete implemented vocabulary for explicit enrollment, never a preset.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 19] = [
         Self::BoardStatistics,
         Self::NodeStatus,
         Self::OperationalEvents,
@@ -137,6 +140,9 @@ impl LocalOperatorCapability {
         Self::ReadConfiguration,
         Self::ChangeOnlineConfiguration,
         Self::ChangeSensitiveConfiguration,
+        Self::NetworkStatus,
+        Self::NetworkRun,
+        Self::NetworkQueue,
     ];
     /// Explicitly enumerate the B021-A bootstrap boundary. New controls must
     /// never enter this list merely because they are added to the enum.

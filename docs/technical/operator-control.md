@@ -339,3 +339,8 @@ Those established B-016 services are not duplicated as new monitor controls.
 Host-local startup/offline administration and enrolled protected IPC are distinct
 accepted entry boundaries. Bootstrap and every IPC mutation retain their existing
 read-only/explicit-enrollment policy. See [Operator Startup and Recovery](../manual/operator-recovery.md).
+
+## N2 QWK networking
+
+Operator protocol 1.6 advertises QwkNetwork only after compatible discovery. Explicit network-status, network-run and network-queue capabilities separate reads, build/ingest and handoff/retry. Partner changes require change-sensitive-configuration. Requests are typed, versioned and command-id journaled; no arbitrary paths or executable commands enter the operator interface.
+See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.

@@ -3,7 +3,7 @@
 Current source offers QWK offline mail under **Messages → L**. Callers download
 messages, read/reply in a QWK/QWKE CP437 reader, and upload replies. See the
 [Caller Guide](../caller-guide/qwk-offline.md) for the complete procedure.
-QWK networking, DOVE-Net and FidoNet/BinkP are not implemented. The downloadable
+[QWK network partners](qwk-networking.md) have a separate typed operator workflow. FidoNet/BinkP remain unimplemented. The downloadable
 0.1.0 Development Preview is older than this source feature.
 
 New setup creates a stable QWK board ID. For an existing board, stop the daemon,
