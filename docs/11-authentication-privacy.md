@@ -608,7 +608,12 @@ checked again at dispatch.
 Unix sockets identify the peer UID. Windows named pipes use an explicit
 protected DACL and obtain the peer SID from the client's Windows security
 token; Administrator membership and caller BBS authority do not grant access.
-All state-changing operator commands remain unimplemented. B-022 will govern
+Bootstrap remains exactly six read capabilities. Live B021-B mutations require
+explicit enrollment; owning a board, an empty allowlist, named Sysop status,
+and OS privilege do not grant mutation authority. Profiles remain bounded to
+32 unique known capabilities, sufficient for all six reads and seven current
+controls. Dispatch-time revocation applies to already attached clients.
+B-022 will govern
 caller-facing reports and confined publication. Live screen observation
 remains outside this tranche under its separate notice, redaction, consent,
 and retention boundary. See [Protected Operator
@@ -616,7 +621,11 @@ Attachment](technical/operator-control.md).
 
 `sfmonitor` consumes only those privacy-bounded wire projections through
 `OperatorClient`. It never opens the database or diagnostic logs, never
-renders typed event attributes, and has no mutation feature or key binding.
-Disconnecting or crashing the monitor therefore cannot transfer authority to
-the client or affect callers. See the [sfmonitor Technical
+renders typed event attributes, or acquires authority from feature discovery.
+Its Actions send authenticated typed commands with daemon-owned preflight,
+exact-session targets, CommandId recovery, and durable safe audit. Chat content
+exists only in bounded live memory; no transcript enters receipts, audit,
+events, logs, or SQLite. Monitor loss ends its chat, not the caller session;
+an already accepted daemon shutdown continues independently of its requester.
+See the [sfmonitor Technical
 Architecture](technical/sfmonitor.md).

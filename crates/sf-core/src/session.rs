@@ -78,6 +78,7 @@ pub enum SessionCloseReason {
     TimeLimit,
     Inactivity,
     OperatorDisconnect,
+    BoardShutdown,
 }
 
 impl SessionCloseReason {
@@ -91,6 +92,7 @@ impl SessionCloseReason {
             Self::TimeLimit => "time-limit",
             Self::Inactivity => "inactivity",
             Self::OperatorDisconnect => "operator-disconnect",
+            Self::BoardShutdown => "board-shutdown",
         }
     }
 }
@@ -238,6 +240,11 @@ pub trait SessionStatusObserver: Send + Sync {
     ) -> Result<(), NodeError>;
 }
 
+/// Runtime-owned, ephemeral operator time adjustments for a live session.
+pub trait SessionTimeController: Send + Sync {
+    fn adjustment_minutes(&self, session_id: SessionId) -> i16;
+}
+
 /// Immutable presentation/status dependencies for one stock session. Grouping
 /// them keeps the terminal/session entry point small without coupling the core
 /// to application or transport types.
@@ -252,6 +259,7 @@ pub struct StockSessionContext<'a> {
     pub status: &'a dyn SessionStatusObserver,
     pub file_storage: &'a FileStorage,
     pub interaction: &'a InteractionHub,
+    pub time_controller: &'a dyn SessionTimeController,
     pub page_timeout: Duration,
     pub chat_timeout: Duration,
     pub presentation_profile: &'a str,
@@ -275,6 +283,36 @@ pub fn run_stock_session(
         u64::from(caller_config.inactivity_minutes).saturating_mul(60),
     ))?;
     let result = run_stock_session_inner(session, terminal, database, caller_config, hasher, stock);
+    if result.is_err() && stock.interaction.disconnect_pending(session.id())? {
+        terminal.end_binary_mode()?;
+        let board_shutdown = stock.interaction.board_shutdown_pending(session.id())?;
+        if stock.interaction.take_disconnect_notice(session.id())? == Some(true) {
+            write_key_line(
+                terminal,
+                if board_shutdown {
+                    "caller-board-shutdown"
+                } else {
+                    "caller-operator-disconnected"
+                },
+                &crate::LocalizationArgs::new(),
+            )?;
+        }
+        if session.state() == SessionState::Active {
+            session.close(if board_shutdown {
+                SessionCloseReason::BoardShutdown
+            } else {
+                SessionCloseReason::OperatorDisconnect
+            })?;
+        }
+        terminal.disconnect()?;
+        let identity = match session.authentication_state() {
+            AuthenticationState::Authenticated(id) => database
+                .caller_by_id(id)?
+                .map(|caller| (caller.id, caller.display_name)),
+            _ => None,
+        };
+        return session_outcome(session, 0, identity);
+    }
     if !matches!(result, Err(SessionError::Terminal(TerminalError::TimedOut))) {
         return result;
     }
@@ -430,7 +468,11 @@ fn run_stock_session_inner(
         }
         let elapsed = session
             .authenticated_at
-            .map_or(Duration::ZERO, |started| started.elapsed());
+            .map_or(Duration::ZERO, |started| started.elapsed())
+            .saturating_sub(stock.interaction.paused_allowance(session.id())?);
+        authenticated.allowance = authenticated
+            .base_allowance
+            .adjust_minutes(stock.time_controller.adjustment_minutes(session.id()));
         if authenticated.allowance.expired(elapsed) {
             let resources = active_resources(terminal, stock.resources, stock.text_resources);
             render_policy_display(
@@ -745,13 +787,24 @@ pub(crate) fn refresh_caller_access_for_dispatch(
     stock: &StockSessionContext<'_>,
     context: &DisplayContext<'_>,
 ) -> Result<bool, SessionError> {
-    if stock.interaction.take_disconnect(session.id())? {
-        write_key_line(
-            terminal,
-            "caller-operator-disconnected",
-            &crate::LocalizationArgs::new(),
-        )?;
-        session.close(SessionCloseReason::OperatorDisconnect)?;
+    if let Some(notice) = stock.interaction.take_disconnect_notice(session.id())? {
+        let board_shutdown = stock.interaction.board_shutdown_pending(session.id())?;
+        if notice {
+            write_key_line(
+                terminal,
+                if board_shutdown {
+                    "caller-board-shutdown"
+                } else {
+                    "caller-operator-disconnected"
+                },
+                &crate::LocalizationArgs::new(),
+            )?;
+        }
+        session.close(if board_shutdown {
+            SessionCloseReason::BoardShutdown
+        } else {
+            SessionCloseReason::OperatorDisconnect
+        })?;
         terminal.disconnect()?;
         return Ok(false);
     }
@@ -2598,6 +2651,16 @@ pub(crate) fn read_menu_command(
     terminal: &mut dyn Terminal,
     hot_keys: bool,
 ) -> Result<Option<u8>, TerminalError> {
+    terminal.set_operator_invitation_context(true);
+    let result = read_menu_command_inner(terminal, hot_keys);
+    terminal.set_operator_invitation_context(false);
+    result
+}
+
+fn read_menu_command_inner(
+    terminal: &mut dyn Terminal,
+    hot_keys: bool,
+) -> Result<Option<u8>, TerminalError> {
     if hot_keys {
         return terminal.read_key().map(|value| {
             value.map(|byte| {
@@ -2676,6 +2739,17 @@ fn run_sysop_page(
         }
         PageAnswer::Accepted(chat) => {
             stock.status.chat_started()?;
+            if terminal.supports_input_polling() {
+                let result = crate::run_attached_caller_chat(
+                    terminal,
+                    stock.interaction,
+                    session.id(),
+                    chat,
+                );
+                stock.status.interaction_finished()?;
+                result?;
+                return Ok(());
+            }
             render_display(terminal, &resources.chat_caller_initiated, context)?;
             ensure_line_ending(terminal, &resources.chat_caller_initiated.bytes)?;
             loop {

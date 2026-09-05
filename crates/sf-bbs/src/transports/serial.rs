@@ -103,6 +103,17 @@ impl SerialTerminal {
 }
 
 impl Terminal for SerialTerminal {
+    fn supports_input_polling(&self) -> bool {
+        true
+    }
+    fn read_input_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        let mut byte = [0_u8; 1];
+        let result = self
+            .read_binary(&mut byte, timeout)
+            .map(|count| (count != 0).then_some(byte[0]));
+        self.end_binary_mode()?;
+        result
+    }
     fn info(&self) -> TerminalInfo {
         self.info.clone()
     }

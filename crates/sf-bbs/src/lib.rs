@@ -16,12 +16,14 @@ mod backup;
 mod board_lock;
 mod error;
 mod fixture;
+mod live_control;
 mod operator;
 mod operator_control;
 mod presentation;
 mod resources;
 mod runtime;
 mod setup;
+mod shutdown;
 mod status;
 mod transports;
 
@@ -32,11 +34,16 @@ pub use backup::{
 };
 pub use error::ApplicationError;
 pub use fixture::{initialize_fixture_board, FixtureReport, FIXTURE_CONFIG_FILE};
+pub use live_control::{
+    DisconnectPreflight, InteractionSnapshot, LiveControlAction, LiveControlResult,
+    LiveSessionTarget, PendingCallerPage,
+};
 pub use operator::{run_operator_console, OperatorService};
 pub use operator_control::{
-    BoardStatusWire, EventBatchWire, EventCursorWire, EventWire, MaintenanceWire, NodeStatusWire,
-    NotificationWire, OperatorClient, OperatorControlError, OperatorEventQuery, OperatorFeature,
-    RecentCallerWire, StatisticsWire,
+    BoardStatusWire, ChatServerFrame, CommandReceiptWire, EventBatchWire, EventCursorWire,
+    EventWire, MaintenanceWire, MutationResult, NodeStatusWire, NotificationWire,
+    OperatorChatClient, OperatorClient, OperatorControlDescriptor, OperatorControlError,
+    OperatorControlsWire, OperatorEventQuery, OperatorFeature, RecentCallerWire, StatisticsWire,
 };
 pub use presentation::{
     EngineCompatibility, FallbackPolicy, PresentationResolver, PresentationStatus,
@@ -50,6 +57,7 @@ pub use runtime::{
     ServeReport,
 };
 pub use setup::{interactive_setup, setup_board, SetupPlan, SetupReport, BOARD_CONFIG_FILE};
+pub use shutdown::{ShutdownImpact, ShutdownPhase};
 pub use status::{board_status, RuntimeStatusDocument, RUNTIME_STATUS_FILE};
 
 use std::ffi::OsString;
@@ -510,6 +518,9 @@ fn localized_operator_error(error: OperatorControlError) -> ApplicationError {
         OperatorControlError::PipeSecurityUnavailable => "operator-pipe-security-failed",
         OperatorControlError::Timeout => "operator-request-timeout",
         OperatorControlError::StaleDaemonGeneration => "operator-daemon-restarted",
+        OperatorControlError::Conflict | OperatorControlError::InvalidCommand => {
+            "operator-request-failed"
+        }
         OperatorControlError::Service(_) => "operator-request-failed",
     };
     ApplicationError::Transport(op(key))

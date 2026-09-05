@@ -33,7 +33,7 @@ pub const LANGUAGE_MANIFEST: &str = "language.toml";
 pub const LANGUAGE_FORMAT_VERSION: u32 = 1;
 pub const CATALOG_API_VERSION: u32 = 1;
 pub const EMBEDDED_LOCALE: &str = "en-US";
-pub const EMBEDDED_PACKAGE_VERSION: &str = "1.12.0";
+pub const EMBEDDED_PACKAGE_VERSION: &str = "1.14.0";
 
 const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 const MAX_LANGUAGE_FILES: usize = 64;

@@ -6,6 +6,11 @@
 
 ## Outcome
 
+This report records the original read-only MVP acceptance, not the complete
+current control surface. Current source subsequently adds the accepted
+[B021-B live controls](m039-tranche-7-b021b3-shutdown-integrated.md) with explicit
+mutation enrollment; the read-only bootstrap and Q-only quit boundary remain.
+
 `sfmonitor` is now a real, separately runnable, read-only local operator
 application. It attaches to an independently running board through the
 cross-platform `OperatorClient`, renders the existing B-017 projections, and

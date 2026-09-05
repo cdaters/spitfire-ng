@@ -59,6 +59,7 @@ pub struct NodeSnapshot {
     pub description: Option<String>,
     pub state: NodeRuntimeState,
     pub session_id: Option<SessionId>,
+    pub occupancy_generation: Option<u64>,
     pub caller_id: Option<CallerId>,
     pub caller_name: Option<String>,
     pub transport: Option<TransportKind>,
@@ -111,6 +112,7 @@ struct NodeSlot {
     definition: NodeDefinition,
     state: NodeRuntimeState,
     session_id: Option<SessionId>,
+    occupancy_generation: u64,
     caller_id: Option<CallerId>,
     caller_name: Option<String>,
     transport: Option<TransportKind>,
@@ -126,6 +128,7 @@ impl NodeSlot {
             description: self.definition.description.clone(),
             state: self.state,
             session_id: self.session_id,
+            occupancy_generation: self.session_id.map(|_| self.occupancy_generation),
             caller_id: self.caller_id,
             caller_name: self.caller_name.clone(),
             transport: self.transport,
@@ -192,6 +195,7 @@ impl NodeManager {
                 },
                 definition,
                 session_id: None,
+                occupancy_generation: 0,
                 caller_id: None,
                 caller_name: None,
                 transport: None,
@@ -227,6 +231,7 @@ impl NodeManager {
             };
             node.state = NodeRuntimeState::Connecting;
             node.session_id = Some(session_id);
+            node.occupancy_generation = node.occupancy_generation.checked_add(1).unwrap_or(1);
             node.transport = Some(transport);
             node.connected_at = Some(connected_at);
             node.definition.id
@@ -236,12 +241,38 @@ impl NodeManager {
             manager: self.clone(),
             node_id,
             session_id,
+            occupancy_generation: self
+                .snapshots()?
+                .into_iter()
+                .find(|snapshot| snapshot.id == node_id)
+                .and_then(|snapshot| snapshot.occupancy_generation)
+                .unwrap_or(1),
             released: false,
         })
     }
 
     pub fn snapshots(&self) -> Result<Vec<NodeSnapshot>, NodeError> {
         Ok(self.lock()?.iter().map(NodeSlot::snapshot).collect())
+    }
+
+    /// Keeps exact-target validation and a short runtime transition under node
+    /// coordination. Callers must not wait for I/O or reenter NodeManager here.
+    pub fn with_session_target<T>(
+        &self,
+        node_id: NodeId,
+        session_id: SessionId,
+        occupancy: u64,
+        transition: impl FnOnce(&NodeSnapshot) -> T,
+    ) -> Result<Option<T>, NodeError> {
+        let nodes = self.lock()?;
+        Ok(nodes
+            .iter()
+            .find(|node| {
+                node.definition.id == node_id
+                    && node.session_id == Some(session_id)
+                    && node.occupancy_generation == occupancy
+            })
+            .map(|node| transition(&node.snapshot())))
     }
 
     pub fn available(&self) -> Result<usize, NodeError> {
@@ -386,12 +417,17 @@ pub struct NodeLease {
     manager: NodeManager,
     node_id: NodeId,
     session_id: SessionId,
+    occupancy_generation: u64,
     released: bool,
 }
 
 impl NodeLease {
     pub fn node_id(&self) -> NodeId {
         self.node_id
+    }
+
+    pub const fn occupancy_generation(&self) -> u64 {
+        self.occupancy_generation
     }
 
     pub fn start_session(&self) -> Session {
@@ -602,6 +638,24 @@ mod tests {
         drop(second);
         drop(replacement);
         assert_eq!(manager.available().unwrap(), 2);
+    }
+
+    #[test]
+    fn occupancy_generation_changes_on_slot_reuse() {
+        let manager = NodeManager::new(definitions(1)).unwrap();
+        let first = manager
+            .acquire(SessionId::new(1).unwrap(), TransportKind::Telnet, 1)
+            .unwrap();
+        let generation = first.occupancy_generation();
+        let mut session = first.start_session();
+        session.activate().unwrap();
+        session.close(SessionCloseReason::Goodbye).unwrap();
+        first.release(&session).unwrap();
+        let second = manager
+            .acquire(SessionId::new(2).unwrap(), TransportKind::Telnet, 2)
+            .unwrap();
+        assert_ne!(generation, second.occupancy_generation());
+        assert_ne!(second.occupancy_generation(), 0);
     }
 
     #[test]

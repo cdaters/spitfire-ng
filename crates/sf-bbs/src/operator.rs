@@ -31,6 +31,34 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn dispatch_live_control(
+        &self,
+        principal: String,
+        owner: String,
+        capabilities: &[sf_core::LocalOperatorCapability],
+        authorize_chat: sf_core::ChatAuthorization,
+        command_id: String,
+        fingerprint: String,
+        action: crate::LiveControlAction,
+    ) -> Result<crate::MutationResult, ApplicationError> {
+        crate::live_control::dispatch(
+            self.runtime.clone(),
+            principal,
+            owner,
+            capabilities,
+            authorize_chat,
+            command_id,
+            fingerprint,
+            action,
+        )
+    }
+    pub fn live_interactions(&self) -> Result<crate::InteractionSnapshot, ApplicationError> {
+        crate::live_control::snapshot(&self.runtime)
+    }
+    pub fn shutdown_status(&self) -> Result<crate::ShutdownImpact, ApplicationError> {
+        crate::shutdown::status(&self.runtime)
+    }
     pub fn new(runtime: Arc<BoardRuntime>) -> Self {
         Self { runtime }
     }
@@ -90,6 +118,15 @@ impl OperatorService {
     ) -> Result<sf_core::MaintenanceStatus, ApplicationError> {
         self.runtime.maintenance_status(context)
     }
+    pub fn acknowledge_operator_notification(
+        &self,
+        context: &OperatorObservabilityContext,
+        notification_id: sf_core::NotificationId,
+        expected_version: u64,
+    ) -> Result<bool, ApplicationError> {
+        self.runtime
+            .acknowledge_operator_notification(context, notification_id, expected_version)
+    }
     pub fn subscribe_events(
         &self,
         context: &OperatorObservabilityContext,
@@ -137,6 +174,20 @@ impl OperatorService {
             .interaction()
             .request_disconnect(session)
             .map_err(Into::into)
+    }
+
+    pub fn adjust_session_time(
+        &self,
+        context: &OperatorObservabilityContext,
+        session: SessionId,
+        delta_minutes: i16,
+    ) -> Result<(), ApplicationError> {
+        if !context.capabilities.adjust_session_time {
+            return Err(ApplicationError::Usage(
+                "operator authorization denied".to_owned(),
+            ));
+        }
+        self.runtime.adjust_session_time(session, delta_minutes)
     }
 
     pub fn callers(&self) -> Result<Vec<Caller>, ApplicationError> {

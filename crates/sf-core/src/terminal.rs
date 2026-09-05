@@ -182,6 +182,26 @@ pub trait Terminal: Send {
     fn write_all(&mut self, bytes: &[u8]) -> Result<(), TerminalError>;
     fn read_line(&mut self, maximum_bytes: usize) -> Result<Option<Vec<u8>>, TerminalError>;
 
+    /// Bounded application input without changing protocol/binary ownership.
+    /// Used by the session owner to remain responsive to local controls.
+    fn read_input_byte(&mut self, _timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        Err(TerminalError::InputPollingUnsupported)
+    }
+
+    fn echoes_input(&self) -> bool {
+        false
+    }
+
+    fn set_operator_invitation_context(&mut self, _enabled: bool) {}
+    fn supports_input_polling(&self) -> bool {
+        false
+    }
+
+    /// Exact transport-instance close; never a listener, process, or host close.
+    fn emergency_close_handle(&self) -> Result<Option<EmergencyCloseHandle>, TerminalError> {
+        Ok(None)
+    }
+
     /// Configures the maximum interval without caller keyboard input. Network
     /// and serial adapters enforce it at their byte source; line-disciplined
     /// local shells may retain host-controlled blocking behavior.
@@ -273,6 +293,8 @@ pub trait Terminal: Send {
         Ok(())
     }
 }
+
+pub type EmergencyCloseHandle = std::sync::Arc<dyn Fn() -> Result<(), TerminalError> + Send + Sync>;
 
 /// Applies persistent caller display preferences over transport capabilities.
 /// It keeps pagination out of message/file/resource storage and therefore
@@ -374,6 +396,21 @@ impl<'a> PagingTerminal<'a> {
 }
 
 impl Terminal for PagingTerminal<'_> {
+    fn supports_input_polling(&self) -> bool {
+        self.inner.supports_input_polling()
+    }
+    fn set_operator_invitation_context(&mut self, enabled: bool) {
+        self.inner.set_operator_invitation_context(enabled);
+    }
+    fn read_input_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        self.inner.read_input_byte(timeout)
+    }
+    fn echoes_input(&self) -> bool {
+        self.inner.echoes_input()
+    }
+    fn emergency_close_handle(&self) -> Result<Option<EmergencyCloseHandle>, TerminalError> {
+        self.inner.emergency_close_handle()
+    }
     fn info(&self) -> TerminalInfo {
         self.effective_info()
     }
@@ -663,6 +700,10 @@ impl Terminal for InMemoryTerminal {
 
 #[derive(Debug, Error)]
 pub enum TerminalError {
+    #[error("bounded application input is unavailable on this adapter")]
+    InputPollingUnsupported,
+    #[error("the session owner requested cooperative cancellation")]
+    OperatorCancelled,
     #[error("terminal I/O failed: {0}")]
     Io(#[from] io::Error),
     #[error("terminal input is {actual} bytes; maximum is {maximum}")]

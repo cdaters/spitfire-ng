@@ -604,6 +604,16 @@ pub struct AuthenticatedCaller {
     pub session_started_at: i64,
     pub pending_access_denial: Option<CallerAccessDenial>,
     pub allowance: SessionAllowance,
+    /// Policy allowance plus earned live upload credit; operator adjustments
+    /// are applied relative to it and never rewrite durable caller policy.
+    pub base_allowance: SessionAllowance,
+}
+
+impl AuthenticatedCaller {
+    pub(crate) fn credit_live_allowance(&mut self, seconds: u64) {
+        self.base_allowance = self.base_allowance.credit_seconds(seconds);
+        self.allowance = self.allowance.credit_seconds(seconds);
+    }
 }
 
 /// Engine-owned, privacy-safe snapshot of the live facts approved for caller
@@ -747,6 +757,14 @@ impl SessionAllowance {
     pub const fn credit_seconds(self, seconds: u64) -> Self {
         Self {
             limit_seconds: self.limit_seconds.saturating_add(seconds),
+        }
+    }
+
+    pub fn adjust_minutes(self, delta: i16) -> Self {
+        let seconds = i64::from(delta).saturating_mul(60);
+        let value = i128::from(self.limit_seconds) + i128::from(seconds);
+        Self {
+            limit_seconds: value.clamp(0, i128::from(u64::MAX)) as u64,
         }
     }
 
@@ -1016,6 +1034,7 @@ mod tests {
             session_started_at: 1_735_689_600,
             pending_access_denial: None,
             allowance: SessionAllowance::new(2_700),
+            base_allowance: SessionAllowance::new(2_700),
         };
         let context = CallerSessionContext::from_authenticated(
             &authenticated,
@@ -1034,6 +1053,16 @@ mod tests {
         assert_eq!(context.call_remaining_seconds(), 2_580);
         assert_eq!(context.daily_remaining_seconds(), 2_880);
         assert_eq!(context.calls_remaining_today(), 8);
+        let mut credited = authenticated;
+        credited.allowance = credited.base_allowance.adjust_minutes(5);
+        credited.credit_live_allowance(90);
+        assert_eq!(credited.allowance.limit_seconds(), 3_090);
+        // Returning from file/chat context reapplies the same B1 adjustment;
+        // it must neither lose earned credit nor add the adjustment twice.
+        credited.allowance = credited.base_allowance.adjust_minutes(5);
+        assert_eq!(credited.allowance.limit_seconds(), 3_090);
+        credited.credit_live_allowance(0);
+        assert_eq!(credited.base_allowance.limit_seconds(), 2_790);
     }
 
     #[test]

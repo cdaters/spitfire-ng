@@ -53,6 +53,13 @@ impl EventId {
 pub struct NotificationId(u64);
 
 impl NotificationId {
+    pub const fn new(value: u64) -> Option<Self> {
+        if value == 0 {
+            None
+        } else {
+            Some(Self(value))
+        }
+    }
     pub const fn get(self) -> u64 {
         self.0
     }

@@ -1,8 +1,15 @@
 # SPITFIRE NG canonical en-US caller/session catalog.
 caller-connection-sysop-node = Your Sysop is { $sysop } - Node { $node }
 caller-connection-product-version = SPITFIRE NG Bulletin Board System - Version { $version }
+caller-operator-chat-invitation = The Sysop invites you to chat. Accept? [Y/N]
+caller-operator-chat-declined = The chat invitation ended without starting a chat.
+caller-operator-chat-started = Sysop chat is active. Enter /Q or press Esc to end chat. Chat is not recorded.
+caller-operator-chat-ended = Sysop chat ended.
+caller-operator-chat-return = Returning to your previous BBS prompt.
+caller-operator-chat-busy = The Sysop is catching up. Please wait before sending again.
 caller-inactivity-goodbye = No activity time limit exceeded. Goodbye.
 caller-operator-disconnected = The Sysop has disconnected this session.
+caller-operator-chat-invalid-line = Chat lines must be valid terminal text and at most 512 UTF-8 bytes. Shorten this line before sending.
 caller-auth-new-question = Are you a New Caller? (Y/N): { " " }
 caller-auth-name-prompt = Caller Name: { " " }
 caller-auth-password-prompt = Password: { " " }
@@ -312,3 +319,4 @@ caller-system-information-sysop = Sysop: { $sysop }
 caller-system-information-started = Board Started: { $date }
 caller-system-information-calls = Completed Calls: { $calls }
 caller-thought = Thought: { $thought }
+caller-board-shutdown = SPITFIRE NG is shutting down. Please call again later.

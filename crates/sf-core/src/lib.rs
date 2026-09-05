@@ -35,6 +35,7 @@ pub mod paths;
 pub mod public_information;
 pub mod resources;
 pub mod session;
+mod session_control_terminal;
 pub mod terminal;
 pub mod transfer;
 pub mod transfer_runtime;
@@ -62,6 +63,7 @@ pub use config::{
     PasswordHashConfig, PathConfig, PostLoginJourney, PresentationConfig, PresentationMode,
     ProfileFieldPolicy, RuntimeConfig, SecurityLimitConfig, StorageConfig, SubscriptionConfig,
     TransportAdapterConfig, TransportConfig, ValidatedConfig, CONFIG_FORMAT_VERSION,
+    MAX_LOCAL_OPERATOR_CAPABILITIES,
 };
 pub use credentials::{CredentialError, CredentialHasher, CREDENTIAL_SCHEME};
 pub use database::{
@@ -77,8 +79,9 @@ pub use file::{
 };
 pub use file_maintenance::*;
 pub use interaction::{
-    CallerChat, InteractionError, InteractionHub, OperatorChat, PageAnswer, PageRequest, PageState,
-    PageTicket, SysopAvailability,
+    AllowancePause, CallerChat, ChatAuthorization, DisconnectTicket, InteractionError,
+    InteractionHub, OperatorChat, PageAnswer, PageRequest, PageState, PageTicket,
+    SysopAvailability, CHAT_QUEUE_CAPACITY, MAX_CHAT_LINE_BYTES,
 };
 pub use localization::*;
 pub use message::{
@@ -106,12 +109,15 @@ pub use resources::{
 };
 pub use session::{
     run_stock_session, Session, SessionCloseReason, SessionError, SessionId, SessionOutcome,
-    SessionState, SessionStatusObserver, StockSessionContext,
+    SessionState, SessionStatusObserver, SessionTimeController, StockSessionContext,
+};
+pub use session_control_terminal::{
+    run_attached_caller_chat, SessionControlTerminal, CHAT_INVITATION_TIMEOUT,
 };
 pub use terminal::{
-    InMemoryTerminal, PagingTerminal, SuppliedCredentials, Terminal, TerminalCapabilities,
-    TerminalError, TerminalInfo, TerminalSize, TransportIdentity, TransportKind,
-    VerifiedCallerGrant,
+    EmergencyCloseHandle, InMemoryTerminal, PagingTerminal, SuppliedCredentials, Terminal,
+    TerminalCapabilities, TerminalError, TerminalInfo, TerminalSize, TransportIdentity,
+    TransportKind, VerifiedCallerGrant,
 };
 pub use transfer::{
     receive_binary_files, send_binary_files, send_binary_streams, send_binary_streams_report,

@@ -44,8 +44,11 @@ schema-17 zero-byte file invariant. Schema 18 adds privacy-safe operational
 events, daily statistics, retention, notifications, and board/node/maintenance
 projections. Current source schema 19 adds protected read-only operator
 attachment on Unix/macOS and Windows plus the reusable `OperatorClient` and
-`spitfire operator` CLI. Current source also includes the read-only
-`sfmonitor` 0.1 local operator application over that same client. Those
+`spitfire operator` CLI. Current source also includes the read-only-by-default
+`sfmonitor` 0.1 local operator application over that same client. The completed
+B021-B slice adds explicitly enrolled acknowledgement, +/-5 session time,
+page/chat, graceful caller disconnect, and confirmed daemon-only shutdown.
+Bootstrap remains read-only; chat is never durably persisted. Those
 improvements are not present in the published 0.1.0 archive.
 
 The public Category-B ledger is now **14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
@@ -95,8 +98,9 @@ Available today:
   read-only status, node, event, notification, statistics, caller, and
   maintenance CLI commands;
 - when built from current source, the keyboard-complete, responsive,
-  read-only `sfmonitor` application for Dashboard, Nodes, Callers, Activity,
-  Statistics, Notifications, and Maintenance / Errors views;
+  `sfmonitor` application for Dashboard, Nodes, Callers, Activity,
+  Statistics, Notifications, and read-only Maintenance / Errors views, with
+  explicitly authorized live controls through Actions; Q quits only the monitor;
 - multinode operation, operator status, cold backup, and restore, including
   schema-19 command/control audit, schema-18 observability state, schema-17
   file/transfer/storage state,
@@ -229,9 +233,9 @@ advanced Category-B command set, QWK/LAKOTA, SMB/DOVE-Net, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
 also predates SSH, schemas 13–19, public-information additions, Tranche 5 file
 inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
-observability, B021-A protected operator attachment, and `sfmonitor`. The
-comprehensive `sfconfig`, live attached operator controls, and B-022 report
-publication remain future current-source work.
+observability, B021-A protected operator attachment, `sfmonitor`, and B021-B
+live controls. Comprehensive B021-C configuration / `sfconfig`, B021-D, and
+B-022 report publication remain future current-source work.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

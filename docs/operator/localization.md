@@ -5,7 +5,7 @@ SPITFIRE NG presentation and language are separate. Selecting
 engine-owned prompts and generated-menu labels. Neither setting changes
 commands, security, authentication, or stored caller data.
 
-Current source setup installs `en-US` 1.12.0 under
+Current source setup installs `en-US` 1.14.0 under
 `SYSTEM/language-packs/en-US/` and writes:
 
 ```toml
@@ -25,6 +25,13 @@ pipe security failures used by B021-AW.
 Version 1.12.0 adds the complete read-only `sfmonitor` navigation, status,
 filter, help, error, resize, and configuration-unavailable language. The
 presentation profiles remain unchanged.
+
+Versions 1.13.0 and 1.14.0 add the accepted B021-B Actions: time adjustment,
+acknowledgement, page/chat consent and state, disconnect notice/confirmation,
+and daemon shutdown impact, drain, duplicate/recovered results, and caller
+shutdown notice. Help explains explicit enrollment, ephemeral chat, stale
+targets, transfer cleanup, and Q versus daemon shutdown. Profiles still cannot
+change authority or lifecycle behavior.
 
 With the board stopped, validate and install another independently licensed
 package through the public workflow:

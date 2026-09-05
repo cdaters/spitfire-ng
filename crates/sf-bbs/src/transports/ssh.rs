@@ -691,6 +691,39 @@ fn receive_ssh_byte(
 }
 
 impl Terminal for SshTerminal {
+    fn emergency_close_handle(
+        &self,
+    ) -> Result<Option<sf_core::EmergencyCloseHandle>, TerminalError> {
+        let handle = self.handle.clone();
+        let executor = self.tokio.clone();
+        let channel = self.channel;
+        let closed = self.input_closed.clone();
+        Ok(Some(Arc::new(move || {
+            // Captures this authenticated SSH channel, never a node lookup or
+            // listener. The daemon revalidates occupancy before invoking it.
+            closed.store(true, Ordering::Release);
+            executor.block_on(async {
+                tokio::time::timeout(Duration::from_millis(250), handle.close(channel))
+                    .await
+                    .map_err(|_| TerminalError::TimedOut)?
+                    .map_err(|_| TerminalError::Disconnected)
+            })
+        })))
+    }
+    fn supports_input_polling(&self) -> bool {
+        true
+    }
+    fn read_input_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        let mut byte = [0_u8; 1];
+        let result = self
+            .read_binary(&mut byte, timeout)
+            .map(|count| (count != 0).then_some(byte[0]));
+        self.end_binary_mode()?;
+        result
+    }
+    fn echoes_input(&self) -> bool {
+        true
+    }
     fn info(&self) -> TerminalInfo {
         self.info
             .lock()

@@ -2465,6 +2465,7 @@ impl RuntimeDatabase {
             session_started_at: now,
             pending_access_denial,
             allowance,
+            base_allowance: allowance,
         })
     }
 

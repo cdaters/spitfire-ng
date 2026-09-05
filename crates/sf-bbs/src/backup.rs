@@ -2005,7 +2005,10 @@ mod tests {
         assert!(restored_status.contains("Base: modern-ng 1.5.0"));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
-        assert!(restored_status.contains("Package: en-US 1.12.0"));
+        assert!(restored_status.contains(&format!(
+            "Package: en-US {}",
+            sf_core::EMBEDDED_PACKAGE_VERSION
+        )));
         assert!(restored_status.contains("Status: READY"));
 
         let database = restored_database(&restored);

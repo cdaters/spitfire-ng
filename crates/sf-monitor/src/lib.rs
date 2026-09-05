@@ -9,8 +9,9 @@
 // See the repository documentation for architecture, provenance,
 // compatibility research, security, and contribution guidelines.
 
-//! Read-only SPITFIRE NG operator monitor.
+//! Capability-gated SPITFIRE NG local operator monitor.
 
+mod live_ui;
 mod model;
 mod ui;
 mod worker;
@@ -201,6 +202,13 @@ fn event_loop(
 fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> bool {
     let mut changed = false;
     if worker.take_transport_gap() {
+        if model.live.chat.take().is_some() {
+            worker.send(WorkerCommand::EndChat);
+            model.action_result = Some(text(
+                "sfmonitor-chat-connection-lost",
+                &LocalizationArgs::new(),
+            ));
+        }
         model.event_gap = true;
         model.status_key = Some("sfmonitor-event-gap-short");
         changed = true;
@@ -208,6 +216,25 @@ fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> boo
     for update in worker.drain_updates() {
         changed = true;
         match update {
+            WorkerUpdate::ChatSendResult(accepted) => live_ui::apply_send_result(model, accepted),
+            WorkerUpdate::Chat(frame) => {
+                if live_ui::apply_chat(model, frame) {
+                    request_refresh(model, worker);
+                }
+            }
+            WorkerUpdate::ChatEnded(key) => {
+                if model.live.chat.take().is_some() {
+                    model.action_result = Some(text(key, &LocalizationArgs::new()));
+                    request_refresh(model, worker);
+                }
+            }
+            WorkerUpdate::Uncertain(command_id) => {
+                model.live.uncertain = Some(command_id);
+                model.action_result = Some(text(
+                    "sfmonitor-command-uncertain",
+                    &LocalizationArgs::new(),
+                ));
+            }
             WorkerUpdate::Connected {
                 daemon_generation,
                 features,
@@ -235,6 +262,62 @@ fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> boo
                 );
             }
             WorkerUpdate::Disconnected { reason_key } => model.mark_disconnected(reason_key),
+            WorkerUpdate::MutationDenied => {
+                model.show_actions = false;
+                model.snapshot.authorized_capabilities.clear();
+                model.action_result =
+                    Some(text("sfmonitor-action-denied", &LocalizationArgs::new()));
+                request_refresh(model, worker);
+            }
+            WorkerUpdate::MutationResult(result) => {
+                model.show_actions = false;
+                model.action_result = Some(match result {
+                    sf_bbs::MutationResult::LiveControl { command_id, value } => {
+                        let message = match &value {
+                            sf_bbs::LiveControlResult::Pending { result_class } => {
+                                live_ui::result_text(result_class)
+                            }
+                            _ => text("sfmonitor-action-ready", &LocalizationArgs::new()),
+                        };
+                        live_ui::apply_result(model, command_id, value);
+                        message
+                    }
+                    sf_bbs::MutationResult::Completed { result_class, .. } => {
+                        live_ui::result_text(&result_class)
+                    }
+                    sf_bbs::MutationResult::Replayed { result_class, .. } => text(
+                        "sfmonitor-result-recovered",
+                        &LocalizationArgs::new().with(
+                            "result",
+                            live_ui::result_text(result_class.as_deref().unwrap_or("accepted")),
+                        ),
+                    ),
+                    sf_bbs::MutationResult::Accepted { .. } => live_ui::result_text("accepted"),
+                    sf_bbs::MutationResult::Rejected { reason, .. } => {
+                        live_ui::result_text(&reason)
+                    }
+                    sf_bbs::MutationResult::Receipt { receipt } => {
+                        model.live.uncertain = None;
+                        text(
+                            "sfmonitor-result-recovered",
+                            &LocalizationArgs::new().with(
+                                "result",
+                                live_ui::result_text(
+                                    receipt.result_class.as_deref().unwrap_or(&receipt.state),
+                                ),
+                            ),
+                        )
+                    }
+                    sf_bbs::MutationResult::Preflight { valid, .. } => {
+                        if valid {
+                            live_ui::result_text("preflight-ready")
+                        } else {
+                            live_ui::result_text("stale-target")
+                        }
+                    }
+                });
+                request_refresh(model, worker);
+            }
         }
     }
     changed
@@ -250,12 +333,93 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         return InputOutcome::Quit;
     }
-    if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q')) {
-        return InputOutcome::Quit;
-    }
     if model.show_help {
         if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::F(1)) {
             model.show_help = false;
+        }
+        return InputOutcome::Continue;
+    }
+    if key.code == KeyCode::F(1) || (key.code == KeyCode::Char('?') && model.live.chat.is_none()) {
+        model.show_help = true;
+        return InputOutcome::Continue;
+    }
+    if live_ui::handle_key(model, worker, key) {
+        return InputOutcome::Continue;
+    }
+    if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q')) {
+        return InputOutcome::Quit;
+    }
+    if model.show_actions {
+        match key.code {
+            KeyCode::Esc => model.show_actions = false,
+            KeyCode::Char('a') | KeyCode::Char('A')
+                if model.view == View::Notifications
+                    && model
+                        .action_unavailable(
+                            sf_bbs::OperatorFeature::NotificationAcknowledgement,
+                            sf_core::LocalOperatorCapability::AcknowledgeNotifications,
+                        )
+                        .is_none() =>
+            {
+                if let Some(notification) = model
+                    .snapshot
+                    .notifications
+                    .get(model.selected_notification)
+                {
+                    let _ = worker.send(WorkerCommand::AcknowledgeNotification {
+                        command_id: new_command_id(),
+                        notification_id: notification.notification_id,
+                        expected_version: notification.state_version,
+                    });
+                }
+            }
+            KeyCode::Char('+') | KeyCode::Char('=')
+                if model.view == View::Nodes
+                    && model
+                        .action_unavailable(
+                            sf_bbs::OperatorFeature::SessionTimeAdjustment,
+                            sf_core::LocalOperatorCapability::AdjustSessionTime,
+                        )
+                        .is_none() =>
+            {
+                if let Some(node) = model.snapshot.nodes.get(model.selected_node) {
+                    if let (Some(session_id), Some(occupancy_generation)) =
+                        (node.session_id, node.occupancy_generation)
+                    {
+                        let _ = worker.send(WorkerCommand::AdjustSessionTime {
+                            command_id: new_command_id(),
+                            node_id: node.node_id,
+                            session_id,
+                            occupancy_generation,
+                            delta_minutes: 5,
+                        });
+                    }
+                }
+            }
+            KeyCode::Char('-')
+                if model.view == View::Nodes
+                    && model
+                        .action_unavailable(
+                            sf_bbs::OperatorFeature::SessionTimeAdjustment,
+                            sf_core::LocalOperatorCapability::AdjustSessionTime,
+                        )
+                        .is_none() =>
+            {
+                if let Some(node) = model.snapshot.nodes.get(model.selected_node) {
+                    if let (Some(session_id), Some(occupancy_generation)) =
+                        (node.session_id, node.occupancy_generation)
+                    {
+                        let _ = worker.send(WorkerCommand::AdjustSessionTime {
+                            command_id: new_command_id(),
+                            node_id: node.node_id,
+                            session_id,
+                            occupancy_generation,
+                            delta_minutes: -5,
+                        });
+                    }
+                }
+            }
+            _ => {}
         }
         return InputOutcome::Continue;
     }
@@ -296,10 +460,30 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
         KeyCode::F(3) => model.select_view(View::Nodes),
         KeyCode::F(4) => model.select_view(View::Activity),
         KeyCode::Char('/') if model.view == View::Activity => model.show_filters = true,
+        KeyCode::Char('a') | KeyCode::Char('A')
+            if matches!(
+                model.view,
+                View::Dashboard | View::Nodes | View::Notifications
+            ) =>
+        {
+            model.show_actions = true
+        }
         KeyCode::Char('r') | KeyCode::Char('R') => request_refresh(model, worker),
         _ => {}
     }
     InputOutcome::Continue
+}
+
+fn new_command_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    format!(
+        "{}-{:032x}",
+        "sfmonitor",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    )
 }
 
 fn request_refresh(model: &mut MonitorModel, worker: &MonitorWorker) {
@@ -390,6 +574,127 @@ mod tests {
     }
 
     #[test]
+    fn dashboard_shutdown_requires_permission_preflight_confirmation_and_preserves_q() {
+        let (worker, commands) = MonitorWorker::test_channels();
+        let mut model = MonitorModel {
+            connection: ConnectionState::Connected {
+                daemon_generation: "generation".to_owned(),
+                features: vec![sf_bbs::OperatorFeature::GracefulShutdown],
+            },
+            ..MonitorModel::default()
+        };
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        handle_key(&mut model, &worker, key(KeyCode::Char('a')));
+        handle_key(&mut model, &worker, key(KeyCode::Char('s')));
+        assert!(commands.try_recv().is_err());
+        model
+            .snapshot
+            .authorized_capabilities
+            .push(sf_core::LocalOperatorCapability::RequestGracefulShutdown);
+        handle_key(&mut model, &worker, key(KeyCode::Char('s')));
+        let WorkerCommand::LiveControl {
+            command_id,
+            action: sf_bbs::LiveControlAction::PrepareGracefulShutdown { .. },
+        } = commands.try_recv().unwrap()
+        else {
+            panic!("preflight expected")
+        };
+        let impact = sf_bbs::ShutdownImpact {
+            daemon_generation: "generation".to_owned(),
+            active_callers: 2,
+            active_transfers: 1,
+            active_chats: 1,
+            interactions: 1,
+            phase: sf_bbs::ShutdownPhase::Running,
+            token: "opaque-token".to_owned(),
+        };
+        live_ui::apply_result(
+            &mut model,
+            command_id.clone(),
+            sf_bbs::LiveControlResult::ShutdownPreflight {
+                impact: impact.clone(),
+            },
+        );
+        handle_key(&mut model, &worker, key(KeyCode::Esc));
+        assert!(commands.try_recv().is_err());
+        assert!(model.live.shutdown_confirmation.is_none());
+        live_ui::apply_result(
+            &mut model,
+            command_id.clone(),
+            sf_bbs::LiveControlResult::ShutdownPreflight { impact },
+        );
+        handle_key(&mut model, &worker, key(KeyCode::Enter));
+        assert!(
+            matches!(commands.try_recv().unwrap(), WorkerCommand::LiveControl { command_id: id, action: sf_bbs::LiveControlAction::RequestGracefulShutdown { .. } } if id == command_id)
+        );
+        assert_eq!(
+            handle_key(&mut model, &worker, key(KeyCode::Char('q'))),
+            InputOutcome::Quit
+        );
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[test]
+    fn action_keys_require_both_feature_support_and_explicit_authorization() {
+        let (worker, commands) = MonitorWorker::test_channels();
+        let mut model = MonitorModel {
+            view: View::Notifications,
+            show_actions: true,
+            ..MonitorModel::default()
+        };
+        model.connection = ConnectionState::Connected {
+            daemon_generation: "test".to_owned(),
+            features: model::MONITOR_FEATURES.to_vec(),
+        };
+        model.snapshot.notifications.push(sf_bbs::NotificationWire {
+            notification_id: 7,
+            source_event_id: 1,
+            created_at: 1,
+            category: "error".to_owned(),
+            severity: "error".to_owned(),
+            reason_key: "operator-notification-operational-error".to_owned(),
+            remediation_key: None,
+            state: "open".to_owned(),
+            state_version: 1,
+        });
+        let feature = sf_bbs::OperatorFeature::NotificationAcknowledgement;
+        let capability = sf_core::LocalOperatorCapability::AcknowledgeNotifications;
+        model.snapshot.authorized_capabilities = vec![capability];
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+        assert_eq!(
+            model.action_unavailable(feature, capability),
+            Some("operator-feature-unsupported")
+        );
+        handle_key(&mut model, &worker, key);
+        assert!(commands.try_recv().is_err());
+        if let ConnectionState::Connected { features, .. } = &mut model.connection {
+            features.push(feature);
+        }
+        model.snapshot.authorized_capabilities =
+            sf_core::LocalOperatorCapability::READ_ONLY.to_vec();
+        assert_eq!(
+            model.action_unavailable(feature, capability),
+            Some("sfmonitor-action-denied")
+        );
+        handle_key(&mut model, &worker, key);
+        assert!(commands.try_recv().is_err());
+        model.snapshot.authorized_capabilities.push(capability);
+        handle_key(&mut model, &worker, key);
+        assert!(matches!(
+            commands.try_recv().unwrap(),
+            WorkerCommand::AcknowledgeNotification {
+                notification_id: 7,
+                expected_version: 1,
+                ..
+            }
+        ));
+        model.snapshot.authorized_capabilities =
+            sf_core::LocalOperatorCapability::READ_ONLY.to_vec();
+        handle_key(&mut model, &worker, key);
+        assert!(commands.try_recv().is_err());
+    }
+
+    #[test]
     fn command_line_has_safe_help_version_and_locale() {
         assert_eq!(
             parse_arguments(&[OsString::from("--help")]).unwrap(),
@@ -429,19 +734,29 @@ mod tests {
     }
 
     #[test]
-    fn monitor_state_has_no_mutation_command() {
-        let names = ["Refresh", "Reconnect", "Stop"];
-        let joined = names.join(" ").to_ascii_lowercase();
+    fn host_shutdown_restart_and_configuration_remain_outside_monitor_protocol() {
         for forbidden in [
-            "disconnect caller",
-            "time grant",
-            "chat",
             "shutdown",
-            "acknowledge",
-            "configuration write",
-            "backup execution",
+            "daemon-shutdown",
+            "request-shutdown",
+            "configuration-write",
+            "host-shutdown",
+            "restart",
         ] {
-            assert!(!joined.contains(forbidden));
+            assert!(
+                serde_json::from_value::<sf_bbs::OperatorFeature>(serde_json::json!(forbidden))
+                    .is_err()
+            );
+            assert!(
+                serde_json::from_value::<sf_core::LocalOperatorCapability>(serde_json::json!(
+                    forbidden
+                ))
+                .is_err()
+            );
+            assert!(serde_json::from_value::<sf_bbs::LiveControlAction>(
+                serde_json::json!({"action": forbidden})
+            )
+            .is_err());
         }
         let _ = WorkerCommand::Refresh(OperatorEventQuery::default());
     }
@@ -491,9 +806,10 @@ mod tests {
             include_str!("model.rs"),
             include_str!("ui.rs"),
             include_str!("worker.rs"),
+            include_str!("live_ui.rs"),
         ] {
             for candidate in source.split('"').skip(1).step_by(2) {
-                if candidate.starts_with("sfmonitor-") {
+                if candidate.starts_with("sfmonitor-") && !candidate.contains('{') {
                     assert!(keys.contains(candidate), "missing catalog key {candidate}");
                 }
             }

@@ -2221,7 +2221,7 @@ fn declared_standard_zip_member_count(
     Ok((count != u16::MAX).then_some(usize::from(count)))
 }
 
-fn decode_cp437(bytes: &[u8]) -> String {
+pub(crate) fn decode_cp437(bytes: &[u8]) -> String {
     const EXTENDED: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
     let table = EXTENDED.chars().collect::<Vec<_>>();
     bytes

@@ -172,6 +172,12 @@ impl ModemTerminal {
 }
 
 impl Terminal for ModemTerminal {
+    fn supports_input_polling(&self) -> bool {
+        true
+    }
+    fn read_input_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        self.serial.read_input_byte(timeout)
+    }
     fn info(&self) -> TerminalInfo {
         self.serial.info()
     }

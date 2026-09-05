@@ -5,16 +5,17 @@
 > **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
 
 Schema 19 and B021-A provide the first protected control-plane slice for a
-running board. It is deliberately read-only. The `spitfire operator` client,
-the foreground console, current read-only `sfmonitor`, and future `sfconfig`
-clients share the daemon-owned `OperatorService`; none reads SQLite, transient
-status files, or diagnostic logs as operational authority.
+running board. Attachment defaults remain read-only; B021-B adds explicit live
+controls below. The `spitfire operator` client,
+the foreground console, `sfmonitor`, and future `sfconfig` clients share the
+daemon-owned `OperatorService`; none reads SQLite, transient status files, or
+diagnostic logs as operational authority.
 
 ## Durable state
 
 Migration 18→19 is transactional and adds only:
 
-- `operator_command_journal`, a bounded 30-day retry receipt for future
+- `operator_command_journal`, a bounded 30-day retry receipt for
   state-changing commands; and
 - `operator_control_audit`, append-only semantic security accountability for
   authentication, protocol, authorization, and later privileged actions.
@@ -41,7 +42,8 @@ The daemon obtains the peer UID from the Unix socket and maps it to the typed
 `operators.local_identities` board configuration. New setup and fixture boards
 record the creating board owner's UID with the six B021-A read capabilities.
 For an existing board whose list is empty, ownership of the board root is the
-bootstrap identity. The policy is reloaded and authorization is checked again
+bootstrap identity with exactly the same six read-only capabilities, never
+mutation authority. The policy is reloaded and authorization is checked again
 for each request, so removing an identity or capability affects an attached
 client's next dispatch.
 
@@ -127,15 +129,34 @@ timeout, and safe internal failures.
 
 B021-A exposes no page, chat, time grant, disconnect, shutdown, notification
 acknowledgement, configuration, backup, maintenance, or arbitrary host action.
-Those commands require later B021-B/B021-C authorization and stale-target
-acceptance.
+Current B021-B adds the explicitly authorized controls described below;
+configuration and maintenance mutation remain outside this implementation.
 
-`sfmonitor` 0.1 is the first TUI client of this same read surface. It adds no
-protocol operation: its bounded worker calls only the nine negotiated read
-features and its System Configuration destination is informational until
-`sfconfig` exists. See [sfmonitor Technical Architecture](sfmonitor.md).
+The completed B021-B implementation follows the binding gate.
+Protocol major 1 remains; supporting minor versions expose typed control
+discovery, mutations, and principal-bound command-result lookup. Live session
+targets require daemon generation, NodeId, SessionId, and an ephemeral node-
+occupancy generation at domain dispatch. CommandId plus a canonical SHA-256
+request fingerprint uses the existing 30-day schema-19 receipt journal to
+make retries safe and distinguish missing, in-progress, completed, and
+conflicting requests. Time adjustment, disconnect, and shutdown also require
+short-lived server preflight tokens bound to the operator, CommandId, target,
+generation, parameters, and current impact.
 
-Native Windows tests exercise SID parsing, DACL construction,
+The only gated B021-B controls are page availability/page-chat, signed
+−120..+120-minute session-only adjustment, graceful disconnect with explicit
+notice choice, expected-version notification acknowledgement, and graceful
+daemon shutdown. They require separate capabilities and durable semantic
+control audit. Chat content remains non-recorded. Restart, host control,
+configuration, maintenance, and observation remain excluded. See the
+[B021-B Live Operator Controls Gate](../research/m039-tranche-7-b021b-live-operator-controls-gate.md).
+
+The original `sfmonitor` 0.1 MVP used only the nine read features. Current
+source adds capability-aware Actions over the same client, while System
+Configuration remains informational until `sfconfig` exists. See
+[sfmonitor Technical Architecture](sfmonitor.md).
+
+Previously accepted native B021-A Windows tests exercise SID parsing, DACL construction,
 multi-client attachment, every read projection, dispatch-time revocation,
 malformed/oversized frames, protocol mismatch, replay, stale generation, and
 disconnect. A separate-process Windows journey additionally proves setup,
@@ -143,5 +164,143 @@ ordinary CLI use, two caller connections, two live subscribers, denial of a
 disposable unlisted local account, and restart/reattach. The same
 `OperatorClient` and protocol are used on Windows and Unix.
 
+This evidence does not establish live Windows B021-B acceptance. Mutation,
+chat/TUI, disconnect, transfer cancellation, and shutdown acceptance remain
+DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED.
+
 See the [B021-A implementation record](../research/m039-tranche-7-b021a-protected-operator-attachment.md)
 and [B021-AW Windows acceptance](../research/m039-tranche-7-b021aw-windows-operator-attachment.md).
+## B021-B1 mutation boundary
+
+### Explicit grants and bounded profiles
+
+Every B021-B mutation requires an explicit `operators.local_identities`
+capability grant. Creation/ownership, empty-list Unix bootstrap, omitted
+capability defaults, Sysop names/security levels, or OS Administrator status
+do not authorize mutations. The six defaults are `board-statistics`,
+`node-status`, `operational-events`, `caller-activity`, `notifications`, and
+`maintenance-status`. Older Windows boards still require explicit SID setup.
+
+`MAX_LOCAL_OPERATOR_CAPABILITIES` is 32, reusing the established discovery
+capability-list ceiling for configuration validation and client decoding.
+Only unique recognized entries count as grants; empty, duplicate, unknown,
+malformed, or oversized lists fail closed. This replaces the incorrect
+six-entry profile ceiling and represents all six reads plus the seven implemented
+B1/B2/B3 control capabilities without truncation. Remaining capacity grants nothing.
+
+Existing read-only profiles are unchanged. Empty-list boards lose the
+previously unintended implicit B1 grant; enroll desired controls explicitly
+using the [Sysop Manual](../manual/sfmonitor.md#explicit-mutation-enrollment).
+sfmonitor refreshes discovery with its snapshot, keeps unsupported and
+unauthorized actions distinct, and disables action keys without grants.
+Revocation between refresh and dispatch is still denied by the daemon.
+
+### D-064 compatible discovery (protocol 1.2)
+
+The current client sends only the nine established read features in its hello.
+The server negotiates the common minor. After authentication, minor 1.2 peers
+use `DescribeOperatorControls` to obtain bounded typed control features,
+current capabilities, preflight/confirmation metadata, command bounds, and
+receipt-lookup support. Discovery describes support and current policy;
+mutation dispatch still reauthorizes against current configuration.
+
+Minor 1.2 distinguishes discovery support from the earlier 1.1
+implementation, which has mutation envelopes but no discovery operation.
+Corrected clients retain baseline read access to 1.0 and uncorrected 1.1
+daemons and report mutation support unavailable. Corrected daemons still
+accept existing 1.1 clients' B1 feature negotiation. No new control family or
+mutation semantics accompany this compatibility correction.
+
+Schema 19's command journal and control audit now back two typed local
+operator mutations: notification acknowledgement and bounded current-session
+time adjustment. Command IDs are client-generated and replay-safe only for the
+same authenticated operator, daemon generation, target, and SHA-256 semantic
+fingerprint. Node targets include an ephemeral occupancy generation so node
+slot reuse is stale-safe. Receipt lookup is principal/generation scoped.
+
+Session adjustment is -120..=120 minutes per command, rejects zero, and is
+preceded by a typed target-bound preflight token. It is
+relative to the live session's original policy allowance; it never edits
+durable caller policy or historical accounting. sfmonitor's `A` Actions menu
+retains acknowledgement and +/-5-minute presets alongside B2's controls below.
+Configuration and maintenance execution remain unavailable; B3 adds shutdown below.
+
+## B021-B2 page/chat and disconnect (protocol 1.3)
+
+The [canonical B2 report](../research/m039-tranche-7-b021b2-chat-disconnect.md#b021-b2-implementation)
+defines implementation details, bounds, tests, and native evidence. Minor 1.3
+adds the page-availability, caller-pages, caller-chat, and session-disconnect
+features through D-064 discovery. A 1.2 peer sees only the B1 feature/capability
+vocabulary; no unfamiliar closed-enum values are sent in the initial hello.
+
+`LiveControl` carries an existing CommandId plus a typed action: availability,
+page answer/decline, invitation, disconnect preflight, or confirmed disconnect.
+Session actions bind daemon/NodeId/SessionId/occupancy generation; page disposition
+also binds the pending interaction ID. OperatorService dispatches into existing
+InteractionHub and NodeManager authority. Explicit capabilities are separate
+from feature support and are rechecked at dispatch. Bootstrap remains read-only.
+
+The chat response carries a one-time, principal-bound handoff token. A fresh
+authenticated OperatorClient redeems it to enter bounded framed line chat.
+This is not a raw terminal stream. Lines are at most 512 UTF-8 bytes, channels
+hold 32 messages, responses drain at most 16 lines, and complete frames have a
+five-second deadline. The original owner attachment and stream must stay alive;
+sfmonitor maintains both. Consent, exact interaction ID, and current policy are
+checked before active chat. Accepted operator invitations pause ordinary caller
+allowance through a single scope-owned guard, not factual accounting. End/loss
+returns a connected caller to its previous menu context. No automatic resumption
+or transcript recovery exists.
+
+Chat content never enters the command journal/fingerprint, control audit,
+operational events, ordinary logs, SQLite messages, or diagnostics. The monitor's
+100-line current-chat buffer is ephemeral and redacted from Debug output.
+
+Disconnect preflight is runtime-only, 30-second, bounded, and tied to attachment,
+CommandId, exact target, notice choice, node/transfer state, and interaction ID.
+Confirmation requires current matching impact. A single cooperative request
+ends chat, cancels the active transfer through its existing protocol/finalizer,
+settles completed work and caller accounting, releases the node, and closes
+transport. No-notice skips only the caller notice. After three seconds the
+daemon revalidates the complete target before an owned emergency TCP/SSH close;
+it allows at most five further seconds for normal finalization. Unsupported
+hardware close handles are never replaced with global/path-based operations.
+Final results distinguish completion, fallback, stale target, and failure to
+finalize. The durable receipt, not monitor state or socket closure, is authority.
+
+CommandId/fingerprint/principal conflicts fail closed; replay precedes effects.
+Concurrent operators serialize only scoped target/interaction transitions.
+Lost replies recover the same receipt without duplicate invitations/disconnects.
+Both mutation and transition evidence use schema-19-valid checked control audit;
+B-017 receives only safe Operator-category metadata, never chat text.
+
+## B021-B3 graceful shutdown (protocol 1.4)
+
+Authenticated discovery adds `graceful-shutdown` with the independent explicit
+`request-graceful-shutdown` capability. It never appears in the initial hello;
+1.2/1.3 discovery cannot receive its closed-enum values. `ShutdownStatus` exposes
+safe aggregate impact to authorized board-statistics readers without granting
+shutdown permission.
+
+`PrepareGracefulShutdown` / `RequestGracefulShutdown` extend the same LiveControl
+envelope, fingerprint, and journal. Runtime-only preflights bind attachment,
+CommandId, generation, and current exact consequences for 30 seconds, with at
+most 128 entries. Same-identity replay precedes effects; distinct duplicate
+requests receive `shutdown-already-requested`.
+
+The daemon runtime owns admission serialization and drain, independent of client
+lifetime. Its existing console/signal stop path shares the same drain. Cooperative
+session/interaction/transfer cancellation receives a distinct board notice and
+retains accounting/transfer ownership. Three seconds precede exact-session owned
+fallback; at most six more seconds cover finalizers and outstanding B2
+receipt/chat-end evidence. Failure to prove safe completion leaves admissions
+closed and reports failure without process kill.
+
+The durable command result is `shutdown-requested`, committed before irreversible
+listener shutdown. Final correlated audit and the safe `shutdown-complete`
+operational event precede normal daemon exit. Existing SQLite commits preserve
+authority; no new schema, durable shutdown table, service-manager state, or
+post-exit write is assumed. Queries work only while the same generation remains
+available. Restart is external; an old shutdown cannot be replayed onto it.
+
+See the [B3/integrated report](../research/m039-tranche-7-b021b3-shutdown-integrated.md)
+for exact bounds, races, failure boundaries, native evidence, and Windows deferrals.

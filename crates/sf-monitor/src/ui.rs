@@ -55,7 +55,80 @@ pub fn render(frame: &mut Frame<'_>, model: &MonitorModel) {
         render_help(frame, area, model);
     } else if model.show_filters {
         render_filters(frame, area, model);
+    } else if model.show_actions {
+        render_actions(frame, area, model);
     }
+    if !model.show_help {
+        crate::live_ui::render(frame, area, model);
+    }
+}
+
+fn render_actions(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
+    let mut lines = Vec::new();
+    match model.view {
+        View::Dashboard => lines.push(Line::raw(text(
+            "sfmonitor-action-shutdown",
+            &LocalizationArgs::new(),
+        ))),
+        View::Notifications => lines.push(Line::raw(text(
+            "sfmonitor-action-acknowledge",
+            &LocalizationArgs::new(),
+        ))),
+        View::Nodes => {
+            lines.push(Line::raw(text(
+                "sfmonitor-action-page-chat",
+                &LocalizationArgs::new(),
+            )));
+            lines.push(Line::raw(text(
+                "sfmonitor-action-disconnect",
+                &LocalizationArgs::new(),
+            )));
+            lines.push(Line::raw(text(
+                "sfmonitor-action-adjust-time-add",
+                &LocalizationArgs::new(),
+            )));
+            lines.push(Line::raw(text(
+                "sfmonitor-action-adjust-time-remove",
+                &LocalizationArgs::new(),
+            )));
+        }
+        _ => lines.push(Line::raw("No actions are available in this view.")),
+    }
+    let unavailable = match model.view {
+        View::Dashboard => model.action_unavailable(
+            sf_bbs::OperatorFeature::GracefulShutdown,
+            sf_core::LocalOperatorCapability::RequestGracefulShutdown,
+        ),
+        View::Nodes => model.action_unavailable(
+            sf_bbs::OperatorFeature::SessionTimeAdjustment,
+            sf_core::LocalOperatorCapability::AdjustSessionTime,
+        ),
+        View::Notifications => model.action_unavailable(
+            sf_bbs::OperatorFeature::NotificationAcknowledgement,
+            sf_core::LocalOperatorCapability::AcknowledgeNotifications,
+        ),
+        _ => None,
+    };
+    if let Some(reason) = unavailable {
+        lines.push(Line::raw(text(reason, &LocalizationArgs::new())));
+    }
+    lines.push(Line::raw(text(
+        "sfmonitor-action-cancel",
+        &LocalizationArgs::new(),
+    )));
+    let popup = Rect {
+        x: area.width / 4,
+        y: area.height / 4,
+        width: area.width / 2,
+        height: 10.min(area.height.saturating_sub(2)),
+    };
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: true })
+            .block(Block::default().title(" Actions ").borders(Borders::ALL)),
+        popup,
+    );
 }
 
 fn render_minimum_notice(frame: &mut Frame<'_>, area: Rect) {
@@ -223,6 +296,18 @@ fn render_dashboard(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
             section_line("sfmonitor-latest-activity"),
             Line::raw(event_summary(event)),
         ]);
+    }
+    if let Some(state) = &model.snapshot.shutdown {
+        let code = match state.phase {
+            sf_bbs::ShutdownPhase::Running => None,
+            sf_bbs::ShutdownPhase::Requested => Some("shutdown-requested"),
+            sf_bbs::ShutdownPhase::Draining => Some("shutdown-draining"),
+            sf_bbs::ShutdownPhase::Complete => Some("shutdown-complete"),
+            sf_bbs::ShutdownPhase::Failed => Some("shutdown-finalization-failed"),
+        };
+        if let Some(code) = code {
+            lines.push(Line::raw(crate::live_ui::result_text(code)));
+        }
     }
     frame.render_widget(
         Paragraph::new(lines)
@@ -585,10 +670,15 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
         .map(|key| format!(" | {}", text(key, &LocalizationArgs::new())))
         .unwrap_or_default();
     let footer = format!(
-        "{} | {}{}",
+        "{} | {}{}{}",
         text("sfmonitor-key-hints", &LocalizationArgs::new()),
         view,
-        stale
+        stale,
+        model
+            .action_result
+            .as_ref()
+            .map(|value| format!(" | {value}"))
+            .unwrap_or_default()
     );
     frame.render_widget(
         Paragraph::new(footer)
@@ -602,7 +692,20 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
     let popup = centered(area, 76, 80);
     frame.render_widget(Clear, popup);
     let topic = text(model.view.localization_key(), &LocalizationArgs::new());
-    let meaning = text(model.view.help_key(), &LocalizationArgs::new());
+    let key = if model.live.shutdown_confirmation.is_some()
+        || (model.show_actions && model.view == View::Dashboard)
+    {
+        "sfmonitor-help-operator-shutdown"
+    } else if model.live.confirmation.is_some() || model.live.disconnect_choice {
+        "sfmonitor-help-operator-disconnect"
+    } else if model.live.page_menu || model.live.chat.is_some() {
+        "sfmonitor-help-operator-page-chat"
+    } else if model.show_actions {
+        "sfmonitor-help-operator-actions"
+    } else {
+        model.view.help_key()
+    };
+    let meaning = text(key, &LocalizationArgs::new());
     let body = text(
         "sfmonitor-help-body",
         &LocalizationArgs::new()
@@ -939,6 +1042,35 @@ mod tests {
         let output = rendered(&model, 80, 24);
         assert!(output.contains("DISCONNECTED"));
         assert!(output.contains("STALE"));
+    }
+
+    #[test]
+    fn actions_explain_unsupported_and_unauthorized_without_hiding_the_action() {
+        let mut model = MonitorModel {
+            view: View::Nodes,
+            show_actions: true,
+            ..MonitorModel::default()
+        };
+        model.connection = ConnectionState::Connected {
+            daemon_generation: "test".to_owned(),
+            features: crate::model::MONITOR_FEATURES.to_vec(),
+        };
+        let unsupported = rendered(&model, 100, 30);
+        assert!(unsupported.contains("Add 5 minutes"));
+        assert!(unsupported.contains("does not support"));
+        if let ConnectionState::Connected { features, .. } = &mut model.connection {
+            features.push(sf_bbs::OperatorFeature::SessionTimeAdjustment);
+        }
+        let denied = rendered(&model, 80, 24);
+        assert!(denied.contains("Add 5 minutes"));
+        assert!(denied.contains("not authorized"));
+        model
+            .snapshot
+            .authorized_capabilities
+            .push(sf_core::LocalOperatorCapability::AdjustSessionTime);
+        let enabled = rendered(&model, 80, 24);
+        assert!(!enabled.contains("not authorized"));
+        assert!(!enabled.contains("does not support"));
     }
 
     #[test]

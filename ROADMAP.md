@@ -130,22 +130,23 @@ that closure.
 Tranche 7 begins with schema 18 and VERIFIED B-017: structured operational
 events, daily statistics, retention, notifications, and bounded status and
 maintenance services. Schema 19/B021-A adds protected local attachment,
-daemon generation, bounded future command receipts/control audit, capability
+daemon generation, bounded command receipts/control audit, capability
 negotiation, read-only B-017 transport, and the operator CLI on Unix/macOS and
 Windows. B021-A is cross-platform complete, but B-021 Local/Sysop Operator
 Controls remains PARTIAL. B-022 screen/export/publication work remains NOT
 STARTED. The Category-B ledger remains 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
 and 5 NOT STARTED.
 
-The read-only `sfmonitor` 0.1 operator-product interleave is implemented over
-the completed client. B021-B next adds stale-safe live controls; B021-C adds
+The `sfmonitor` 0.1 operator-product interleave and B021-B live controls are
+implemented and accepted over the completed client. B021-C next adds
 typed configuration and the first `sfconfig`; B021-D closes maintenance/
 platform and integrated acceptance. B-022 remains later report/publication
 work.
 
 Future operator products share daemon-authoritative typed services. The
 existing `spitfire setup` command remains the bootstrap/recovery path;
-`sfmonitor` is the implemented read-only live operator cockpit; `sfconfig` is
+`sfmonitor` is the implemented read-only-by-default live operator cockpit with
+explicitly enrolled B021-B Actions; `sfconfig` is
 the planned comprehensive configuration environment; and CLI clients provide
 noninteractive access. `sfmonitor` provides **System Configuration** as an
 honest future route to independently launchable `sfconfig`. None may edit
@@ -221,3 +222,15 @@ is never redistributed merely because it was useful during research.
 For current capabilities see [Status](STATUS.md). For detailed implemented
 behavior see the [documentation index](docs/README.md) and
 [parity checklist](docs/stock-spitfire-3.7-parity.md).
+## Completed B021-B source milestone
+
+B1 mutation/time/acknowledgement, B2 page/chat/disconnect, B3 daemon shutdown,
+and integrated macOS acceptance are COMPLETE / ACCEPTED. Schema 19, D-064
+minor-gated discovery, read-only bootstrap, explicit bounded profiles, durable
+audit/receipt recovery, exact-session safety, chat privacy, and transfer integrity
+remain binding. Windows live B021-B acceptance remains deferred to a real Windows
+environment. See the [integrated report](docs/research/m039-tranche-7-b021b3-shutdown-integrated.md).
+
+B-021 remains PARTIAL; B-022 NOT STARTED; totals remain 14/2/4/5. Exact next
+development action: separately authorize B021-C typed configuration / sfconfig.
+B021-D remains later. No networking, doors, scheduler, exports, or release work.

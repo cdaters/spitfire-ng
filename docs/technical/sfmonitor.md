@@ -60,10 +60,12 @@ count and per-node transfer state, not a dedicated transfer-list projection.
 Rendering uses only `BoardStatusWire`, `NodeStatusWire`, `EventWire`,
 `NotificationWire`, `StatisticsWire`, `RecentCallerWire`, and
 `MaintenanceWire`. Event attributes, correlation/object identifiers, and
-session identifiers are deliberately not rendered. Tests place a sentinel
-secret in typed event attributes and verify it cannot reach the terminal
-buffer. No mutation feature, protocol operation, worker command, or keybinding
-exists in this crate.
+session identifiers are deliberately not rendered. B021-B1 adds only the
+typed notification acknowledgement and +/-5-minute session-time actions;
+page/chat and disconnect now use the same capability-aware boundary in B2.
+Dashboard additionally exposes B3 shutdown; configuration remains unavailable.
+Tests place a sentinel secret in typed event attributes and verify it cannot
+reach the terminal buffer.
 
 ## Keyboard, size, and terminal lifecycle
 
@@ -86,18 +88,71 @@ terminal before resuming the panic.
 ## Platform and future boundary
 
 The same binary and `OperatorClient` use Unix-domain sockets on supported
-Unix-like systems and the accepted ACL/SID named pipe on Windows. Current
-Windows CI provides source/build and focused monitor coverage. Interactive
-Windows input, resize, and rendered-TUI acceptance are deferred until a
-suitable real Windows environment is available; compile-time or automated
-coverage is not presented as that live acceptance.
+Unix-like systems and the accepted ACL/SID named pipe on Windows. Prior B021-A
+Windows attachment acceptance remains valid. New live B021-B controls and
+rendered Windows TUI acceptance remain DEFERRED — REAL WINDOWS ENVIRONMENT
+REQUIRED; no new Windows compile or live acceptance is inferred here.
 
-B021-B may later add stale-safe page/chat, time, disconnect, and daemon
-shutdown commands to the daemon and client. B021-C will add versioned typed
-configuration and the separate `sfconfig` binary. Those additions must not
-move business logic into this TUI. B-022 reports/publication, networking,
-doors, and scheduler/jobs remain separate domains.
+The completed B021-B implementation provides one contextual `A` action menu over the
+existing view model: node actions from Nodes/detail, acknowledgement from
+Notifications, and graceful daemon shutdown from Dashboard. Known actions
+distinguish protocol unsupported, authorization denied, and invalid
+target states; time/disconnect/shutdown use consequence-proportional
+confirmation. Results refresh daemon projections rather than editing local
+state optimistically. A lost response retains its CommandId for receipt lookup
+after a fresh connection. These B021-B controls are now implemented, and `Q` remains
+monitor-only quit. See the
+[B021-B gate](../research/m039-tranche-7-b021b-live-operator-controls-gate.md).
+
+B021-C will add versioned typed configuration and the separate `sfconfig`
+binary. Those additions must not move business logic into this TUI. B-022
+reports/publication, networking, doors, and scheduler/jobs remain separate
+domains.
 
 See [Protected Operator Attachment](operator-control.md) for transport and
 authorization, and [Operator Observability](observability.md) for the data
 projections.
+## B021-B1 actions
+
+The monitor's contextual Actions menu dispatches notification
+acknowledgement and bounded live-session time adjustment through OperatorClient.
+Results are journaled by the daemon and followed by an authoritative refresh;
+no local database mutation is performed. B2 extends this foundation as follows.
+
+## B021-B2 focused controls
+
+`live_ui` owns only presentation state: Page / Chat choices, immutable server
+disconnect impact pending Enter/Esc confirmation, and the current ephemeral
+conversation. `worker` uses OperatorClient for mutations and a separate
+authenticated framed chat connection. It retains uncertain CommandIds across
+reconnection for receipt lookup, never resuming an old chat stream. Feature
+support, capability denial, invalid/busy state, and stale targets remain distinct.
+
+The current-chat buffer is bounded to 100 logical lines, never serialized, and
+discarded on end/loss. It is redacted from Debug. History and input use separate
+layout regions so wrapping cannot hide the input/exit controls. Unaccepted sends
+remain editable after backpressure; they are not displayed as delivered.
+Heartbeat loss or a dropped stream update ends chat instead of leaving an unseen
+conversation running. Normal projections refresh after semantic transitions.
+
+F1 routes to `operator.actions`, `operator.page-chat`, or `operator.disconnect`
+for the focused control. Q outside chat still quits this process only; inside
+chat Q is text, Esc ends, and Ctrl-C quits. Terminal-restoration ownership is
+unchanged. B3 adds shutdown; configuration remains unavailable.
+
+See [protocol and lifecycle](operator-control.md#b021-b2-pagechat-and-disconnect-protocol-13)
+and [canonical evidence](../research/m039-tranche-7-b021b2-chat-disconnect.md#b021-b2-implementation).
+
+## B021-B3 global action
+
+Dashboard `A` → `S` opens **Shutdown SPITFIRE NG** using authenticated minor-1.4
+discovery and explicit capability-aware availability. The worker requests typed
+impact; presentation holds an immutable confirmation until Enter/Esc. The same
+CommandId is retained for dispatch/recovery. Global shutdown is not a selected
+caller action, and Q is never overloaded to stop the daemon.
+
+Shutdown snapshots show requested/draining/failed state where observable; normal
+daemon exit marks data disconnected/stale and clears chat and confirmation state.
+There is no automatic restart, stale command resubmission, or chat resumption.
+F1 uses `operator.shutdown`; terminal restoration stays with the existing guard.
+See [daemon lifecycle and receipt boundary](operator-control.md#b021-b3-graceful-shutdown-protocol-14).

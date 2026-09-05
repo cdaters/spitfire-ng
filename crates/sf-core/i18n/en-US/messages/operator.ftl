@@ -81,7 +81,7 @@ operator-request-timeout = The operator request timed out without changing board
 operator-daemon-restarted = The board restarted. Attach again to establish a new operator session.
 operator-request-failed = The running board could not complete that operator request safely.
 
-# sfmonitor 0.1 is a read-only client of the protected local operator service.
+# sfmonitor uses the protected local operator service and explicitly granted controls.
 sfmonitor-usage = Usage: sfmonitor [--locale en-US] --board <CONFIG-FILE>
     sfmonitor --help
     sfmonitor --version
@@ -187,7 +187,7 @@ sfmonitor-summary-retention-days = Daily summary days
 sfmonitor-read-only-maintenance = This view reports maintenance state only. It cannot run maintenance actions.
 sfmonitor-configuration-unavailable = System Configuration is not available in this source yet.
 sfmonitor-configuration-future = A future sfconfig application will open here and will also be directly launchable.
-sfmonitor-read-only = sfmonitor 0.1 is read-only. It cannot change the board or stop callers.
+sfmonitor-read-only = Local operator monitor. A Actions uses explicit permissions; Q quits this monitor only.
 sfmonitor-help-title = sfmonitor Help
 sfmonitor-help-body = Current view: { $view }
 
@@ -195,13 +195,13 @@ sfmonitor-help-body = Current view: { $view }
 
     Use Left/Right or Tab/Shift-Tab to change views. Use Up/Down and Page Up/Page Down to select rows. Enter shows compact node details. Activity uses / for typed filters. R refreshes or reconnects. F2 opens Dashboard, F3 Nodes, and F4 Activity. Q or Ctrl-C quits sfmonitor only; the BBS keeps running.
 
-    Data comes from the running board through its protected local operator service. DISCONNECTED values are marked STALE. sfmonitor does not read the database or text logs directly and cannot perform operator actions in this release.
+    Data comes from the running board through its protected local operator service. DISCONNECTED values are marked STALE. sfmonitor does not read the database or text logs directly. Live actions require explicit enrollment and current daemon authorization.
 sfmonitor-help-dashboard = Dashboard combines the board's live state, today's activity, notifications, warnings, and latest safe activity.
-sfmonitor-help-nodes = Nodes shows current connection state and privacy-safe terminal/session details. It does not provide disconnect or time-grant actions.
+sfmonitor-help-nodes = Nodes shows live privacy-safe session details. A Actions opens Page / Chat, time adjustment, and confirmed caller disconnect, subject to explicit permissions.
 sfmonitor-help-callers = Callers lists recent completed calls. Use Nodes for callers who are online now.
 sfmonitor-help-activity = Activity combines bounded recent history with the live event stream. A GAP warning means refresh is needed to recover missed history.
 sfmonitor-help-statistics = Statistics separates live, today, and lifetime authority. Detailed history does not pretend to predate observability activation.
-sfmonitor-help-notifications = Notifications reports open operator attention items. Acknowledgement is not available in this read-only monitor.
+sfmonitor-help-notifications = Notifications reports open operator attention items. A Actions offers version-checked acknowledgement when explicitly authorized.
 sfmonitor-help-maintenance = Maintenance / Errors summarizes safe health, storage, review, transfer, and retention status. It cannot execute repairs.
 sfmonitor-help-configuration = System Configuration is the planned route to sfconfig. No configuration interface or write is available yet.
 sfmonitor-filter-title = Activity Filters
@@ -470,3 +470,82 @@ operator-retention-summary = Daily summaries are kept for { $days } days.
 operator-retention-last-cleanup = Last cleanup: { $time }
 operator-retention-not-run = Retention cleanup has not run yet.
 operator-retention-conflict = Retention settings changed elsewhere. Reload them before trying again.
+sfmonitor-actions = Actions
+sfmonitor-action-acknowledge = Acknowledge notification
+sfmonitor-action-adjust-time-add = Add 5 minutes
+sfmonitor-action-adjust-time-remove = Remove 5 minutes
+sfmonitor-action-cancel = Cancel
+sfmonitor-action-complete = Operator action completed.
+sfmonitor-action-replayed = The previous result was recovered safely.
+sfmonitor-action-uncertain = Outcome uncertain. Reconnect to recover the result.
+sfmonitor-action-stale = The selected caller is no longer the same session.
+sfmonitor-action-denied = This operator is not authorized for that action.
+sfmonitor-page-chat = Page / Chat
+sfmonitor-action-page-chat = P  Page / Chat
+sfmonitor-action-disconnect = D  Disconnect
+sfmonitor-page-chat-choices = I Invite chat   A Answer page   D Decline page   O Toggle board page availability   Esc Back
+sfmonitor-page-none = No pending page belongs to this selected session. Refresh the Nodes view.
+sfmonitor-page-pending = Pending caller page: A answers; D declines.
+sfmonitor-page-availability-action = O Page availability
+sfmonitor-page-manage-action = A / D Answer or decline page
+sfmonitor-chat-invite-action = I Invite chat
+sfmonitor-page-available = Board page availability: available
+sfmonitor-page-unavailable = Board page availability: unavailable
+sfmonitor-disconnect = Disconnect caller
+sfmonitor-disconnect-choices = 1 With Sysop notice   2 Without notice   Esc Cancel
+sfmonitor-disconnect-confirm = Confirm graceful caller disconnect
+sfmonitor-disconnect-notice = The caller will receive a Sysop disconnect notice.
+sfmonitor-disconnect-no-notice = No caller notice. Normal cancellation and accounting still apply.
+sfmonitor-disconnect-transfer-warning = Active transfer: completed work will be settled and unfinished work cancelled.
+sfmonitor-disconnect-chat-warning = Active page/chat: the interaction will end and its local chat buffer will be discarded.
+sfmonitor-disconnect-confirm-keys = Enter Confirm   Esc Cancel
+sfmonitor-chat-keys = Enter Send   Esc End chat   Ctrl-C Quit monitor. This conversation is held only in memory.
+sfmonitor-chat-ended = Chat ended. The local conversation buffer was discarded.
+sfmonitor-chat-connection-lost = Chat connection lost. No transcript or chat session will be restored.
+sfmonitor-command-uncertain = Outcome uncertain. Reconnect with R to look up the SAME CommandId; do not repeat the action.
+sfmonitor-action-ready = Daemon response received.
+sfmonitor-disconnected = Daemon connection lost. Current projections are stale; press R to reconnect.
+sfmonitor-result-page-availability-set = Board page availability updated.
+sfmonitor-result-page-declined = Caller page declined.
+sfmonitor-result-page-answered = Caller page answered.
+sfmonitor-result-page-already-handled = This page has already been handled.
+sfmonitor-result-chat-invited = Caller invited; waiting for acceptance.
+sfmonitor-result-chat-accepted = Caller accepted the invitation.
+sfmonitor-result-chat-started = Chat active. Only accepted operator-initiated chat pauses caller time.
+sfmonitor-result-chat-declined = Caller declined or the invitation was cancelled.
+sfmonitor-result-chat-timeout = The chat invitation timed out.
+sfmonitor-result-chat-ended = Chat ended; the local conversation buffer was discarded.
+sfmonitor-result-chat-busy = The caller or chat stream is busy. Wait and refresh.
+sfmonitor-result-input-unavailable = This caller transport does not support interactive operator control.
+sfmonitor-result-disconnect-requested = Graceful caller disconnect requested; awaiting session finalization.
+sfmonitor-result-session-disconnected = Caller disconnected; session finalization completed.
+sfmonitor-result-session-disconnected-fallback = Caller disconnected using the exact-session emergency fallback; finalization completed.
+sfmonitor-result-disconnect-already-requested = Another operator already requested this caller's disconnect.
+sfmonitor-result-disconnect-finalization-failed = Disconnect finalization did not complete within its bound. Refresh authoritative state.
+sfmonitor-result-preflight-required = Confirmation expired or was invalid. Request a new preflight.
+sfmonitor-result-preflight-stale = Caller impact changed after preflight. Review a fresh confirmation.
+sfmonitor-result-stale-target = The exact caller session is no longer current. Refresh before acting.
+sfmonitor-result-authorization-denied = Current operator policy denies this action.
+sfmonitor-result-caller-gone = The caller has already left.
+sfmonitor-result-control-busy = The daemon has reached its bounded pending-control capacity. Try later.
+sfmonitor-result-time-adjusted = Caller session time adjusted.
+sfmonitor-result-acknowledged = Notification acknowledged.
+sfmonitor-result-already-acknowledged = Notification was already acknowledged.
+sfmonitor-result-recovered = Recovered daemon result: { $result }
+sfmonitor-help-operator-actions = operator.actions: A Actions offers capability-gated controls. Unsupported features and missing permissions are distinct. Nodes offers exact-session controls; Dashboard offers confirmed Shutdown SPITFIRE NG. Q quits only this monitor. Configuration remains unavailable.
+sfmonitor-help-operator-page-chat = operator.page-chat: Invite a caller, or answer/decline a pending page. Invitations require consent. Accepted operator-initiated chat pauses ordinary caller time; caller-page chat retains existing accounting. F1 opens help; Esc ends chat and returns the caller to the prior prompt. Conversation text exists only in live memory, is discarded on end/loss, and is never logged or recovered.
+sfmonitor-help-operator-disconnect = operator.disconnect: Choose notice or no notice, then review daemon preflight. Enter confirms; Esc cancels. Both paths cooperatively end interactions and cancel transfers, settling only completed work. A bounded emergency close revalidates the exact session and cannot close a replacement caller. No notice does not mean hard kill.
+sfmonitor-result-accepted = Command accepted; awaiting the daemon's final result.
+sfmonitor-result-stale = The exact target is no longer current. Refresh before acting.
+sfmonitor-result-preflight-ready = Confirmation is ready.
+sfmonitor-shutdown = Shutdown SPITFIRE NG
+sfmonitor-action-shutdown = S  Shutdown SPITFIRE NG
+sfmonitor-shutdown-impact = Active callers: { $callers } | Active transfers: { $transfers } | Operator chats: { $chats } | Interactions: { $interactions }
+sfmonitor-shutdown-warning = Callers will be notified; chats and transfers will end safely. Only this daemon stops, not the host.
+sfmonitor-shutdown-confirm = Shut down SPITFIRE NG? Q quits only this monitor.
+sfmonitor-result-shutdown-requested = Shutdown requested. SPITFIRE NG is draining; the daemon will become unavailable.
+sfmonitor-result-shutdown-already-requested = Shutdown is already in progress. No second shutdown was started.
+sfmonitor-result-shutdown-draining = SPITFIRE NG is draining callers and transfers.
+sfmonitor-result-shutdown-complete = Shutdown finalized. Start the board normally before reconnecting.
+sfmonitor-result-shutdown-finalization-failed = Shutdown could not finalize safely. Admissions remain closed; the daemon has not claimed a clean exit.
+sfmonitor-help-operator-shutdown = Dashboard Actions offers Shutdown SPITFIRE NG only with explicit permission. Review daemon-owned counts; Enter confirms and Esc cancels. Accepted shutdown continues without this monitor. Callers receive notice and transfers finalize safely. Q quits only sfmonitor. Start the board normally afterward; no restart command exists.

@@ -97,6 +97,29 @@ impl RloginTerminal {
 }
 
 impl Terminal for RloginTerminal {
+    fn supports_input_polling(&self) -> bool {
+        true
+    }
+    fn read_input_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        let mut byte = [0_u8; 1];
+        let result = self
+            .read_binary(&mut byte, timeout)
+            .map(|count| (count != 0).then_some(byte[0]));
+        self.end_binary_mode()?;
+        result
+    }
+    fn emergency_close_handle(
+        &self,
+    ) -> Result<Option<sf_core::EmergencyCloseHandle>, TerminalError> {
+        let stream = self.stream.try_clone()?;
+        Ok(Some(std::sync::Arc::new(move || {
+            match stream.shutdown(Shutdown::Both) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotConnected => Ok(()),
+                Err(error) => Err(error.into()),
+            }
+        })))
+    }
     fn info(&self) -> TerminalInfo {
         self.info.clone()
     }
@@ -228,7 +251,7 @@ mod tests {
         let client = thread::spawn(move || {
             let mut stream = TcpStream::connect(address).unwrap();
             stream
-                .write_all(b"\0test-only-password\0Alex Caller\0ansi/38400\0")
+                .write_all(b"\0test-only-password\0Craig Daters\0ansi/38400\0")
                 .unwrap();
             let mut acknowledgement = [1_u8; 1];
             stream.read_exact(&mut acknowledgement).unwrap();
@@ -239,10 +262,10 @@ mod tests {
                 .unwrap();
         assert_eq!(
             terminal.info().declared_identity.unwrap().name,
-            "Alex Caller"
+            "Craig Daters"
         );
         let credential = terminal.take_supplied_credentials().unwrap();
-        assert_eq!(credential.username(), b"Alex Caller");
+        assert_eq!(credential.username(), b"Craig Daters");
         assert_eq!(credential.password(), b"test-only-password");
         assert!(!format!("{credential:?}").contains("test-only-password"));
         client.join().unwrap();

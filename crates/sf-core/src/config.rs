@@ -96,17 +96,36 @@ pub enum LocalOperatorCapability {
     CallerActivity,
     Notifications,
     MaintenanceStatus,
+    /// Permit acknowledging an existing operator notification.
+    AcknowledgeNotifications,
+    /// Permit bounded adjustments to a live caller session allowance.
+    AdjustSessionTime,
+    ManagePageAvailability,
+    ManageCallerPages,
+    ChatWithCaller,
+    DisconnectSession,
+    RequestGracefulShutdown,
+}
+
+/// Matches the existing bounded operator discovery capability-list capacity.
+/// This is a storage/validation ceiling, never an implicit grant.
+pub const MAX_LOCAL_OPERATOR_CAPABILITIES: usize = 32;
+
+impl LocalOperatorCapability {
+    /// Explicitly enumerate the B021-A bootstrap boundary. New controls must
+    /// never enter this list merely because they are added to the enum.
+    pub const READ_ONLY: [Self; 6] = [
+        Self::BoardStatistics,
+        Self::NodeStatus,
+        Self::OperationalEvents,
+        Self::CallerActivity,
+        Self::Notifications,
+        Self::MaintenanceStatus,
+    ];
 }
 
 fn default_operator_capabilities() -> Vec<LocalOperatorCapability> {
-    vec![
-        LocalOperatorCapability::BoardStatistics,
-        LocalOperatorCapability::NodeStatus,
-        LocalOperatorCapability::OperationalEvents,
-        LocalOperatorCapability::CallerActivity,
-        LocalOperatorCapability::Notifications,
-        LocalOperatorCapability::MaintenanceStatus,
-    ]
+    LocalOperatorCapability::READ_ONLY.to_vec()
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -752,7 +771,7 @@ fn validate_operators(operators: &OperatorConfig) -> Result<(), ConfigError> {
         };
         if !identities.insert(key)
             || capabilities.is_empty()
-            || capabilities.len() > 6
+            || capabilities.len() > MAX_LOCAL_OPERATOR_CAPABILITIES
             || capabilities.iter().copied().collect::<HashSet<_>>().len() != capabilities.len()
             || label.as_ref().is_some_and(|value| {
                 value.is_empty() || value.len() > 64 || value.chars().any(char::is_control)
@@ -1324,6 +1343,98 @@ database_file = "spitfire-ng.sqlite3"
         let original = RuntimeConfig::synthetic_fixture();
         let encoded = original.to_toml().unwrap();
         assert_eq!(RuntimeConfig::from_toml(&encoded).unwrap(), original);
+    }
+
+    #[test]
+    fn operator_defaults_are_read_only_and_full_explicit_profiles_round_trip() {
+        assert_eq!(
+            default_operator_capabilities(),
+            LocalOperatorCapability::READ_ONLY
+        );
+        assert_eq!(LocalOperatorCapability::READ_ONLY.len(), 6);
+        assert!(!LocalOperatorCapability::READ_ONLY
+            .contains(&LocalOperatorCapability::AcknowledgeNotifications));
+        assert!(!LocalOperatorCapability::READ_ONLY
+            .contains(&LocalOperatorCapability::AdjustSessionTime));
+        let legacy = RuntimeConfig::from_toml(valid_toml()).unwrap();
+        assert!(legacy.operators.local_identities.is_empty());
+        let implicit: LocalOperatorIdentity =
+            toml::from_str("platform = 'unix'\nuid = 7\n").unwrap();
+        let LocalOperatorIdentity::Unix { capabilities, .. } = implicit else {
+            unreachable!()
+        };
+        assert_eq!(capabilities, LocalOperatorCapability::READ_ONLY);
+        let mut granted = LocalOperatorCapability::READ_ONLY.to_vec();
+        granted.extend([
+            LocalOperatorCapability::AcknowledgeNotifications,
+            LocalOperatorCapability::AdjustSessionTime,
+            LocalOperatorCapability::ManagePageAvailability,
+            LocalOperatorCapability::ManageCallerPages,
+            LocalOperatorCapability::ChatWithCaller,
+            LocalOperatorCapability::DisconnectSession,
+            LocalOperatorCapability::RequestGracefulShutdown,
+        ]);
+        assert_eq!(granted.len(), 13);
+        assert!(granted[6..]
+            .iter()
+            .all(|capability| !LocalOperatorCapability::READ_ONLY.contains(capability)));
+        assert!(granted.len() <= MAX_LOCAL_OPERATOR_CAPABILITIES);
+        for identity in [
+            LocalOperatorIdentity::Unix {
+                uid: 7,
+                label: None,
+                capabilities: granted.clone(),
+            },
+            LocalOperatorIdentity::Windows {
+                sid: "S-1-5-21-7".to_owned(),
+                label: None,
+                capabilities: granted.clone(),
+            },
+        ] {
+            let mut config = RuntimeConfig::synthetic_fixture();
+            config.operators.local_identities = vec![identity];
+            config.validate().unwrap();
+            let encoded = config.to_toml().unwrap();
+            assert_eq!(
+                RuntimeConfig::from_toml(&encoded).unwrap().operators,
+                config.operators
+            );
+        }
+    }
+
+    #[test]
+    fn operator_profiles_reject_duplicate_oversized_unknown_and_malformed_grants() {
+        assert_eq!(MAX_LOCAL_OPERATOR_CAPABILITIES, 32);
+        for capabilities in [
+            vec![],
+            vec![LocalOperatorCapability::NodeStatus; 2],
+            vec![LocalOperatorCapability::NodeStatus; MAX_LOCAL_OPERATOR_CAPABILITIES + 1],
+        ] {
+            let config = OperatorConfig {
+                local_identities: vec![LocalOperatorIdentity::Unix {
+                    uid: 7,
+                    label: None,
+                    capabilities,
+                }],
+            };
+            assert!(matches!(
+                validate_operators(&config),
+                Err(ConfigError::InvalidOperatorConfiguration)
+            ));
+        }
+        for unknown in ["*", "administrator", "host-shutdown", "node_status"] {
+            let input = format!(
+                "platform = 'unix'\nuid = 7\ncapabilities = ['node-status', '{unknown}']\n"
+            );
+            assert!(toml::from_str::<LocalOperatorIdentity>(&input).is_err());
+        }
+        for input in [
+            "platform = 'unix'\nuid = 7\ncapabilities = '*'\n",
+            "platform = 'unix'\nuid = 7\ncapabilities = [7]\n",
+            "platform = 'unix'\nuid = 7\nadmin = true\n",
+        ] {
+            assert!(toml::from_str::<LocalOperatorIdentity>(input).is_err());
+        }
     }
 
     #[test]

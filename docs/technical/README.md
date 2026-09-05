@@ -43,8 +43,8 @@ inform implementation technique, but they do not redefine SPITFIRE.
 
 The Rust workspace currently contains `sf-bbs` for application/runtime
 orchestration, `sf-core` for portable domain and persistence behavior,
-`sf-monitor` for the read-only operator TUI, `sf-legacy` for bounded legacy
-parsing, and separately scoped preservation research components. The workspace
+`sf-monitor` for the capability-aware operator TUI and `sf-legacy` for bounded
+legacy parsing. The public workspace
 manifest remains the package-membership authority.
 
 ### Database, schema history, and transactions
@@ -154,9 +154,12 @@ and bounded daemon-authoritative read APIs. Schema 19/B021-A transports those
 views through protected Unix sockets and Windows named pipes plus a
 noninteractive operator client. The protocol uses OS-backed local identity,
 version/feature negotiation, distinct capabilities, daemon generation, and
-dispatch-time authorization. `sfmonitor` 0.1 now presents those same reads in
-a responsive local TUI. Screen/export formats, atomic publication, live
-control, and `sfconfig` remain future work rather than alternate data owners.
+dispatch-time authorization. Current `sfmonitor` presents those reads plus
+explicitly enrolled B021-B Actions in a responsive local TUI. The accepted
+[integrated live-control milestone](../research/m039-tranche-7-b021b3-shutdown-integrated.md)
+adds acknowledgement, time, page/chat, disconnect, and daemon shutdown without
+moving authority into the monitor. Screen/export formats, atomic publication,
+and B021-C / `sfconfig` remain future work rather than alternate data owners.
 
 ### Compatibility adapters and historical formats
 

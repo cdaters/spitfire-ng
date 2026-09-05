@@ -46,6 +46,7 @@ pub enum CommandReceiptResult {
     Accepted,
     Replayed(OperatorCommandReceipt),
     FingerprintConflict,
+    PrincipalConflict,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,13 +75,17 @@ impl RuntimeDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(DatabaseError::Sqlite)?;
         let existing = transaction.query_row(
-            "SELECT command_id,request_fingerprint,state,result_class,result_version FROM operator_command_journal WHERE command_id=?1",
+            "SELECT command_id,request_fingerprint,state,result_class,result_version,operator_id,daemon_generation FROM operator_command_journal WHERE command_id=?1",
             [&receipt.command_id],
-            |row| Ok(OperatorCommandReceipt { command_id:row.get(0)?,request_fingerprint:row.get(1)?,state:row.get(2)?,result_class:row.get(3)?,result_version:row.get::<_,Option<i64>>(4)?.and_then(|value| u64::try_from(value).ok()) }),
+            |row| Ok((OperatorCommandReceipt { command_id:row.get(0)?,request_fingerprint:row.get(1)?,state:row.get(2)?,result_class:row.get(3)?,result_version:row.get::<_,Option<i64>>(4)?.and_then(|value| u64::try_from(value).ok()) }, row.get::<_,String>(5)?, row.get::<_,String>(6)?)),
         ).optional().map_err(DatabaseError::Sqlite)?;
-        if let Some(existing) = existing {
+        if let Some((existing, operator_id, daemon_generation)) = existing {
             return Ok(
-                if existing.request_fingerprint == receipt.request_fingerprint {
+                if operator_id != receipt.operator_id
+                    || daemon_generation != receipt.daemon_generation
+                {
+                    CommandReceiptResult::PrincipalConflict
+                } else if existing.request_fingerprint == receipt.request_fingerprint {
                     CommandReceiptResult::Replayed(existing)
                 } else {
                     CommandReceiptResult::FingerprintConflict
@@ -99,6 +104,34 @@ impl RuntimeDatabase {
         ).map_err(DatabaseError::Sqlite)?;
         transaction.commit().map_err(DatabaseError::Sqlite)?;
         Ok(CommandReceiptResult::Accepted)
+    }
+
+    pub fn operator_command_receipt(
+        &self,
+        command_id: &str,
+        operator_id: &str,
+        daemon_generation: &str,
+    ) -> Result<Option<OperatorCommandReceipt>, DatabaseError> {
+        self.connection
+            .query_row(
+                "SELECT command_id,request_fingerprint,state,result_class,result_version FROM operator_command_journal WHERE command_id=?1 AND operator_id=?2 AND daemon_generation=?3",
+                params![command_id, operator_id, daemon_generation],
+                |row| Ok(OperatorCommandReceipt { command_id: row.get(0)?, request_fingerprint: row.get(1)?, state: row.get(2)?, result_class: row.get(3)?, result_version: row.get::<_, Option<i64>>(4)?.and_then(|v| u64::try_from(v).ok()) }),
+            )
+            .optional()
+            .map_err(DatabaseError::Sqlite)
+    }
+
+    pub fn reject_operator_command(
+        &mut self,
+        command_id: &str,
+        result_class: &str,
+        completed_at: i64,
+    ) -> Result<bool, DatabaseError> {
+        self.connection
+            .execute("UPDATE operator_command_journal SET state='rejected',result_class=?2,completed_at=?3 WHERE command_id=?1 AND state='accepted'", params![command_id, result_class, completed_at])
+            .map(|count| count == 1)
+            .map_err(DatabaseError::Sqlite)
     }
 
     pub fn complete_operator_command(
@@ -204,6 +237,12 @@ mod tests {
         assert_eq!(
             database.accept_operator_command(&conflict).unwrap(),
             CommandReceiptResult::FingerprintConflict
+        );
+        let mut principal = receipt.clone();
+        principal.operator_id = "unix-uid:502".to_owned();
+        assert_eq!(
+            database.accept_operator_command(&principal).unwrap(),
+            CommandReceiptResult::PrincipalConflict
         );
         assert!(database
             .complete_operator_command(&receipt.command_id, "succeeded", 1, 1_700_000_001)

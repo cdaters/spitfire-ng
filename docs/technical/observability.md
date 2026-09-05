@@ -16,9 +16,24 @@ separate:
 4. report projections and future publication artifacts are derived results.
 
 Host tracing remains non-authoritative diagnostics. No service parses a text
-log or grants an online client direct SQLite access. B-021 will provide the
+log or grants an online client direct SQLite access. B-021 provides the
 protected attach/control boundary, and B-022 will own report formatting,
 confined export, and publication.
+
+B021-B emits privacy-safe Operator-category page/chat/disconnect/shutdown transitions
+through this existing event writer. Schema-19 control audit separately records
+the operator, CommandId, safe session target, authorization, and semantic
+outcome, including notice choice and fallback. Neither authority accepts chat
+content or terminal input. Receipt/audit/event write failures are checked, not
+silently treated as successful evidence. See the
+[B2 implementation report](../research/m039-tranche-7-b021b2-chat-disconnect.md)
+for lifecycle, bounds, and persisted-row/privacy regression evidence.
+
+B3 commits shutdown-requested receipt/audit/event evidence before listener stop,
+then final correlated audit and a shutdown lifecycle event before normal process
+exit. Pending control finalizers and chat-end evidence are drained; no post-exit
+write is claimed. Caller session events distinguish `board-shutdown` from an
+individual disconnect. See the [B3 report](../research/m039-tranche-7-b021b3-shutdown-integrated.md).
 
 ## Schema 18
 
@@ -112,7 +127,7 @@ gap flag so a client can resume through durable paging rather than assume it
 saw everything. Each in-memory subscriber queue is capped at 256 events and
 uses the same explicit gap result after overflow.
 
-The monitor service surface includes board status, node list,
+The future monitor-ready service surface includes board status, node list,
 recent/live events, notifications, system/today statistics, recent callers,
 one-caller activity, message activity, transfer activity, recent errors, and
 maintenance status. File mutations have a separately bounded event view.

@@ -181,6 +181,18 @@ read.
 
 ## Logging off
 
+An authorized operator may invite you to a Sysop chat. Answer the displayed
+accept/decline prompt; there is no hidden takeover or screen observation.
+During accepted operator-initiated chat your ordinary caller time pauses, then
+resumes when chat ends and you return to your previous BBS context. Chat is
+not recorded as a message or durable transcript. You may also use the existing
+Page command when the Sysop is available; a page may be answered or declined.
+
+An operator can end your session with a Sysop-disconnect notice or without
+that notice. Both paths still finalize your session and any active transfer.
+A board-wide shutdown has its own shutdown notice and closes the board after
+bounded cleanup. Reconnect after the Sysop starts the board again.
+
 <!-- help-topic: caller.logoff -->
 
 Use `G` for Goodbye and wait for the board to close the connection. A clean

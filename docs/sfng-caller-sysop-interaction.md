@@ -214,14 +214,25 @@ common session boundary remains PTY/simulation-tested.
 - the Category-A display/navigation journey and confirmed macro table are
   complete; advanced event/questionnaire/bulletin resource breadth remains
   tracked under B-003/B-004/B-006/B-020;
-- local forced-chat time-pausing is not implemented; Increment 6 implements
-  the required caller-initiated page/answer path;
+- hidden forced chat remains deferred; current B021-B2 instead implements
+  operator invitation with caller consent and ordinary-time pause/resume;
 - chat capture, caller-to-caller node chat, page schedules, and external page
   mechanisms are follow-on stock/advanced work;
 - `spitfire console` is an in-process operator mode, not an attachable control
   client for an already-running server.
 
 ## Six-Month Recovery
+
+Current B021-B uses the existing InteractionHub and caller/session authority
+for page availability, pending-page answer/decline, consent-based operator
+chat, and graceful disconnect. Chat is bounded, authenticated, exact-session
+bound, and non-persistent; normal completion restores the caller's prior
+context. Operator loss ends chat without ending a valid caller session.
+Individual disconnect notice/no-notice shares transfer/accounting cleanup.
+Daemon shutdown uses that same lifecycle with a distinct board-shutdown
+notice and bounded drain, not a second interaction system. See the
+[B021-B2 report](research/m039-tranche-7-b021b2-chat-disconnect.md) and
+[B021-B3 integrated report](research/m039-tranche-7-b021b3-shutdown-integrated.md).
 
 The caller/session engine, not a transport adapter, owns preferences, MORE,
 page, and chat behavior. Start with this document, then inspect

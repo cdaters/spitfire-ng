@@ -13,7 +13,7 @@ use sf_bbs::{
     BoardStatusWire, EventWire, MaintenanceWire, NodeStatusWire, NotificationWire,
     OperatorEventQuery, OperatorFeature, RecentCallerWire, StatisticsWire,
 };
-use sf_core::{EventCategory, EventOutcome, EventSeverity};
+use sf_core::{EventCategory, EventOutcome, EventSeverity, LocalOperatorCapability};
 
 pub const RECENT_EVENT_LIMIT: usize = 100;
 pub const RECENT_CALLER_LIMIT: usize = 100;
@@ -209,6 +209,9 @@ impl EventFilter {
 
 #[derive(Clone, Debug, Default)]
 pub struct MonitorSnapshot {
+    pub shutdown: Option<sf_bbs::ShutdownImpact>,
+    pub interactions: Option<sf_bbs::InteractionSnapshot>,
+    pub authorized_capabilities: Vec<LocalOperatorCapability>,
     pub board: Option<BoardStatusWire>,
     pub nodes: Vec<NodeStatusWire>,
     pub events: Vec<EventWire>,
@@ -233,6 +236,7 @@ pub enum ConnectionState {
 
 #[derive(Clone, Debug, Default)]
 pub struct MonitorModel {
+    pub live: crate::live_ui::LiveUi,
     pub view: View,
     pub connection: ConnectionState,
     pub snapshot: MonitorSnapshot,
@@ -246,9 +250,35 @@ pub struct MonitorModel {
     pub show_filters: bool,
     pub event_gap: bool,
     pub status_key: Option<&'static str>,
+    pub show_actions: bool,
+    pub action_result: Option<String>,
 }
 
 impl MonitorModel {
+    pub fn action_unavailable(
+        &self,
+        feature: OperatorFeature,
+        capability: LocalOperatorCapability,
+    ) -> Option<&'static str> {
+        let ConnectionState::Connected { features, .. } = &self.connection else {
+            return Some("sfmonitor-action-stale");
+        };
+        if !features.contains(&feature) {
+            Some("operator-feature-unsupported")
+        } else if !self.snapshot.authorized_capabilities.contains(&capability) {
+            Some("sfmonitor-action-denied")
+        } else if self
+            .snapshot
+            .shutdown
+            .as_ref()
+            .is_some_and(|state| state.phase != sf_bbs::ShutdownPhase::Running)
+        {
+            Some("sfmonitor-result-shutdown-already-requested")
+        } else {
+            None
+        }
+    }
+
     pub fn next_view(&mut self) {
         let current = View::ALL
             .iter()
@@ -276,6 +306,7 @@ impl MonitorModel {
         self.show_help = false;
         self.show_filters = false;
         self.show_node_detail = false;
+        self.show_actions = false;
     }
 
     pub fn move_selection(&mut self, delta: isize) {
@@ -323,6 +354,11 @@ impl MonitorModel {
     }
 
     pub fn mark_disconnected(&mut self, reason_key: &'static str) {
+        self.live.shutdown_confirmation = None;
+        self.live.chat = None;
+        self.live.confirmation = None;
+        self.live.page_menu = false;
+        self.live.disconnect_choice = false;
         self.connection = ConnectionState::Disconnected { reason_key };
         self.status_key = Some("sfmonitor-status-stale");
     }
@@ -373,7 +409,7 @@ mod tests {
         model.next_view();
         assert_eq!(model.view, View::Dashboard);
         let features = format!("{:?}", MONITOR_FEATURES).to_ascii_lowercase();
-        for forbidden in ["disconnect", "time", "chat", "shutdown", "config-write"] {
+        for forbidden in ["disconnect", "chat", "shutdown", "config-write"] {
             assert!(!features.contains(forbidden));
         }
     }

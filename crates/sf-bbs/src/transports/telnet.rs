@@ -229,6 +229,32 @@ impl TelnetTerminal {
 }
 
 impl Terminal for TelnetTerminal {
+    fn supports_input_polling(&self) -> bool {
+        true
+    }
+    fn read_input_byte(&mut self, timeout: Duration) -> Result<Option<u8>, TerminalError> {
+        let mut byte = [0_u8; 1];
+        let result = self
+            .read_binary(&mut byte, timeout)
+            .map(|count| (count != 0).then_some(byte[0]));
+        self.end_binary_mode()?;
+        result
+    }
+    fn echoes_input(&self) -> bool {
+        true
+    }
+    fn emergency_close_handle(
+        &self,
+    ) -> Result<Option<sf_core::EmergencyCloseHandle>, TerminalError> {
+        let stream = self.stream.try_clone()?;
+        Ok(Some(std::sync::Arc::new(move || {
+            match stream.shutdown(Shutdown::Both) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotConnected => Ok(()),
+                Err(error) => Err(error.into()),
+            }
+        })))
+    }
     fn info(&self) -> TerminalInfo {
         self.info.clone()
     }

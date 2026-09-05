@@ -12,6 +12,11 @@ closure only
 
 ## Outcome
 
+This report remains the prior B021-A attachment evidence. Subsequent
+[B021-B live controls](m039-tranche-7-b021b3-shutdown-integrated.md) are accepted
+on native macOS; live Windows B021-B acceptance remains DEFERRED — REAL WINDOWS
+ENVIRONMENT REQUIRED and is not claimed by this record.
+
 B021-AW implements the Windows transport beneath the same read-only
 `OperatorClient`, protocol, authorization, and `OperatorService` used on Unix.
 It does not add a Windows protocol or a second implementation of board status.

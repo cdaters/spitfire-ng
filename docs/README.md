@@ -20,15 +20,15 @@ the historical or architectural material to set up a board.
 - [Board Activity and System Statistics](manual/board-activity.md) — Human
   guidance for schema-18 activity and schema-19 protected read-only operator
   attachment.
-- [Using sfmonitor](manual/sfmonitor.md) — Run and navigate the read-only live
-  operator monitor.
+- [Using sfmonitor](manual/sfmonitor.md) — Monitoring, explicitly authorized live
+  Actions, ephemeral chat, confirmed disconnect/shutdown, and recovery.
 - [Operator Observability Technical Reference](technical/observability.md) —
   Schema-18 event, summary, query, authorization, and recovery contracts.
 - [Protected Operator Attachment](technical/operator-control.md) — Schema-19
   command receipts/audit, local IPC, UID/SID identity, protocol, client, and
   recovery contract.
 - [sfmonitor Technical Architecture](technical/sfmonitor.md) — TUI process,
-  lifecycle, refresh, layout, privacy, and read-only extension boundaries.
+  lifecycle, refresh, layout, privacy, and capability-aware live-control boundaries.
 - [M039 Tranche 7 Operator Observability and Reports Gate](research/m039-tranche-7-operator-observability-reports-gate.md)
   — Public-safe B-017/B-021/B-022 architecture and acceptance boundaries.
 - [M039 Tranche 7 B-017 Observability Implementation](research/m039-tranche-7-b017-observability-implementation.md)
@@ -43,6 +43,10 @@ the historical or architectural material to set up a board.
 - [sfmonitor 0.1 Implementation](research/m039-sfmonitor-read-only-mvp.md) —
   Public-safe architecture, dependency decisions, acceptance, and remaining
   B-021 boundaries.
+- [B021-B accepted contract](research/m039-tranche-7-b021b-live-operator-controls-gate.md)
+- [B1 mutation/time/acknowledgement](research/m039-tranche-7-b021b1-mutation-time-ack.md)
+- [B2 page/chat/disconnect](research/m039-tranche-7-b021b2-chat-disconnect.md)
+- [B3 shutdown and integrated acceptance](research/m039-tranche-7-b021b3-shutdown-integrated.md)
 
 ## Getting started
 

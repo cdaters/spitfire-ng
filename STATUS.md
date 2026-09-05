@@ -16,7 +16,9 @@ schema-17 zero-byte invariant. Schema 18 adds privacy-safe operational events,
 daily summaries, retention, notifications, and status/maintenance projections.
 Schema 19 adds cross-platform protected read-only operator attachment, the
 command-receipt/control-audit foundation, the `spitfire operator` client, and
-the read-only `sfmonitor` 0.1 operator application. The downloadable 0.1.0
+the `sfmonitor` 0.1 operator application. Completed B021-B adds explicitly
+authorized live controls over the read-only bootstrap boundary: acknowledgement,
+session time, page/chat, caller disconnect, and daemon-only shutdown. The downloadable 0.1.0
 archive is unchanged and does not contain those additions.
 
 ## Current source additions
@@ -25,6 +27,20 @@ The Category-B ledger now records 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL, and
 5 NOT STARTED rows. B-024, B-011, B-014, and B-023 are VERIFIED, and M039
 Tranche 6 is semantically closed. B-017 is VERIFIED; B-021 remains PARTIAL and
 B-022 remains NOT STARTED.
+
+B021-B1/B2/B3 and B021-B are COMPLETE / ACCEPTED as an internal B-021 slice.
+B021-C typed configuration / sfconfig is next; B021-D remains later. Schema
+remains 19; all thirteen current read/control capabilities fit the bounded
+32-entry profile, and mutations require explicit enrollment. Chat is ephemeral;
+transfer/file/accounting authority is preserved. Q quits only sfmonitor, while
+confirmed Shutdown SPITFIRE NG stops only the selected daemon. No restart exists.
+See the [integrated acceptance report](docs/research/m039-tranche-7-b021b3-shutdown-integrated.md).
+
+Native macOS integrated acceptance passed. Windows source architecture and prior
+B021-A attachment acceptance remain; live Windows B021-B mutation, chat/TUI,
+disconnect, transfer shutdown, and multi-monitor shutdown remain **DEFERRED —
+REAL WINDOWS ENVIRONMENT REQUIRED**. No new Windows live/build acceptance is
+claimed from this source synchronization. No new release, tag, or binary was issued.
 
 - Stock-style Message-menu Specific Caller and Text Search
 - Current, all, or queued conference scope
@@ -114,19 +130,20 @@ B-022 remains NOT STARTED.
   1K-XMODEM-g, YMODEM Batch, YMODEM-g Batch, ZMODEM Batch, and TeLink
 - Transactional schema-16→17 migration with rollback and exact zero-byte
   catalog, upload, protocol, backup, and restore support
-- Transactional schema-18→19 migration with bounded future command receipts,
+- Transactional schema-18→19 migration with bounded command receipts,
   append-only control audit, no fabricated history, and schema-19 cold recovery
 - Protected board-local Unix-domain-socket and Windows named-pipe operator
   attachment using verified peer UID/SID, an explicit allowlist, restrictive
   permissions/DACL, one-use challenge binding, daemon generation, protocol and
   capability negotiation, and dispatch-time authorization
-- Shared, read-only `OperatorClient` and localized `spitfire operator` status,
+- Shared `OperatorClient` and localized read-only `spitfire operator` status,
   nodes, events/live events, notifications, statistics, callers, and
   maintenance commands backed by the existing B-017 projections
-- Read-only `sfmonitor` 0.1 with Dashboard, Nodes/detail, Callers, Activity,
+- Read-only-by-default `sfmonitor` with Dashboard, Nodes/detail, Callers, Activity,
   Statistics, Notifications, Maintenance / Errors, contextual help, typed
   filters, visible gap recovery, manual reconnect, and responsive terminal
-  layouts over the same `OperatorClient`
+  layouts over the same `OperatorClient`, plus explicitly enrolled B021-B
+  acknowledgement, time, page/chat, disconnect, and daemon shutdown Actions
 
 The all-term behavior intentionally improves the historical contiguous-phrase
 limitation without changing SPITFIRE's Text Search command flow, conference
@@ -162,7 +179,7 @@ selection, visibility, or result presentation.
 - Schema-19 protected local operator attachment on Unix/macOS and Windows,
   with the read-only operator CLI and reusable `OperatorClient`. B021-A is
   cross-platform complete; B-021 remains PARTIAL.
-- Read-only `sfmonitor` 0.1 from current source. Real visual/interaction
+- Capability-aware `sfmonitor` live controls from current source. Real visual/interaction
   acceptance passed on Apple Silicon macOS. Interactive rendered Windows TUI
   acceptance is deferred until a suitable real Windows environment is
   available.
@@ -215,7 +232,7 @@ until they are built and tested.
 - Remaining advanced Category-B commands and resources
 - QWK, DOVE-Net, and FidoNet networking
 - CircuitNet adapter/revival work beyond preserved compatibility knowledge
-- Comprehensive `sfconfig` and live attached operator controls
+- Comprehensive typed configuration / `sfconfig` and B021-D integration
 - Web administration
 - SFDraw, the planned display-authoring companion tool
 - SFDATE and SFREG preservation tools
@@ -235,8 +252,7 @@ See [Support and Bug Reports](docs/operator/support.md),
 ## Next step
 
 Preserve the accepted 0.1.0 release boundary. Schema 19, cross-platform
-B021-A protected read-only attachment, and `sfmonitor` 0.1 are available in
-current source, while B-021 remains PARTIAL and B-022 remains NOT STARTED.
-The next separately authorized development step is B021-B stale-safe live
-operator controls through the existing daemon-authoritative command plane.
-`sfconfig` remains future B021-C work.
+B021-A attachment, and accepted B021-B live controls are available in current
+source, while B-021 remains PARTIAL and B-022 remains NOT STARTED. The exact
+next separately authorized development step is B021-C typed configuration /
+`sfconfig`; B021-D follows later. Neither is implemented by this milestone.

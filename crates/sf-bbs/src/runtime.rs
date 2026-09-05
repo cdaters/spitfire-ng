@@ -9,11 +9,13 @@
 // See the repository documentation for architecture, provenance,
 // compatibility research, security, and contribution guidelines.
 
+use std::collections::HashMap;
 use std::io::{self, BufReader};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
@@ -24,8 +26,8 @@ use sf_core::{
     MaintenanceStatus, MessageActivityPage, NewOperationalEvent, NodeError, NodeManager,
     NodeRuntimeState, ObservabilityService, OperatorNotification, OperatorPrincipal, RecentCaller,
     RuntimeConfig, RuntimeDatabase, SecurityLevel, SessionCloseReason, SessionId, SessionState,
-    StockSessionContext, SystemStatistics, Terminal, TransferActivityPage, TransportAdapterConfig,
-    TransportConfig, TransportKind, VerifiedCallerGrant,
+    SessionTimeController, StockSessionContext, SystemStatistics, Terminal, TransferActivityPage,
+    TransportAdapterConfig, TransportConfig, TransportKind, VerifiedCallerGrant,
 };
 use tracing::{info, warn};
 
@@ -87,6 +89,7 @@ pub struct ObservabilityCapabilities {
     pub view_notifications: bool,
     pub view_maintenance_status: bool,
     pub acknowledge_notifications: bool,
+    pub adjust_session_time: bool,
 }
 
 impl ObservabilityCapabilities {
@@ -99,6 +102,7 @@ impl ObservabilityCapabilities {
             view_notifications: true,
             view_maintenance_status: true,
             acknowledge_notifications: true,
+            adjust_session_time: true,
         }
     }
 
@@ -111,6 +115,7 @@ impl ObservabilityCapabilities {
             view_notifications: true,
             view_maintenance_status: true,
             acknowledge_notifications: false,
+            adjust_session_time: false,
         }
     }
 }
@@ -119,6 +124,38 @@ impl ObservabilityCapabilities {
 pub struct OperatorObservabilityContext {
     pub principal: OperatorPrincipal,
     pub capabilities: ObservabilityCapabilities,
+}
+
+impl OperatorObservabilityContext {
+    pub fn capabilities_for(&self, capability: sf_core::LocalOperatorCapability) -> bool {
+        match capability {
+            sf_core::LocalOperatorCapability::ManagePageAvailability
+            | sf_core::LocalOperatorCapability::ManageCallerPages
+            | sf_core::LocalOperatorCapability::ChatWithCaller
+            | sf_core::LocalOperatorCapability::RequestGracefulShutdown
+            | sf_core::LocalOperatorCapability::DisconnectSession => false,
+            sf_core::LocalOperatorCapability::AcknowledgeNotifications => {
+                self.capabilities.acknowledge_notifications
+            }
+            sf_core::LocalOperatorCapability::AdjustSessionTime => {
+                self.capabilities.adjust_session_time
+            }
+            sf_core::LocalOperatorCapability::BoardStatistics => {
+                self.capabilities.view_board_statistics
+            }
+            sf_core::LocalOperatorCapability::NodeStatus => self.capabilities.view_node_status,
+            sf_core::LocalOperatorCapability::OperationalEvents => {
+                self.capabilities.view_operational_events
+            }
+            sf_core::LocalOperatorCapability::CallerActivity => {
+                self.capabilities.view_caller_activity
+            }
+            sf_core::LocalOperatorCapability::Notifications => self.capabilities.view_notifications,
+            sf_core::LocalOperatorCapability::MaintenanceStatus => {
+                self.capabilities.view_maintenance_status
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -141,6 +178,7 @@ pub struct LiveNodeStatus {
     pub node_id: u32,
     pub lifecycle: String,
     pub session_id: Option<u64>,
+    pub occupancy_generation: Option<u64>,
     pub public_handle: Option<String>,
     pub transport: Option<String>,
     pub online_seconds: Option<u64>,
@@ -176,9 +214,91 @@ pub struct BoardRuntime {
     started_at: i64,
     observability: ObservabilityService,
     daemon_generation: String,
+    session_time_adjustments: Arc<SessionTimeRegistry>,
+    pub(crate) live_controls: crate::live_control::LiveControlResources,
+    pub(crate) shutdown: Mutex<crate::shutdown::ShutdownControl>,
+    session_transports: Mutex<HashMap<SessionId, (bool, Option<sf_core::EmergencyCloseHandle>)>>,
 }
 
+struct SessionTimeRegistry(Mutex<HashMap<SessionId, i16>>);
+
 impl BoardRuntime {
+    pub(crate) fn shutdown_in_progress(&self) -> Result<bool, ApplicationError> {
+        Ok(self
+            .shutdown
+            .lock()
+            .map_err(|_| ApplicationError::Coordination("shutdown lock poisoned"))?
+            .phase
+            != crate::ShutdownPhase::Running)
+    }
+    pub(crate) fn with_live_target<T>(
+        &self,
+        node: u32,
+        session: u64,
+        occupancy: u64,
+        transition: impl FnOnce(&sf_core::NodeSnapshot) -> T,
+    ) -> Result<Option<T>, ApplicationError> {
+        Ok(self.nodes.with_session_target(
+            sf_core::NodeId::new(node)?,
+            SessionId::new(session)?,
+            occupancy,
+            transition,
+        )?)
+    }
+
+    pub(crate) fn supports_live_input(&self, session: SessionId) -> bool {
+        self.session_transports
+            .lock()
+            .ok()
+            .and_then(|entries| entries.get(&session).map(|entry| entry.0))
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn emergency_close_session(
+        &self,
+        node: u32,
+        session: u64,
+        occupancy: u64,
+    ) -> Result<bool, ApplicationError> {
+        self.with_live_target(node, session, occupancy, |_| {
+            let entries = self
+                .session_transports
+                .lock()
+                .map_err(|_| ApplicationError::Coordination("session transport lock poisoned"))?;
+            if let Some((_, Some(close))) = entries.get(&SessionId::new(session)?) {
+                close()?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        })?
+        .unwrap_or(Ok(false))
+    }
+    pub fn adjust_session_time(
+        &self,
+        session_id: SessionId,
+        delta_minutes: i16,
+    ) -> Result<(), ApplicationError> {
+        if !(-120..=120).contains(&delta_minutes) || delta_minutes == 0 {
+            return Err(ApplicationError::InvalidSetupValue(
+                "session time adjustment must be between -120 and 120 minutes and non-zero",
+            ));
+        }
+        self.session_time_adjustments
+            .0
+            .lock()
+            .map_err(|_| ApplicationError::Coordination("session time adjustment lock poisoned"))?
+            .entry(session_id)
+            .and_modify(|value| *value = value.saturating_add(delta_minutes))
+            .or_insert(delta_minutes);
+        Ok(())
+    }
+
+    pub fn clear_session_time_adjustment(&self, session_id: SessionId) {
+        if let Ok(mut values) = self.session_time_adjustments.0.lock() {
+            values.remove(&session_id);
+        }
+    }
     pub fn load(config_path: &Path) -> Result<Self, ApplicationError> {
         info!(
             version = sf_core::PRODUCT_VERSION,
@@ -310,6 +430,10 @@ impl BoardRuntime {
             started_at,
             observability,
             daemon_generation: crate::operator_control::random_token(),
+            session_time_adjustments: Arc::new(SessionTimeRegistry(Mutex::new(HashMap::new()))),
+            live_controls: crate::live_control::LiveControlResources::default(),
+            shutdown: Mutex::new(crate::shutdown::ShutdownControl::default()),
+            session_transports: Mutex::new(HashMap::new()),
         })
     }
 
@@ -371,6 +495,7 @@ impl BoardRuntime {
                     node_id: node.id.get(),
                     lifecycle: format!("{:?}", node.state).to_ascii_lowercase(),
                     session_id: node.session_id.map(SessionId::get),
+                    occupancy_generation: node.occupancy_generation,
                     public_handle: node.caller_name,
                     transport: node
                         .transport
@@ -995,6 +1120,20 @@ impl BoardRuntime {
             .ok()
             .and_then(|duration| i64::try_from(duration.as_secs()).ok())
             .unwrap_or(current_unix_seconds()?);
+        let admission = self
+            .shutdown
+            .lock()
+            .map_err(|_| ApplicationError::Coordination("shutdown lock poisoned"))?;
+        if admission.phase != crate::ShutdownPhase::Running {
+            drop(admission);
+            let message = self
+                .language
+                .localizer()
+                .text("caller-board-shutdown", &sf_core::LocalizationArgs::new());
+            terminal.write_all(message.as_bytes())?;
+            terminal.disconnect()?;
+            return Ok(ConnectionReport::NodeBusy);
+        }
         let lease = match self
             .nodes
             .acquire(session_id, terminal_info.transport, connected_at)
@@ -1009,6 +1148,18 @@ impl BoardRuntime {
             Err(error) => return Err(error.into()),
         };
         let mut session = lease.start_session();
+        self.session_transports
+            .lock()
+            .map_err(|_| ApplicationError::Coordination("session transport lock poisoned"))?
+            .insert(
+                session.id(),
+                (
+                    terminal.supports_input_polling(),
+                    terminal.emergency_close_handle()?,
+                ),
+            );
+
+        drop(admission);
 
         info!(
             transport = ?terminal_info.transport,
@@ -1017,6 +1168,12 @@ impl BoardRuntime {
             "SPITFIRE session started"
         );
         let outcome = sf_core::with_localizer(self.language.localizer(), || {
+            let mut controlled_terminal = sf_core::SessionControlTerminal::new(
+                terminal,
+                &self.interaction,
+                &lease,
+                session.id(),
+            );
             let presentation_profile = self
                 .presentation
                 .status()
@@ -1029,7 +1186,7 @@ impl BoardRuntime {
             };
             run_stock_session(
                 &mut session,
-                terminal,
+                &mut controlled_terminal,
                 &mut database,
                 &self.caller_config,
                 &self.credential_hasher,
@@ -1043,6 +1200,7 @@ impl BoardRuntime {
                     status: &lease,
                     file_storage: &self.file_storage,
                     interaction: &self.interaction,
+                    time_controller: self.session_time_adjustments.as_ref(),
                     page_timeout: Duration::from_secs(30),
                     chat_timeout: Duration::from_secs(300),
                     presentation_profile,
@@ -1081,6 +1239,13 @@ impl BoardRuntime {
         lease.mark_disconnecting()?;
         let completed_node = session.node_id();
         lease.release(&session)?;
+        self.clear_session_time_adjustment(session.id());
+        self.session_transports
+            .lock()
+            .map_err(|_| ApplicationError::Coordination("session transport lock poisoned"))?
+            .remove(&session.id());
+        self.interaction
+            .disconnect_finalized(session.id(), accounting_result.is_ok())?;
         let node_idle_at_shutdown = self
             .nodes
             .snapshots()?
@@ -1109,6 +1274,16 @@ impl BoardRuntime {
             caller_name: outcome.caller_name,
             node_idle_at_shutdown,
         }))
+    }
+}
+
+impl SessionTimeController for SessionTimeRegistry {
+    fn adjustment_minutes(&self, session_id: SessionId) -> i16 {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|values| values.get(&session_id).copied())
+            .unwrap_or(0)
     }
 }
 
@@ -1322,6 +1497,7 @@ fn serve_with_operator(
             "no listener or device transports are configured".to_owned(),
         ));
     }
+    let operator_stop = Arc::new(AtomicBool::new(false));
     let operator_server = crate::operator_control::start_operator_server(
         Arc::clone(&runtime),
         config_path
@@ -1330,7 +1506,7 @@ fn serve_with_operator(
                 path: config_path.to_path_buf(),
                 source,
             })?,
-        Arc::clone(&shutdown),
+        Arc::clone(&operator_stop),
     )?;
 
     for listener in &listeners {
@@ -1402,13 +1578,48 @@ fn serve_with_operator(
         }));
     }
 
-    let operator_result = if let Some(operator) = operator {
-        let result = operator(Arc::clone(&runtime), Arc::clone(&shutdown));
-        shutdown.store(true, Ordering::SeqCst);
-        Some(result)
-    } else {
-        None
-    };
+    let operator_handle = operator.map(|operator| {
+        let runtime = runtime.clone();
+        let shutdown = shutdown.clone();
+        thread::spawn(move || {
+            let result = operator(runtime, shutdown.clone());
+            shutdown.store(true, Ordering::SeqCst);
+            result
+        })
+    });
+    loop {
+        {
+            let mut control = runtime
+                .shutdown
+                .lock()
+                .map_err(|_| ApplicationError::Coordination("shutdown lock poisoned"))?;
+            if shutdown.load(Ordering::SeqCst) && control.phase == crate::ShutdownPhase::Running {
+                control.phase = crate::ShutdownPhase::Requested;
+            }
+        }
+        let phase = runtime
+            .shutdown
+            .lock()
+            .map_err(|_| ApplicationError::Coordination("shutdown lock poisoned"))?
+            .phase;
+        if phase == crate::ShutdownPhase::Requested {
+            match crate::shutdown::drain(&runtime) {
+                Ok(()) => break,
+                Err(_) => {
+                    runtime
+                        .shutdown
+                        .lock()
+                        .map_err(|_| ApplicationError::Coordination("shutdown lock poisoned"))?
+                        .phase = crate::ShutdownPhase::Failed;
+                    // Do not terminate a process holding unfinished accounting or files.
+                    tracing::error!("graceful shutdown could not finalize safely; daemon retained with admissions closed");
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    shutdown.store(true, Ordering::SeqCst);
+    operator_stop.store(true, Ordering::SeqCst);
 
     for handle in handles {
         handle
@@ -1416,8 +1627,10 @@ fn serve_with_operator(
             .map_err(|_| ApplicationError::Coordination("transport listener thread panicked"))?;
     }
     operator_server.join()?;
-    if let Some(result) = operator_result {
-        result?;
+    if let Some(handle) = operator_handle.filter(|handle| handle.is_finished()) {
+        handle
+            .join()
+            .map_err(|_| ApplicationError::Coordination("operator console thread panicked"))??;
     }
     info!("SPITFIRE NG listeners shut down cleanly");
     Ok(ServeReport {
@@ -2444,7 +2657,13 @@ mod tests {
             .set_caller_state("Active Lifecycle Caller", CallerState::Disabled)
             .unwrap();
         assert_eq!(disabled.state, CallerState::Disabled);
-        service.decline(page.session_id).unwrap();
+        // Cooperative cancellation now ends the pending page immediately;
+        // no unrelated manual decline is needed to unblock the caller.
+        assert!(!service
+            .pages()
+            .unwrap()
+            .iter()
+            .any(|pending| pending.session_id == page.session_id));
         let (report, terminal) = caller.join().unwrap();
         let ConnectionReport::Completed(report) = report else {
             panic!("all nodes busy");
@@ -4075,6 +4294,7 @@ mod tests {
                 view_notifications: false,
                 view_maintenance_status: false,
                 acknowledge_notifications: false,
+                adjust_session_time: false,
             },
         };
         assert!(runtime.board_status(&denied).is_err());
@@ -4501,6 +4721,635 @@ mod tests {
             runtime.node_snapshots().unwrap()[0].state,
             NodeRuntimeState::Waiting
         );
+    }
+
+    fn b2_command(
+        runtime: &Arc<BoardRuntime>,
+        owner: &str,
+        id: &str,
+        action: crate::LiveControlAction,
+    ) -> Result<crate::MutationResult, ApplicationError> {
+        use sha2::{Digest, Sha256};
+        let fingerprint = format!("{:x}", Sha256::digest(serde_json::to_vec(&action).unwrap()));
+        crate::live_control::dispatch(
+            runtime.clone(),
+            "uid:501".to_owned(),
+            owner.to_owned(),
+            &[
+                sf_core::LocalOperatorCapability::ManagePageAvailability,
+                sf_core::LocalOperatorCapability::ManageCallerPages,
+                sf_core::LocalOperatorCapability::ChatWithCaller,
+                sf_core::LocalOperatorCapability::DisconnectSession,
+                sf_core::LocalOperatorCapability::RequestGracefulShutdown,
+            ],
+            Arc::new(|| true),
+            id.to_owned(),
+            fingerprint,
+            action,
+        )
+    }
+
+    fn b2_target(
+        runtime: &BoardRuntime,
+        lease: &sf_core::NodeLease,
+        session: SessionId,
+    ) -> crate::LiveSessionTarget {
+        crate::LiveSessionTarget {
+            daemon_generation: runtime.daemon_generation().to_owned(),
+            node_id: lease.node_id().get(),
+            session_id: session.get(),
+            occupancy_generation: lease.occupancy_generation(),
+        }
+    }
+
+    #[test]
+    fn live_disconnect_timeout_uses_owned_fallback_and_common_finalizer() {
+        use crate::{LiveControlAction as A, LiveControlResult as R, MutationResult as M};
+        for failed_close in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().join("board");
+            initialize_fixture_board(&root).unwrap();
+            let runtime = Arc::new(BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap());
+            let caller = runtime
+                .initialize_sysop(b"test-only fallback password")
+                .unwrap();
+            let session = SessionId::new(9201).unwrap();
+            let lease = runtime
+                .nodes
+                .acquire(
+                    session,
+                    TransportKind::InMemory,
+                    current_unix_seconds().unwrap(),
+                )
+                .unwrap();
+            lease.mark_online(caller.id, "Fallback Caller").unwrap();
+            let target = b2_target(&runtime, &lease, session);
+            let (closed, receive) = std::sync::mpsc::channel();
+            runtime.session_transports.lock().unwrap().insert(
+                session,
+                (
+                    true,
+                    Some(Arc::new(move || {
+                        closed.send(()).unwrap();
+                        if failed_close {
+                            Err(sf_core::TerminalError::Disconnected)
+                        } else {
+                            Ok(())
+                        }
+                    })),
+                ),
+            );
+            let hub = runtime.interaction.clone();
+            let finalizer = thread::spawn(move || {
+                receive.recv_timeout(Duration::from_secs(5)).unwrap();
+                // Model the existing session finalizer waking after its transport
+                // closes: release only the owned lease, then publish completion.
+                drop(lease);
+                hub.disconnect_finalized(session, true).unwrap();
+            });
+            let id = "b2-fallback-command-001";
+            let M::LiveControl {
+                value: R::DisconnectPreflight { impact },
+                ..
+            } = b2_command(
+                &runtime,
+                "operator",
+                id,
+                A::PrepareDisconnect {
+                    target: target.clone(),
+                    notice: true,
+                },
+            )
+            .unwrap()
+            else {
+                panic!("preflight expected")
+            };
+            let started = Instant::now();
+            b2_command(
+                &runtime,
+                "operator",
+                id,
+                A::DisconnectSession {
+                    target,
+                    notice: true,
+                    preflight_token: impact.token,
+                },
+            )
+            .unwrap();
+            finalizer.join().unwrap();
+            assert!(started.elapsed() >= crate::live_control::DISCONNECT_GRACE);
+            loop {
+                let connection = rusqlite::Connection::open(runtime.database_path()).unwrap();
+                let result_class = if failed_close {
+                    "session-disconnected"
+                } else {
+                    "session-disconnected-fallback"
+                };
+                let complete: i64 = connection.query_row("SELECT COUNT(*) FROM operator_control_audit WHERE command_id=?1 AND detail_code=?2", [id, result_class], |row| row.get(0)).unwrap();
+                if complete == 1 {
+                    let detail = if failed_close {
+                        "emergency-close-failed"
+                    } else {
+                        "emergency-transport-close"
+                    };
+                    assert_eq!(connection.query_row("SELECT COUNT(*) FROM operator_control_audit WHERE command_id=?1 AND detail_code=?2", [id, detail], |row| row.get::<_, i64>(0)).unwrap(), 1);
+                    break;
+                }
+                assert!(started.elapsed() < Duration::from_secs(6));
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert_eq!(runtime.nodes.available().unwrap(), 1);
+        }
+    }
+
+    #[test]
+    fn live_controls_page_chat_replay_owner_loss_and_stale_slot_are_bounded() {
+        use crate::{LiveControlAction as A, LiveControlResult as R, MutationResult as M};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("board");
+        initialize_fixture_board(&root).unwrap();
+        let runtime = Arc::new(BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap());
+        let caller = runtime.initialize_sysop(b"test-only b2 password").unwrap();
+        let session = SessionId::new(9001).unwrap();
+        let lease = runtime
+            .nodes
+            .acquire(
+                session,
+                TransportKind::InMemory,
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        lease.mark_online(caller.id, "Public B2 Caller").unwrap();
+        runtime
+            .session_transports
+            .lock()
+            .unwrap()
+            .insert(session, (true, None));
+        let target = b2_target(&runtime, &lease, session);
+        let invite = A::InviteOperatorChat {
+            target: target.clone(),
+        };
+        let result = b2_command(&runtime, "first", "b2-invitation-00001", invite.clone()).unwrap();
+        let M::LiveControl {
+            value: R::ChatReady { join_token, .. },
+            ..
+        } = result
+        else {
+            panic!("chat handoff expected")
+        };
+        assert!(matches!(
+            b2_command(&runtime, "first", "b2-invitation-00001", invite.clone()).unwrap(),
+            M::Replayed { .. }
+        ));
+        assert!(
+            matches!(b2_command(&runtime, "second", "b2-invitation-00002", invite.clone()).unwrap(), M::Rejected { reason, .. } if reason == "chat-busy")
+        );
+        assert!(runtime
+            .live_controls
+            .take_chat(&join_token, "uid:999")
+            .is_err());
+        let handoff = runtime
+            .live_controls
+            .take_chat(&join_token, "uid:501")
+            .unwrap();
+        assert!(runtime
+            .live_controls
+            .take_chat(&join_token, "uid:501")
+            .is_err());
+        let chat = runtime
+            .interaction
+            .answer_invitation(session, true)
+            .unwrap()
+            .unwrap();
+        chat.send_line("synthetic ephemeral regression line")
+            .unwrap();
+        assert_eq!(
+            handoff
+                .chat
+                .receive_line(Duration::ZERO)
+                .unwrap()
+                .as_deref(),
+            Some("synthetic ephemeral regression line")
+        );
+        runtime
+            .interaction
+            .end_operator_attachment("first")
+            .unwrap();
+        assert!(chat.receive_line(Duration::ZERO).unwrap().is_none());
+        drop(chat);
+        drop(handoff);
+        let _ = b2_command(
+            &runtime,
+            "first",
+            "b2-availability-001",
+            A::SetPageAvailability { available: true },
+        )
+        .unwrap();
+        let page = runtime
+            .interaction
+            .request_page(
+                session,
+                lease.node_id(),
+                caller.id,
+                "Public B2 Caller",
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        let pending = crate::live_control::snapshot(&runtime).unwrap().pages;
+        assert_eq!(pending.len(), 1);
+        let decline = A::DeclineCallerPage {
+            target: target.clone(),
+            interaction_id: pending[0].interaction_id,
+        };
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-decline-page-001", decline.clone()).unwrap(), M::Completed { result_class, .. } if result_class == "page-declined")
+        );
+        assert!(
+            matches!(b2_command(&runtime, "second", "b2-decline-page-002", decline).unwrap(), M::Rejected { reason, .. } if reason == "page-already-handled")
+        );
+        drop(page);
+        drop(lease);
+        let replacement_session = SessionId::new(9002).unwrap();
+        let replacement = runtime
+            .nodes
+            .acquire(
+                replacement_session,
+                TransportKind::InMemory,
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        replacement
+            .mark_online(caller.id, "Replacement Caller")
+            .unwrap();
+        assert!(matches!(
+            b2_command(&runtime, "first", "b2-invitation-00001", invite.clone()).unwrap(),
+            M::Replayed { .. }
+        ));
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-stale-invite-001", invite).unwrap(), M::Rejected { reason, .. } if reason == "stale-target")
+        );
+        assert!(!runtime
+            .interaction
+            .invitation_pending(replacement_session)
+            .unwrap());
+        let database = rusqlite::Connection::open(runtime.database_path()).unwrap();
+        let count: i64 = database.query_row("SELECT COUNT(*) FROM operator_control_audit WHERE command_id='b2-stale-invite-001' AND outcome='rejected' AND detail_code='stale-target'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
+        let leaked: i64 = database
+            .query_row(
+                "SELECT COUNT(*) FROM operator_control_audit WHERE detail_code LIKE '%ephemeral%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(leaked, 0);
+    }
+
+    #[test]
+    fn live_disconnect_preflight_races_replay_and_exact_emergency_close() {
+        use crate::{LiveControlAction as A, LiveControlResult as R, MutationResult as M};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("board");
+        initialize_fixture_board(&root).unwrap();
+        let runtime = Arc::new(BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap());
+        let caller = runtime
+            .initialize_sysop(b"test-only b2 disconnect password")
+            .unwrap();
+        let session = SessionId::new(9101).unwrap();
+        let lease = runtime
+            .nodes
+            .acquire(
+                session,
+                TransportKind::InMemory,
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        lease.mark_online(caller.id, "Disconnect Caller").unwrap();
+        let target = b2_target(&runtime, &lease, session);
+        let stale_preflight = A::PrepareDisconnect {
+            target: crate::LiveSessionTarget {
+                occupancy_generation: target.occupancy_generation + 1,
+                ..target.clone()
+            },
+            notice: true,
+        };
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-stale-preflight-01", stale_preflight).unwrap(), M::Rejected { reason, .. } if reason == "stale-target")
+        );
+        let prepare = |owner: &str, id: &str| {
+            let M::LiveControl {
+                value: R::DisconnectPreflight { impact },
+                ..
+            } = b2_command(
+                &runtime,
+                owner,
+                id,
+                A::PrepareDisconnect {
+                    target: target.clone(),
+                    notice: false,
+                },
+            )
+            .unwrap()
+            else {
+                panic!("preflight expected")
+            };
+            A::DisconnectSession {
+                target: target.clone(),
+                notice: false,
+                preflight_token: impact.token,
+            }
+        };
+        let transfer_changed = prepare("first", "b2-transfer-impact-01");
+        sf_core::SessionStatusObserver::transfer_started(
+            &lease,
+            sf_core::TransferDirection::Download,
+            "WELCOME.TXT",
+        )
+        .unwrap();
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-transfer-impact-01", transfer_changed).unwrap(), M::Rejected { reason, .. } if reason == "preflight-stale")
+        );
+        assert!(!runtime.interaction.disconnect_pending(session).unwrap());
+        runtime
+            .session_transports
+            .lock()
+            .unwrap()
+            .insert(session, (true, None));
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-transfer-chat-busy", A::InviteOperatorChat { target: target.clone() }).unwrap(), M::Rejected { reason, .. } if reason == "chat-busy")
+        );
+        sf_core::SessionStatusObserver::transfer_finished(&lease).unwrap();
+        let page = runtime
+            .interaction
+            .request_page(
+                session,
+                lease.node_id(),
+                caller.id,
+                "Disconnect Caller",
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        let chat_changed = prepare("first", "b2-chat-impact-change");
+        drop(page);
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-chat-impact-change", chat_changed).unwrap(), M::Rejected { reason, .. } if reason == "preflight-stale")
+        );
+        let invalid = A::PrepareDisconnect {
+            target: crate::LiveSessionTarget {
+                session_id: 0,
+                ..target.clone()
+            },
+            notice: false,
+        };
+        assert!(b2_command(&runtime, "first", "b2-invalid-target-001", invalid).is_err());
+        let connection = rusqlite::Connection::open(runtime.database_path()).unwrap();
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM operator_control_audit WHERE command_id='b2-invalid-target-001' AND outcome='rejected' AND detail_code='invalid-target'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        let first = prepare("first", "b2-disconnect-first-01");
+        let second = prepare("second", "b2-disconnect-second-01");
+        assert!(matches!(
+            b2_command(&runtime, "first", "b2-disconnect-first-01", first.clone()).unwrap(),
+            M::LiveControl {
+                value: R::Pending { .. },
+                ..
+            }
+        ));
+        assert!(
+            matches!(b2_command(&runtime, "second", "b2-disconnect-second-01", second).unwrap(), M::Rejected { reason, .. } if reason == "disconnect-already-requested")
+        );
+        assert_eq!(
+            runtime.interaction.take_disconnect_notice(session).unwrap(),
+            Some(false)
+        );
+        assert_eq!(
+            runtime.interaction.take_disconnect_notice(session).unwrap(),
+            None
+        );
+        runtime
+            .interaction
+            .disconnect_finalized(session, true)
+            .unwrap();
+        let started = Instant::now();
+        loop {
+            let database = RuntimeDatabase::open_read_only(runtime.database_path()).unwrap();
+            if database
+                .operator_command_receipt(
+                    "b2-disconnect-first-01",
+                    "uid:501",
+                    runtime.daemon_generation(),
+                )
+                .unwrap()
+                .unwrap()
+                .state
+                == "completed"
+            {
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(2));
+            thread::sleep(Duration::from_millis(10));
+        }
+        drop(lease);
+        let replacement_session = SessionId::new(9102).unwrap();
+        let replacement = runtime
+            .nodes
+            .acquire(
+                replacement_session,
+                TransportKind::InMemory,
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        replacement
+            .mark_online(caller.id, "Replacement Caller")
+            .unwrap();
+        let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = closes.clone();
+        runtime.session_transports.lock().unwrap().insert(
+            replacement_session,
+            (
+                true,
+                Some(Arc::new(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })),
+            ),
+        );
+        assert!(!runtime
+            .emergency_close_session(
+                target.node_id,
+                target.session_id,
+                target.occupancy_generation
+            )
+            .unwrap());
+        assert_eq!(closes.load(Ordering::SeqCst), 0);
+        assert!(
+            matches!(b2_command(&runtime, "first", "b2-disconnect-first-01", first).unwrap(), M::Replayed { result_class: Some(class), .. } if class == "session-disconnected")
+        );
+        assert!(!runtime
+            .interaction
+            .disconnect_pending(replacement_session)
+            .unwrap());
+        assert!(runtime
+            .emergency_close_session(
+                replacement.node_id().get(),
+                replacement_session.get(),
+                replacement.occupancy_generation()
+            )
+            .unwrap());
+        assert_eq!(closes.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn shutdown_preflight_replay_duplicate_admission_and_durable_ordering() {
+        use crate::{LiveControlAction as A, LiveControlResult as R, MutationResult as M};
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("board");
+        initialize_fixture_board(&root).unwrap();
+        let runtime = Arc::new(BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap());
+        let prepare = |owner: &str, id: &str| {
+            let M::LiveControl {
+                value: R::ShutdownPreflight { impact },
+                ..
+            } = b2_command(
+                &runtime,
+                owner,
+                id,
+                A::PrepareGracefulShutdown {
+                    daemon_generation: runtime.daemon_generation().to_owned(),
+                },
+            )
+            .unwrap()
+            else {
+                panic!("expected preflight")
+            };
+            impact
+        };
+        let stale_id = "shutdown-stale-impact-001";
+        let stale = prepare("first", stale_id);
+        let lease = runtime
+            .nodes
+            .acquire(
+                SessionId::new(9901).unwrap(),
+                TransportKind::InMemory,
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        assert!(
+            matches!(b2_command(&runtime, "first", stale_id, A::RequestGracefulShutdown { daemon_generation: stale.daemon_generation, preflight_token: stale.token }).unwrap(), M::Rejected { reason, .. } if reason == "preflight-stale")
+        );
+        assert!(!runtime.shutdown_in_progress().unwrap());
+        drop(lease);
+        let first_id = "shutdown-first-command-001";
+        let second_id = "shutdown-second-command-001";
+        let first = prepare("first", first_id);
+        let second = prepare("second", second_id);
+        let action = A::RequestGracefulShutdown {
+            daemon_generation: first.daemon_generation,
+            preflight_token: first.token,
+        };
+        assert!(
+            matches!(b2_command(&runtime, "first", first_id, action.clone()).unwrap(), M::Completed { result_class, .. } if result_class == "shutdown-requested")
+        );
+        assert!(
+            matches!(b2_command(&runtime, "first", first_id, action).unwrap(), M::Replayed { result_class: Some(value), .. } if value == "shutdown-requested")
+        );
+        assert!(
+            matches!(b2_command(&runtime, "second", second_id, A::RequestGracefulShutdown { daemon_generation: second.daemon_generation, preflight_token: second.token }).unwrap(), M::Rejected { reason, .. } if reason == "shutdown-already-requested")
+        );
+        let mut terminal = InMemoryTerminal::with_lines(["never admitted"]);
+        assert!(matches!(
+            runtime.run_connection(&mut terminal).unwrap(),
+            ConnectionReport::NodeBusy
+        ));
+        assert!(terminal
+            .output_text()
+            .unwrap()
+            .contains("SPITFIRE NG is shutting down"));
+        let arrivals = (0..16)
+            .map(|_| {
+                let runtime = runtime.clone();
+                thread::spawn(move || {
+                    let mut terminal = InMemoryTerminal::with_lines(["not admitted"]);
+                    assert!(matches!(
+                        runtime.run_connection(&mut terminal).unwrap(),
+                        ConnectionReport::NodeBusy
+                    ));
+                })
+            })
+            .collect::<Vec<_>>();
+        for arrival in arrivals {
+            arrival.join().unwrap();
+        }
+        assert!(runtime
+            .node_snapshots()
+            .unwrap()
+            .iter()
+            .all(|n| n.session_id.is_none()));
+        let pending_evidence = runtime.live_controls.track();
+        let evidence = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            drop(pending_evidence);
+        });
+        let started = Instant::now();
+        crate::shutdown::drain(&runtime).unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        evidence.join().unwrap();
+        assert_eq!(
+            crate::shutdown::status(&runtime).unwrap().phase,
+            crate::ShutdownPhase::Complete
+        );
+        let database = RuntimeDatabase::open_read_only(runtime.database_path()).unwrap();
+        let receipt = database
+            .operator_command_receipt(first_id, "uid:501", runtime.daemon_generation())
+            .unwrap()
+            .unwrap();
+        assert_eq!(receipt.result_class.as_deref(), Some("shutdown-requested"));
+        let connection = rusqlite::Connection::open(runtime.database_path()).unwrap();
+        assert_eq!(connection.query_row("SELECT count(*) FROM operator_control_audit WHERE command_id=?1 AND detail_code='shutdown-complete'", [first_id], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(connection.query_row("SELECT count(*) FROM operational_events WHERE event_code='operator.shutdown-requested'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
+        assert_eq!(database.schema_version().unwrap(), 19);
+    }
+
+    #[test]
+    fn shutdown_reuses_exact_session_fallback_and_accounting_ticket() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("board");
+        initialize_fixture_board(&root).unwrap();
+        let runtime = Arc::new(BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap());
+        let session = SessionId::new(9902).unwrap();
+        let lease = runtime
+            .nodes
+            .acquire(
+                session,
+                TransportKind::InMemory,
+                current_unix_seconds().unwrap(),
+            )
+            .unwrap();
+        let (closed, receive) = std::sync::mpsc::channel();
+        runtime.session_transports.lock().unwrap().insert(
+            session,
+            (
+                true,
+                Some(Arc::new(move || {
+                    closed.send(()).unwrap();
+                    Ok(())
+                })),
+            ),
+        );
+        let hub = runtime.interaction.clone();
+        let finalizer = thread::spawn(move || {
+            receive.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(hub.board_shutdown_pending(session).unwrap());
+            assert_eq!(hub.take_disconnect_notice(session).unwrap(), Some(true));
+            assert_eq!(hub.take_disconnect_notice(session).unwrap(), None);
+            hub.session_ended(session).unwrap();
+            drop(lease);
+            hub.disconnect_finalized(session, true).unwrap();
+        });
+        runtime.shutdown.lock().unwrap().phase = crate::ShutdownPhase::Requested;
+        let started = Instant::now();
+        crate::shutdown::drain(&runtime).unwrap();
+        finalizer.join().unwrap();
+        assert!(started.elapsed() >= crate::live_control::DISCONNECT_GRACE);
+        assert!(started.elapsed() < Duration::from_secs(8));
     }
 
     #[test]

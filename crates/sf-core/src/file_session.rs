@@ -1483,6 +1483,11 @@ fn transfer_failure_class(
     &'static str,
 ) {
     match error {
+        TransferProtocolError::Terminal(TerminalError::OperatorCancelled) => (
+            TransferRuntimeState::Cancelled,
+            Some(TransferCancelSource::Operator),
+            "operator-cancelled",
+        ),
         TransferProtocolError::Canceled(_) => (
             TransferRuntimeState::Cancelled,
             Some(TransferCancelSource::Caller),
@@ -1961,7 +1966,7 @@ fn apply_live_upload_credit(
             occurred_at: crate::session::unix_seconds()?,
         })
         .map_err(transfer_runtime_session_error)?;
-    authenticated.allowance = authenticated.allowance.credit_seconds(credit);
+    authenticated.credit_live_allowance(credit);
     Ok(credit)
 }
 
@@ -2090,6 +2095,20 @@ mod tests {
         CallerPreferences, CallerState, FileAccessMode, FileAreaDefinition, FileEntry, FileId,
         FileStorage, InMemoryTerminal, LogicalPaths, PagingTerminal, RuntimeConfig,
     };
+
+    #[test]
+    fn cooperative_operator_transfer_cancel_retains_operator_classification() {
+        assert_eq!(
+            transfer_failure_class(&TransferProtocolError::Terminal(
+                TerminalError::OperatorCancelled
+            )),
+            (
+                TransferRuntimeState::Cancelled,
+                Some(TransferCancelSource::Operator),
+                "operator-cancelled"
+            )
+        );
+    }
 
     #[test]
     fn stock_file_rows_show_date_columns_and_extended_description_lines() {
