@@ -268,3 +268,12 @@ revision and retires obsolete commit metadata. A running daemon is sole online
 authority. Node/listener/timezone/presentation changes report pending restart;
 caller policy is captured per new session; operator grants are checked live.
 No new database migration, generic text editor, or restart command is introduced.
+
+## Current operator-tool roles
+
+Setup remains first-run/bootstrap preparation and refuses existing boards.
+Normal configuration uses [sfconfig](manual/sfconfig.md), live operation uses
+[sfmonitor](manual/sfmonitor.md), and existing identity/domain editors retain
+their stopped-board authority. [Operator Startup and Recovery](manual/operator-recovery.md)
+is the practical route for unavailable daemons, deliberate enrollment, and
+bad or restored configuration. Setup is never an overwrite/reset command.

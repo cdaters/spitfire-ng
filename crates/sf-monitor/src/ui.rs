@@ -36,7 +36,7 @@ pub fn render(frame: &mut Frame<'_>, model: &MonitorModel) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(8),
-            Constraint::Length(2),
+            Constraint::Length(4),
         ])
         .split(area);
     render_header(frame, rows[0], model);
@@ -592,7 +592,7 @@ fn render_maintenance(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
         render_empty(frame, area, View::Maintenance, "sfmonitor-loading");
         return;
     };
-    let lines = vec![
+    let mut lines = vec![
         section_line("sfmonitor-errors-and-warnings"),
         metric_number("sfmonitor-open-notifications", status.open_notifications),
         metric_number(
@@ -627,6 +627,9 @@ fn render_maintenance(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
             Style::default().fg(MUTED),
         ),
     ];
+    if area.height < 22 {
+        lines.retain(|line| line.width() != 0);
+    }
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: true })
@@ -661,27 +664,29 @@ fn render_system_configuration(frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
-    let view = text(model.view.localization_key(), &LocalizationArgs::new());
-    let stale = model
-        .status_key
-        .map(|key| format!(" | {}", text(key, &LocalizationArgs::new())))
-        .unwrap_or_default();
-    let footer = format!(
-        "{} | {}{}{}",
-        text("sfmonitor-key-hints", &LocalizationArgs::new()),
-        view,
-        stale,
-        model
-            .action_result
-            .as_ref()
-            .map(|value| format!(" | {value}"))
-            .unwrap_or_default()
+    let block = Block::default().borders(Borders::TOP);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let status = model
+        .action_result
+        .clone()
+        .or_else(|| {
+            model
+                .status_key
+                .map(|key| text(key, &LocalizationArgs::new()))
+        })
+        .unwrap_or_else(|| text(model.view.localization_key(), &LocalizationArgs::new()));
+    frame.render_widget(
+        Paragraph::new(status)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(INFORMATION)),
+        rows[0],
     );
     frame.render_widget(
-        Paragraph::new(footer)
-            .style(Style::default().fg(INFORMATION))
-            .block(Block::default().borders(Borders::TOP)),
-        area,
+        Paragraph::new(text("sfmonitor-key-hints", &LocalizationArgs::new()))
+            .style(Style::default().fg(INFORMATION)),
+        rows[1],
     );
 }
 
@@ -702,7 +707,13 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
     } else {
         model.view.help_key()
     };
-    let meaning = text(key, &LocalizationArgs::new());
+    let mut meaning = text(key, &LocalizationArgs::new());
+    if key == "sfmonitor-help-maintenance" {
+        for service in sf_core::observability::MaintenanceService::ALL {
+            meaning.push_str("\n\n");
+            meaning.push_str(&text(service.guidance_key(), &LocalizationArgs::new()));
+        }
+    }
     let body = text(
         "sfmonitor-help-body",
         &LocalizationArgs::new()
@@ -710,15 +721,18 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
             .with("meaning", meaning),
     );
     frame.render_widget(
-        Paragraph::new(body).wrap(Wrap { trim: true }).block(
-            Block::default()
-                .title(format!(
-                    " {} ",
-                    text("sfmonitor-help-title", &LocalizationArgs::new())
-                ))
-                .title_style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
-                .borders(Borders::ALL),
-        ),
+        Paragraph::new(body)
+            .wrap(Wrap { trim: true })
+            .scroll((model.help_scroll, 0))
+            .block(
+                Block::default()
+                    .title(format!(
+                        " {} ",
+                        text("sfmonitor-help-title", &LocalizationArgs::new())
+                    ))
+                    .title_style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+                    .borders(Borders::ALL),
+            ),
         popup,
     );
 }
@@ -993,6 +1007,28 @@ mod tests {
         terminal.backend().to_string()
     }
 
+    #[test]
+    fn action_results_and_key_hints_remain_visible_at_supported_sizes() {
+        sf_core::with_localizer(sf_core::Localizer::embedded_en_us(), || {
+            for (width, height) in [(100, 30), (80, 24), (60, 20)] {
+                let model = MonitorModel {
+                    action_result: Some(text(
+                        "sfmonitor-result-time-adjusted",
+                        &LocalizationArgs::new(),
+                    )),
+                    ..MonitorModel::default()
+                };
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                        .unwrap();
+                terminal.draw(|frame| render(frame, &model)).unwrap();
+                let screen = terminal.backend().to_string();
+                assert!(screen.contains("Caller session time adjusted."));
+                assert!(screen.contains("Q Quit"));
+                assert!(screen.contains("A Actions"));
+            }
+        });
+    }
     #[test]
     fn preferred_compact_and_minimum_layouts_render() {
         let model = MonitorModel::default();

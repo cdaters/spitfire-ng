@@ -80,6 +80,8 @@ fn target(model: &MonitorModel) -> Option<LiveSessionTarget> {
 fn send(model: &mut MonitorModel, worker: &MonitorWorker, command_id: String, action: Action) {
     if let Some(reason) = model.action_unavailable(action.feature(), action.capability()) {
         model.action_result = Some(text(reason));
+        model.live.page_menu = false;
+        model.live.disconnect_choice = false;
         return;
     }
     if matches!(action, Action::AnswerCallerPage { .. })
@@ -293,6 +295,8 @@ pub fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEven
                         },
                     );
                 } else {
+                    model.live.disconnect_choice = false;
+                    model.live.page_menu = false;
                     model.action_result = Some(text("sfmonitor-action-stale"));
                 }
             }
@@ -583,6 +587,20 @@ mod tests {
             },
         );
         model
+    }
+    #[test]
+    fn vanished_disconnect_target_closes_choice_and_exposes_refresh_guidance() {
+        let (worker, commands) = MonitorWorker::test_channels();
+        let mut model = MonitorModel::default();
+        model.live.disconnect_choice = true;
+        assert!(handle_key(
+            &mut model,
+            &worker,
+            KeyEvent::new(KeyCode::Char('2'), crossterm::event::KeyModifiers::NONE)
+        ));
+        assert!(!model.live.disconnect_choice);
+        assert!(model.action_result.is_some());
+        assert!(commands.try_recv().is_err());
     }
     #[test]
     fn ephemeral_transcript_is_bounded_redacted_and_discarded_on_every_end() {

@@ -189,3 +189,9 @@ continue to describe the unchanged 0.1.0 Development Preview binary.
 
 - [sfconfig Sysop Manual](manual/sfconfig.md) — Online/offline editing, validation, saving, permissions, conflicts, and recovery.
 - [Typed Configuration Technical Reference](technical/configuration.md) — Ownership, CAS, atomicity, effects, privacy, and terminal handoff.
+
+## Completed stock operator controls
+
+B021-D is COMPLETE / ACCEPTED and B-021 VERIFIED. B021-A/B/C remain accepted;
+B-022 remains NOT STARTED. See the [closure and outcome map](research/m039-tranche-7-b021d-operator-closure.md)
+and the [Sysop startup/recovery journey](manual/operator-recovery.md).

@@ -24,8 +24,8 @@ spitfire config /path/to/board/spitfire.toml
 ```
 
 The interactive menu validates configuration and coordinates with runtime,
-backup, and restore through the board-wide operation lock. Live reload is not
-implemented.
+backup, and restore through the board-wide operation lock. This stopped-board menu does not perform live reload; normal online
+administration uses [sfconfig](../manual/sfconfig.md).
 
 ## The important save rule
 

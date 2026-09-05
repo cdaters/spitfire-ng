@@ -119,6 +119,25 @@ pub enum LocalOperatorCapability {
 pub const MAX_LOCAL_OPERATOR_CAPABILITIES: usize = 32;
 
 impl LocalOperatorCapability {
+    /// Complete implemented vocabulary for explicit enrollment, never a preset.
+    pub const ALL: [Self; 16] = [
+        Self::BoardStatistics,
+        Self::NodeStatus,
+        Self::OperationalEvents,
+        Self::CallerActivity,
+        Self::Notifications,
+        Self::MaintenanceStatus,
+        Self::AcknowledgeNotifications,
+        Self::AdjustSessionTime,
+        Self::ManagePageAvailability,
+        Self::ManageCallerPages,
+        Self::ChatWithCaller,
+        Self::DisconnectSession,
+        Self::RequestGracefulShutdown,
+        Self::ReadConfiguration,
+        Self::ChangeOnlineConfiguration,
+        Self::ChangeSensitiveConfiguration,
+    ];
     /// Explicitly enumerate the B021-A bootstrap boundary. New controls must
     /// never enter this list merely because they are added to the enum.
     pub const READ_ONLY: [Self; 6] = [
@@ -1315,6 +1334,38 @@ database_file = "spitfire-ng.sqlite3"
 "#
     }
 
+    #[test]
+    fn complete_operator_vocabulary_fits_bound_round_trips_and_never_expands_bootstrap() {
+        let all = LocalOperatorCapability::ALL;
+        let mut identifiers = std::collections::BTreeSet::new();
+        assert!(all.len() <= MAX_LOCAL_OPERATOR_CAPABILITIES);
+        for cap in all {
+            let serialized = serde_json::to_string(&cap).unwrap();
+            assert!(identifiers.insert(serialized.clone()));
+            assert_eq!(
+                serde_json::from_str::<LocalOperatorCapability>(&serialized).unwrap(),
+                cap
+            );
+        }
+        assert_eq!(LocalOperatorCapability::READ_ONLY.len(), 6);
+        assert!(LocalOperatorCapability::READ_ONLY
+            .iter()
+            .all(|cap| all.contains(cap)));
+        let mut config = RuntimeConfig::synthetic_fixture();
+        config
+            .operators
+            .local_identities
+            .push(LocalOperatorIdentity::Unix {
+                uid: 7,
+                label: None,
+                capabilities: all.to_vec(),
+            });
+        config.validate().unwrap();
+        assert_eq!(
+            default_operator_capabilities(),
+            LocalOperatorCapability::READ_ONLY
+        );
+    }
     #[test]
     fn parses_and_validates_configuration() {
         let config = RuntimeConfig::from_toml(valid_toml()).unwrap();

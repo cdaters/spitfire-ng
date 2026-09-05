@@ -112,7 +112,7 @@ interactive terminal so it can read them safely.
 Successful setup reports:
 
 - the configuration and database paths;
-- schema version 18;
+- schema version 19;
 - one configured node;
 - two starter message conferences;
 - two starter file areas; and
@@ -284,3 +284,7 @@ This exact source-build, setup, loopback OpenSSH call, message post,
 starter-file ASCII download, clean shutdown, and cold-backup path was last
 exercised end to end on a clean schema-18 board on 2026-09-03. Schema 19 adds
 operator-control metadata and does not change the journey.
+
+After the first call and cold backup, continue with [Operator Startup and
+Recovery](operator-recovery.md) for sfmonitor, sfconfig, and deliberate operator
+permission enrollment. Setup remains the first-run bootstrap.

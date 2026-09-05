@@ -712,6 +712,136 @@ mod tests {
         assert!(!board.config_path.with_extension("toml.previous").exists());
     }
     #[test]
+    fn self_revocation_recovers_only_by_deliberate_exclusive_offline_enrollment() {
+        let (_temp, board) = fixture();
+        enroll(&board.config_path);
+        let runtime = Arc::new(crate::BoardRuntime::load(&board.config_path).unwrap());
+        let service = crate::OperatorService::new(runtime.clone());
+        let principal = current_operator_identity().unwrap();
+        let initial = service.configuration_snapshot(&principal).unwrap();
+        let mut operators = initial.config.operators.clone();
+        match &mut operators.local_identities[0] {
+            LocalOperatorIdentity::Unix { capabilities, .. }
+            | LocalOperatorIdentity::Windows { capabilities, .. } => {
+                *capabilities = LocalOperatorCapability::READ_ONLY.to_vec();
+            }
+        }
+        assert!(matches!(
+            service
+                .apply_configuration(
+                    &principal,
+                    &"61".repeat(16),
+                    &ConfigurationCandidate {
+                        expected: initial.version,
+                        edits: vec![],
+                        operators: Some(operators)
+                    }
+                )
+                .unwrap(),
+            ConfigurationResult::Saved { .. }
+        ));
+        assert!(service.configuration_snapshot(&principal).is_err());
+        assert!(matches!(
+            OfflineConfiguration::open(&board.config_path),
+            Err(ApplicationError::BoardInUse(_))
+        ));
+        drop(service);
+        drop(runtime);
+        let offline = OfflineConfiguration::open(&board.config_path).unwrap();
+        let snapshot = offline.snapshot().unwrap();
+        assert_eq!(snapshot.capabilities, LocalOperatorCapability::READ_ONLY);
+        assert!(matches!(
+            offline
+                .apply(
+                    &"62".repeat(16),
+                    &ConfigurationCandidate {
+                        expected: snapshot.version,
+                        edits: vec![],
+                        operators: Some(initial.config.operators),
+                    }
+                )
+                .unwrap(),
+            ConfigurationResult::Saved { .. }
+        ));
+        drop(offline);
+        let service = crate::OperatorService::new(Arc::new(
+            crate::BoardRuntime::load(&board.config_path).unwrap(),
+        ));
+        assert!(service.configuration_snapshot(&principal).is_ok());
+    }
+    #[test]
+    fn invalid_saved_configuration_fails_closed_and_known_good_backup_recovers_new_root() {
+        let (temp, board) = fixture();
+        let offline = OfflineConfiguration::open(&board.config_path).unwrap();
+        let candidate = edit(
+            &offline.snapshot().unwrap(),
+            ConfigurationField::InactivityMinutes,
+            "7",
+        );
+        offline.apply(&"63".repeat(16), &candidate).unwrap();
+        drop(offline);
+        let known_good = std::fs::read(&board.config_path).unwrap();
+        let backup = temp.path().join("backup");
+        crate::backup_board(&board.config_path, &backup).unwrap();
+        let broken = b"unknown-invalid-configuration = [";
+        std::fs::write(&board.config_path, broken).unwrap();
+        assert!(OfflineConfiguration::open(&board.config_path).is_err());
+        assert!(crate::BoardRuntime::load(&board.config_path).is_err());
+        assert_eq!(std::fs::read(&board.config_path).unwrap(), broken);
+        let restored = temp.path().join("recovered");
+        crate::restore_board(&backup, &restored, false).unwrap();
+        let path = restored.join("spitfire.toml");
+        assert_eq!(std::fs::read(&path).unwrap(), known_good);
+        let offline = OfflineConfiguration::open(&path).unwrap();
+        assert_eq!(
+            offline.snapshot().unwrap().config.caller.inactivity_minutes,
+            7
+        );
+        assert!(matches!(
+            crate::BoardRuntime::load(&path),
+            Err(ApplicationError::BoardInUse(_))
+        ));
+        assert!(crate::interactive_setup(&restored).is_err());
+        drop(offline);
+        let runtime = crate::BoardRuntime::load(&path).unwrap();
+        let database = RuntimeDatabase::open_read_only(runtime.database_path()).unwrap();
+        assert_eq!(database.schema_version().unwrap(), 19);
+        database.validate_current_snapshot().unwrap();
+        assert_eq!(std::fs::read(&board.config_path).unwrap(), broken);
+    }
+    #[test]
+    fn audit_failure_prevents_configuration_replacement_and_false_success() {
+        let (_temp, board) = fixture();
+        let offline = OfflineConfiguration::open(&board.config_path).unwrap();
+        let initial = offline.snapshot().unwrap();
+        let original = std::fs::read(&board.config_path).unwrap();
+        let database = rusqlite::Connection::open(&offline.authority.database).unwrap();
+        database.execute_batch("CREATE TRIGGER fail_config_audit BEFORE INSERT ON operator_control_audit BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END;").unwrap();
+        assert!(offline
+            .apply(
+                &"64".repeat(16),
+                &edit(&initial, ConfigurationField::InactivityMinutes, "7")
+            )
+            .is_err());
+        assert_eq!(std::fs::read(&board.config_path).unwrap(), original);
+        database
+            .execute_batch("DROP TRIGGER fail_config_audit;")
+            .unwrap();
+        drop(offline);
+        let _recovered = OfflineConfiguration::open(&board.config_path).unwrap();
+        let (state, result): (String, String) = database
+            .query_row(
+                "SELECT state,result_class FROM operator_command_journal WHERE command_id=?1",
+                ["64".repeat(16)],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (state.as_str(), result.as_str()),
+            ("rejected", "configuration-not-committed")
+        );
+    }
+    #[test]
     fn restart_required_is_persisted_without_changing_active_nodes() {
         let (_temp, board) = fixture();
         enroll(&board.config_path);

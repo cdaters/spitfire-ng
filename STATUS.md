@@ -23,22 +23,22 @@ archive is unchanged and does not contain those additions.
 
 ## Current source additions
 
-The Category-B ledger now records 14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL, and
+The Category-B ledger now records 15 VERIFIED, 2 IMPLEMENTED, 3 PARTIAL, and
 5 NOT STARTED rows. B-024, B-011, B-014, and B-023 are VERIFIED, and M039
-Tranche 6 is semantically closed. B-017 is VERIFIED; B-021 remains PARTIAL and
+Tranche 6 is semantically closed. B-017 and B-021 are VERIFIED;
 B-022 remains NOT STARTED.
 
 B021-B1/B2/B3 and B021-B are COMPLETE / ACCEPTED as an internal B-021 slice.
-B021-C typed configuration / sfconfig is also COMPLETE / ACCEPTED; B021-D
-remains later. Schema remains 19; all sixteen current capabilities fit the bounded
+B021-C typed configuration / sfconfig and B021-D operator integration are
+COMPLETE / ACCEPTED. All accepted B-021 stock outcomes are satisfied. Schema remains 19; all sixteen current capabilities fit the bounded
 32-entry profile, and mutations require explicit enrollment. Chat is ephemeral;
 transfer/file/accounting authority is preserved. Q quits only sfmonitor, while
 confirmed Shutdown SPITFIRE NG stops only the selected daemon. No restart exists.
 See the [integrated acceptance report](docs/research/m039-tranche-7-b021b3-shutdown-integrated.md).
 
 Native macOS integrated acceptance passed. Windows source architecture and prior
-B021-A attachment acceptance remain; live Windows B021-B mutation, chat/TUI,
-disconnect, transfer shutdown, and multi-monitor shutdown remain **DEFERRED —
+B021-A attachment acceptance remain; live Windows B021-B/C/D mutation, monitor/config rendering and input, maintenance
+execution, terminal handoff, chat/disconnect, transfer shutdown, and overlap remain **DEFERRED —
 REAL WINDOWS ENVIRONMENT REQUIRED**. No new Windows live/build acceptance is
 claimed from this source synchronization. No new release, tag, or binary was issued.
 
@@ -178,7 +178,7 @@ selection, visibility, or result presentation.
   projections, and maintenance/error views. B-017 is VERIFIED.
 - Schema-19 protected local operator attachment on Unix/macOS and Windows,
   with the read-only operator CLI and reusable `OperatorClient`. B021-A is
-  cross-platform complete; B-021 remains PARTIAL.
+  cross-platform complete; B-021 is VERIFIED after B021-D closure.
 - Capability-aware `sfmonitor` live controls from current source. Real visual/interaction
   acceptance passed on Apple Silicon macOS. Interactive rendered Windows TUI
   acceptance is deferred until a suitable real Windows environment is
@@ -232,7 +232,6 @@ until they are built and tested.
 - Remaining advanced Category-B commands and resources
 - QWK, DOVE-Net, and FidoNet networking
 - CircuitNet adapter/revival work beyond preserved compatibility knowledge
-- B021-D maintenance/platform and integrated acceptance
 - Web administration
 - SFDraw, the planned display-authoring companion tool
 - SFDATE and SFREG preservation tools
@@ -251,11 +250,10 @@ See [Support and Bug Reports](docs/operator/support.md),
 
 ## Next step
 
-Preserve the accepted 0.1.0 release boundary. Schema 19, cross-platform
-B021-A attachment, and accepted B021-B live controls are available in current
-source, while B-021 remains PARTIAL and B-022 remains NOT STARTED. The exact
-next separately scoped development step is B021-D. B021-C and the first
-`sfconfig` MVP are COMPLETE / ACCEPTED; overall B-021 remains PARTIAL.
+Stop after the accepted B021-D / B-021 source closure. B021-A/B/C remain
+accepted; B-021 is VERIFIED and B-022 remains NOT STARTED. Any next development
+requires a separately scoped B-022 interface/resource/transaction gate. Preserve
+the unchanged 0.1.0 release boundary; no excluded implementation begins here.
 
 ## B021-C configuration source milestone
 
@@ -279,5 +277,22 @@ sfconfig clients, caller continuity, live permissions, new-session policy,
 external restart, offline editing, and cold recovery. Windows named-pipe config,
 SID enrollment UI, rendered TUI/handoff, and filesystem behavior remain
 **DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**. Linux/BSD source architecture
-is preserved without a new runtime claim. en-US is 1.15.0 / 984 semantic messages.
+is preserved without a new runtime claim. At the B021-C checkpoint, en-US was 1.15.0 / 984 semantic messages.
 The downloadable Development Preview is unchanged; no release/tag/binary is added.
+
+## B021-D closure
+
+The [closure report](docs/research/m039-tranche-7-b021d-operator-closure.md) maps
+stock operator outcomes to existing native owners. Setup remains first-run and
+offline recovery preparation; sfmonitor is the live cockpit; sfconfig is the
+separate typed online/offline configuration environment. Maintenance adds shared
+owner guidance, not execute buttons. No B-018 pack/purge or B-022 output is imported.
+
+Current en-US is 1.16.0 / 988 messages. The supported [recovery journey](docs/manual/operator-recovery.md)
+covers deliberate local reenrollment, invalid configuration, exclusive offline
+authority, known-good cold restore, conflicts and loss of online authority.
+B-022 remains NOT STARTED. No networking, doors, scheduler or release work began.
+
+Public closure gates pass 481 tests / 2 existing ignored, doctests, 71 source
+headers, fmt, Clippy with warnings denied, diff hygiene, documentation links,
+localization and publication privacy/provenance scans. cargo-audit is unavailable.

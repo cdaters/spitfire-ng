@@ -51,12 +51,19 @@ page/chat, graceful caller disconnect, and confirmed daemon-only shutdown.
 Bootstrap remains read-only; chat is never durably persisted. Those
 improvements are not present in the published 0.1.0 archive.
 
-The public Category-B ledger is now **14 VERIFIED, 2 IMPLEMENTED, 4 PARTIAL,
+The public Category-B ledger is now **15 VERIFIED, 2 IMPLEMENTED, 3 PARTIAL,
 and 5 NOT STARTED**. B-024 transfer interoperability, B-011 batch queues,
 B-014 transfer policy/accounting, and B-023 extended storage are VERIFIED;
 M039 Tranche 6 is semantically closed. B-017 observability is also VERIFIED;
-B-021 operator controls remain PARTIAL and B-022 report publication remains
+B-021 operator controls are VERIFIED and B-022 report publication remains
 NOT STARTED.
+
+B021-A/B/C remain accepted and B021-D is COMPLETE / ACCEPTED. The typed
+`sfconfig` environment and `sfmonitor` handoff now join coherent setup, permissions,
+maintenance guidance and cold recovery. See the [closure evidence](docs/research/m039-tranche-7-b021d-operator-closure.md)
+and [operator recovery](docs/manual/operator-recovery.md). Schema remains 19;
+en-US is 1.16.0. Windows live integrated operator acceptance remains
+DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED. This source update creates no release.
 
 Available today:
 
@@ -236,8 +243,8 @@ inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
 observability, B021-A protected operator attachment, `sfmonitor`, and B021-B
 live controls and B021-C configuration / `sfconfig`. Current source includes
 the [native sfconfig application](docs/manual/sfconfig.md), typed versioned
-configuration authority, and sfmonitor System Configuration handoff. B021-D and
-B-022 report publication remain future current-source work.
+configuration authority, and sfmonitor System Configuration handoff. B021-D integration is accepted; B-021 is VERIFIED.
+B-022 report publication remains NOT STARTED.
 
 Traditional Telnet, RAW, and RLogin transports are plaintext compatibility
 features. Use them only on networks where that risk is understood.

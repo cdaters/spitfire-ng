@@ -12,7 +12,8 @@
 
 ## Before every operation
 
-Stop `run`, `console`, and `shell`. Confirm:
+Gracefully stop `run`, `console`, or `shell`, and quit offline sfconfig and
+other cold-board tools. Confirm:
 
 ```bash
 spitfire status /path/to/board/spitfire.toml
@@ -105,3 +106,6 @@ implements nor claims them.
 
 The authoritative format, validation, rollback, and exclusion contract is
 [SPITFIRE NG Native Backup and Restore](../sfng-backup-restore.md).
+
+For self-revoked permissions, damaged configuration, and restored-board operator
+enrollment, follow [Operator Startup and Recovery](../manual/operator-recovery.md).

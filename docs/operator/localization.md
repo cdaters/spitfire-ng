@@ -5,7 +5,7 @@ SPITFIRE NG presentation and language are separate. Selecting
 engine-owned prompts and generated-menu labels. Neither setting changes
 commands, security, authentication, or stored caller data.
 
-Current source setup installs `en-US` 1.15.0 under
+Current source setup installs `en-US` 1.16.0 under
 `SYSTEM/language-packs/en-US/` and writes:
 
 ```toml
@@ -55,4 +55,8 @@ translation, fallback, encoding, and security requirements.
 
 Version 1.15.0 adds sfconfig sections, fields, validation, save/review,
 mode/conflict/recovery state, capability descriptions, and contextual help.
-The complete en-US catalog contains 984 semantic messages.
+The complete en-US catalog contains 988 semantic messages.
+
+B021-D advances en-US to 1.16.0 with 988 unique semantic messages, shared
+maintenance-owner guidance, explicit online-loss recovery, and concise monitor
+key hints. Presentation-package versions remain unchanged.

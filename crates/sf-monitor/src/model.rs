@@ -247,6 +247,7 @@ pub struct MonitorModel {
     pub selected_notification: usize,
     pub show_node_detail: bool,
     pub show_help: bool,
+    pub help_scroll: u16,
     pub show_filters: bool,
     pub event_gap: bool,
     pub status_key: Option<&'static str>,
@@ -304,6 +305,7 @@ impl MonitorModel {
 
     pub fn close_overlays(&mut self) {
         self.show_help = false;
+        self.help_scroll = 0;
         self.show_filters = false;
         self.show_node_detail = false;
         self.show_actions = false;

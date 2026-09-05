@@ -32,6 +32,36 @@ pub const MAX_LIVE_SUBSCRIBER_EVENTS: usize = 256;
 pub const LIVE_EVENT_HORIZON_SECONDS: i64 = 15 * 60;
 pub const RETENTION_CLEANUP_BATCH: usize = 500;
 
+/// Closed navigation metadata for approved maintenance owners. These are not
+/// commands or capability grants; live status remains the daemon projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MaintenanceService {
+    FileIntegrity,
+    ActivityRetention,
+    ColdBackupRecovery,
+}
+impl MaintenanceService {
+    pub const ALL: [Self; 3] = [
+        Self::FileIntegrity,
+        Self::ActivityRetention,
+        Self::ColdBackupRecovery,
+    ];
+    pub const fn guidance_key(self) -> &'static str {
+        match self {
+            Self::FileIntegrity => "operator-maintenance-files-guidance",
+            Self::ActivityRetention => "operator-maintenance-retention-guidance",
+            Self::ColdBackupRecovery => "operator-maintenance-backup-guidance",
+        }
+    }
+    pub const fn help_topic(self) -> &'static str {
+        match self {
+            Self::FileIntegrity => "operator.errors",
+            Self::ActivityRetention => "operator.retention",
+            Self::ColdBackupRecovery => "configuration.storage",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct EventId(u64);
 
@@ -1958,6 +1988,53 @@ mod tests {
         assert_eq!(audits, 2);
     }
 
+    #[test]
+    fn acknowledgement_changes_attention_without_erasing_maintenance_history() {
+        let (_temp, mut database) = database();
+        let mut issue = event(1_800_000_000, 1, "backup.failed", EventSeverity::Error);
+        issue.category = EventCategory::Backup;
+        issue.outcome = EventOutcome::Failed;
+        issue.attributes = EventAttributes::Backup {
+            state: "failed".into(),
+            bytes: None,
+        };
+        let source = database.record_operational_event(&issue).unwrap();
+        let before = database.maintenance_status(1_800_000_001).unwrap();
+        assert_eq!(
+            (before.open_notifications, before.recent_error_events),
+            (1, 1)
+        );
+        let notification = database.notifications(false, 10).unwrap().remove(0);
+        let actor = OperatorPrincipal {
+            kind: OperatorPrincipalKind::HostOperator,
+            stable_id: Some("local-operator".into()),
+        };
+        database
+            .acknowledge_notification(
+                notification.id,
+                notification.state_version,
+                &actor,
+                1_800_000_002,
+            )
+            .unwrap();
+        let after = database.maintenance_status(1_800_000_003).unwrap();
+        assert_eq!(
+            (after.open_notifications, after.recent_error_events),
+            (0, 1)
+        );
+        let events = database
+            .query_operational_events(&EventQuery::default())
+            .unwrap()
+            .events;
+        assert!(events.iter().any(|event| event.id == source.id));
+        assert_eq!(after.retention, before.retention);
+        for service in MaintenanceService::ALL {
+            assert!(crate::embedded_catalog_keys()
+                .unwrap()
+                .contains(service.guidance_key()));
+            assert!(!service.help_topic().is_empty());
+        }
+    }
     #[test]
     fn simultaneous_notification_acknowledgements_commit_once() {
         let (temp, mut database) = database();

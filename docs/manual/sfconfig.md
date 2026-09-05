@@ -153,3 +153,6 @@ acceptance remain **DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**. Apple Sili
 macOS is the native acceptance platform for this slice. See the
 [Configuration Technical Reference](../technical/configuration.md) for authority,
 versioning, recovery, and extension boundaries.
+
+For the complete first-start, permission recovery, invalid configuration, and
+cold-backup journey, see [Operator Startup and Recovery](operator-recovery.md).

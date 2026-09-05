@@ -56,24 +56,8 @@ const SECTIONS: [&str; 8] = [
     "messages-files",
     "storage",
 ];
-const CAPS: [Cap; 16] = [
-    Cap::BoardStatistics,
-    Cap::NodeStatus,
-    Cap::OperationalEvents,
-    Cap::CallerActivity,
-    Cap::Notifications,
-    Cap::MaintenanceStatus,
-    Cap::AcknowledgeNotifications,
-    Cap::AdjustSessionTime,
-    Cap::ManagePageAvailability,
-    Cap::ManageCallerPages,
-    Cap::ChatWithCaller,
-    Cap::DisconnectSession,
-    Cap::RequestGracefulShutdown,
-    Cap::ReadConfiguration,
-    Cap::ChangeOnlineConfiguration,
-    Cap::ChangeSensitiveConfiguration,
-];
+const CAPS: [Cap; 16] = Cap::ALL;
+
 fn cap_key(cap: Cap) -> &'static str {
     match cap {
         Cap::BoardStatistics => "sfconfig-cap-statistics",
@@ -164,6 +148,32 @@ impl ConfigModel {
         self.section = section;
         self.selected = selected.min(self.rows().len().saturating_sub(1));
         self.status = status;
+    }
+    fn online_lost(&mut self, error: String) {
+        self.disconnected = !self.offline;
+        self.review = false;
+        if self.disconnected && self.prompt == Some(Prompt::Reload) {
+            self.prompt = None;
+        }
+        self.status = error;
+    }
+    fn probe(&mut self, result: Result<ConfigurationSnapshot, String>) {
+        match result {
+            Ok(snapshot) => {
+                if snapshot.version != self.snapshot.version {
+                    if self.dirty() {
+                        self.status = t("sfconfig-conflict");
+                        // A draft keeps its expected version, but grants are current.
+                        self.snapshot.capabilities = snapshot.capabilities;
+                    } else {
+                        self.reload(snapshot);
+                    }
+                } else {
+                    self.snapshot.capabilities = snapshot.capabilities;
+                }
+            }
+            Err(error) => self.online_lost(error),
+        }
     }
     fn dirty(&self) -> bool {
         !self.edits.is_empty()
@@ -344,10 +354,22 @@ impl ConfigModel {
             }
             ConfigurationResult::Replayed {
                 result_class: Some(class),
-                ..
+                revision: Some(revision),
             } if class == "configuration-saved" || class == "configuration-restart-required" => {
-                self.status = t("sfconfig-saved");
-                true
+                // The receipt proves this unchanged candidate committed, even if
+                // its operator edit now denies the following snapshot read.
+                if let Ok(mut config) = self.candidate().validate(&self.snapshot.config) {
+                    config.revision = revision;
+                    if let Ok(version) = sf_bbs::configuration_version(&config) {
+                        return self.result(ConfigurationResult::Saved {
+                            version,
+                            effects: vec![],
+                            restart_required: class == "configuration-restart-required",
+                        });
+                    }
+                }
+                self.status = t("sfconfig-recovery-required");
+                false
             }
             ConfigurationResult::Replayed {
                 result_class: Some(class),
@@ -364,6 +386,24 @@ impl ConfigModel {
         }
     }
     fn key(&mut self, key: KeyEvent) -> Action {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.help = false;
+            self.review = false;
+            if self.dirty() {
+                self.prompt = Some(Prompt::Quit);
+                return Action::None;
+            }
+            return Action::Quit;
+        }
+        if self.disconnected
+            && matches!(key.code, KeyCode::Char('s' | 'S' | 'r' | 'R'))
+            && self.input.is_none()
+            && !self.help
+            && self.prompt.is_none()
+        {
+            self.status = t("sfconfig-reopen-required");
+            return Action::None;
+        }
         if self.help {
             match key.code {
                 KeyCode::Down | KeyCode::PageDown => {
@@ -398,13 +438,6 @@ impl ConfigModel {
                 };
             }
             return Action::None;
-        }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            if self.dirty() {
-                self.prompt = Some(Prompt::Quit);
-                return Action::None;
-            }
-            return Action::Quit;
         }
         if let Some(input) = &mut self.input {
             match key.code {
@@ -642,14 +675,24 @@ fn render(frame: &mut Frame<'_>, model: &ConfigModel) {
         parts[1],
     );
     if model.help {
+        let maintenance = if SECTIONS[model.section] == "storage" {
+            sf_core::observability::MaintenanceService::ALL
+                .into_iter()
+                .map(|service| t(service.guidance_key()))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        } else {
+            String::new()
+        };
         frame.render_widget(
             Paragraph::new(format!(
-                "{}\n\n{}\n\n{}\n\n{}\n\nconfiguration.{}",
+                "{}\n\n{}\n\n{}\n\n{}\n\nconfiguration.{}\n\n{}",
                 t(&format!("sfconfig-help-{}", SECTIONS[model.section])),
                 t("sfconfig-help-editing"),
                 t("sfconfig-help-conflict"),
                 t("sfconfig-help-mode"),
-                SECTIONS[model.section]
+                SECTIONS[model.section],
+                maintenance
             ))
             .wrap(Wrap { trim: false })
             .scroll((model.review_offset, 0))
@@ -872,24 +915,8 @@ pub fn run_from_env() -> Result<(), String> {
             Terminal::new(CrosstermBackend::new(io::stdout())).map_err(|e| e.to_string())?;
         let mut last_probe = Instant::now();
         loop {
-            if !offline && last_probe.elapsed() >= Duration::from_secs(5) {
-                match backend.snapshot() {
-                    Ok(snapshot) => {
-                        model.disconnected = false;
-                        if snapshot.version != model.snapshot.version {
-                            if model.dirty() {
-                                model.status = t("sfconfig-conflict");
-                            } else {
-                                model.snapshot = snapshot;
-                                model.operators = model.snapshot.config.operators.clone();
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        model.disconnected = true;
-                        model.status = error;
-                    }
-                }
+            if !offline && !model.disconnected && last_probe.elapsed() >= Duration::from_secs(5) {
+                model.probe(backend.snapshot());
                 last_probe = Instant::now();
             }
             terminal
@@ -916,7 +943,7 @@ pub fn run_from_env() -> Result<(), String> {
                             model.reload(snapshot);
                             model.status.clear();
                         }
-                        Err(error) => model.status = error,
+                        Err(error) => model.online_lost(error),
                     },
                     Action::Save => {
                         let command = model.pending_command.get_or_insert_with(command_id).clone();
@@ -928,7 +955,7 @@ pub fn run_from_env() -> Result<(), String> {
                                             model.reload(snapshot);
                                         }
                                         Err(error) => {
-                                            model.status = error;
+                                            model.online_lost(error);
                                         }
                                     }
                                 }
@@ -1057,6 +1084,65 @@ mod tests {
         assert!(model.input.is_some());
         model.key(key(KeyCode::Esc));
         assert!(model.input.is_some());
+    }
+    #[test]
+    fn lost_online_authority_preserves_candidate_and_requires_explicit_reopen() {
+        let mut model = model();
+        changed(&mut model);
+        model.pending_command = Some("a".repeat(32));
+        model.review = true;
+        model.prompt = Some(Prompt::Reload);
+        let before = format!("{:?}", model.candidate());
+        model.probe(Err("lost".into()));
+        assert!(model.disconnected && !model.offline && !model.review);
+        assert!(model.prompt.is_none());
+        assert_eq!(format!("{:?}", model.candidate()), before);
+        assert_eq!(
+            model.pending_command.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(model.key(key(KeyCode::Char('s'))), Action::None);
+        assert_eq!(model.key(key(KeyCode::Char('r'))), Action::None);
+        assert!(!model.review && model.dirty());
+        model.key(key(KeyCode::Char('q')));
+        assert_eq!(model.key(key(KeyCode::Enter)), Action::Quit);
+    }
+    #[test]
+    fn replayed_save_is_clean_even_when_its_permission_edit_denies_refresh() {
+        let mut model = model();
+        changed(&mut model);
+        model.pending_command = Some("b".repeat(32));
+        assert!(model.result(ConfigurationResult::Replayed {
+            result_class: Some("configuration-restart-required".into()),
+            revision: Some(3),
+        }));
+        model.online_lost("denied".into());
+        assert!(!model.dirty());
+        assert!(model.pending_command.is_none());
+        assert_eq!(model.snapshot.version.revision, 3);
+        assert!(model.snapshot.restart_required);
+        assert_eq!(model.snapshot.config.caller.inactivity_minutes, 7);
+    }
+    #[test]
+    fn control_c_from_help_or_confirmation_keeps_dirty_exit_deliberate() {
+        let mut model = model();
+        model.help = true;
+        let interrupt = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(model.key(interrupt), Action::Quit);
+        changed(&mut model);
+        model.help = true;
+        assert_eq!(model.key(interrupt), Action::None);
+        assert!(!model.help && model.prompt == Some(Prompt::Quit));
+        model.key(key(KeyCode::Esc));
+        assert!(model.dirty());
+    }
+    #[test]
+    fn offline_recovery_failure_never_claims_online_connection_loss() {
+        let mut model = model();
+        model.offline = true;
+        changed(&mut model);
+        model.online_lost("recovery required".into());
+        assert!(model.offline && !model.disconnected && model.dirty());
     }
     #[test]
     fn invalid_candidate_cannot_enter_save_review() {

@@ -38,9 +38,9 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.15.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.16.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 984 semantic messages in the complete schema-19 caller and
+copy. It contains 988 semantic messages in the complete schema-19 caller and
 operator catalog, including
 the schema-14 public-information catalog, across shared, caller, and operator
 messages. The
@@ -242,3 +242,7 @@ validation, effects, mode/dirty/conflict state, review/save/cancel/reload, opera
 capability descriptions, secret statuses, recovery instructions, and sfmonitor
 handoff messages are semantic catalog entries. Contextual configuration.* help
 reuses the same catalog. Presentation-package versions remain unchanged.
+
+B021-D advances en-US to 1.16.0 with 988 unique semantic messages, shared
+maintenance-owner guidance, explicit online-loss recovery, and concise monitor
+key hints. Presentation-package versions remain unchanged.

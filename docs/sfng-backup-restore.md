@@ -290,3 +290,15 @@ configuration evidence through the same typed authority. Never use the prior
 file as an online undo or replace files beneath a running daemon. See the
 [sfconfig recovery instructions](manual/sfconfig.md#secrets-and-recovery) and
 [atomic configuration contract](technical/configuration.md#atomic-commit-and-recovery).
+
+
+## Operator-tool recovery integration
+
+B021-D adds no backup execution API. Shutdown remains an enrolled daemon action;
+backup/restore remain the existing exclusive offline commands. Offline sfconfig
+must exit before either can acquire the board lock. Maintenance/Activity and
+notification views report source backup outcomes without claiming that a read
+validates a snapshot. Invalid current configuration may prohibit `--replace`;
+restore to a new root, inspect with offline sfconfig, and deliberately select the
+recovered board instead. The [operator recovery chapter](manual/operator-recovery.md)
+is the canonical practical path, including deliberate permission recovery.

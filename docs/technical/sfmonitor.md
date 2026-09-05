@@ -89,7 +89,7 @@ terminal before resuming the panic.
 
 The same binary and `OperatorClient` use Unix-domain sockets on supported
 Unix-like systems and the accepted ACL/SID named pipe on Windows. Prior B021-A
-Windows attachment acceptance remains valid. New live B021-B controls and
+Windows attachment acceptance remains valid. Live B021-B/C/D controls, configuration, maintenance and
 rendered Windows TUI acceptance remain DEFERRED — REAL WINDOWS ENVIRONMENT
 REQUIRED; no new Windows compile or live acceptance is inferred here.
 
@@ -158,3 +158,11 @@ daemon exit marks data disconnected/stale and clears chat and confirmation state
 There is no automatic restart, stale command resubmission, or chat resumption.
 F1 uses `operator.shutdown`; terminal restoration stays with the existing guard.
 See [daemon lifecycle and receipt boundary](operator-control.md#b021-b3-graceful-shutdown-protocol-14).
+
+## B021-D help and recovery
+
+Maintenance contextual help and sfconfig Storage / Backup share closed owner
+metadata from sf-core. Up/Down, Page Up/Page Down, and Home scroll monitor help
+at compact sizes without dispatching an action. No maintenance execute key exists.
+[Operator Startup and Recovery](../manual/operator-recovery.md) links setup,
+explicit offline enrollment, daemon loss, invalid configuration, and cold restore.

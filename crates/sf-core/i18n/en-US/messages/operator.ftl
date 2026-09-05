@@ -107,7 +107,7 @@ sfmonitor-status-refreshing = Refreshing
 sfmonitor-status-busy = Monitor request queue is busy
 sfmonitor-loading = Waiting for the running board…
 sfmonitor-minimum-size = sfmonitor needs at least 60x20 characters. The current terminal is { $width }x{ $height }. Resize the terminal; the board continues running.
-sfmonitor-key-hints = ←/→ views  ↑/↓ select  Enter details  / filter  R refresh/reconnect  F1 help  Q quit monitor
+sfmonitor-key-hints = Q Quit  F1 Help  A Actions  R Refresh  Tab Views  ↑/↓ Select
 sfmonitor-board-name = Board
 sfmonitor-uptime = Uptime
 sfmonitor-active-nodes = Active nodes
@@ -188,7 +188,7 @@ sfmonitor-read-only-maintenance = This view reports maintenance state only. It c
 sfmonitor-configuration-unavailable = System Configuration is not available in this source yet.
 sfmonitor-configuration-future = A future sfconfig application will open here and will also be directly launchable.
 sfmonitor-read-only = Local operator monitor. A Actions uses explicit permissions; Q quits this monitor only.
-sfmonitor-help-title = sfmonitor Help
+sfmonitor-help-title = Help — Up/Down/PgUp/PgDn scroll
 sfmonitor-help-body = Current view: { $view }
 
     { $meaning }
@@ -202,7 +202,7 @@ sfmonitor-help-callers = Callers lists recent completed calls. Use Nodes for cal
 sfmonitor-help-activity = Activity combines bounded recent history with the live event stream. A GAP warning means refresh is needed to recover missed history.
 sfmonitor-help-statistics = Statistics separates live, today, and lifetime authority. Detailed history does not pretend to predate observability activation.
 sfmonitor-help-notifications = Notifications reports open operator attention items. A Actions offers version-checked acknowledgement when explicitly authorized.
-sfmonitor-help-maintenance = Maintenance / Errors summarizes safe health, storage, review, transfer, and retention status. It cannot execute repairs.
+sfmonitor-help-maintenance = Maintenance / Errors shows current attention counts and recent warning/error history. Acknowledgement changes attention only; it never repairs a source problem. Approved service routes:
 sfmonitor-help-configuration = Enter hands this terminal to sfconfig for the same board. sfconfig authenticates independently. Q returns here; daemon shutdown is a separate action.
 sfmonitor-filter-title = Activity Filters
 sfmonitor-filter-all = All
@@ -694,3 +694,8 @@ sfconfig-validation-listeners = Enabled listeners need unique addresses and nonz
 sfconfig-validation-profiles = Profile mode requires valid active/base IDs. Legacy-resources mode requires both IDs to be cleared.
 
 sfconfig-disconnected = ONLINE — disconnected; edits retained
+
+sfconfig-reopen-required = Online authority was lost. Edits remain staged. Quit and explicitly reopen the selected board; offline mode is never automatic.
+operator-maintenance-files-guidance = Files: review counts and storage errors here; repairs remain with the approved file services. See operator.errors.
+operator-maintenance-retention-guidance = Retention: displayed policy belongs to Activity services. No cleanup or scheduler command is exposed here. See operator.retention.
+operator-maintenance-backup-guidance = Backup/recovery: stop the daemon and exit offline sfconfig, then use spitfire backup or restore. Inspect backup outcomes in Activity. See configuration.storage.

@@ -1,7 +1,8 @@
 # Typed configuration authority and sfconfig
 
 > Current source; database schema 19. This document describes B021-C, not a
-> release/package, a generic configuration-file editor, or B021-D maintenance.
+> release/package or a generic configuration-file editor. B021-D reconciles its
+> operator recovery and lifecycle boundaries.
 
 ## Authority and historical basis
 
@@ -154,6 +155,11 @@ SQLite, filesystem browser, host shell, or arbitrary command surface exists.
 existing Ratatui/Crossterm versions. It owns staged edits, navigation, review,
 dirty/conflict status, and contextual `configuration.*` help only. IPC is bounded;
 a five-second status probe detects connection loss without changing authority.
+The first loss latches disconnected state and stops automatic probes, avoiding
+repeated authorization-denial audit. It retains the candidate/CommandId, closes
+save review, blocks further save/reload dispatch, and requires explicit process
+reopen. Offline errors retain offline identity. A recovered successful receipt
+cleans the proven candidate before any follow-up read, including read revocation.
 Reload is explicit when drafts exist. Review/help scroll; resize preserves state;
 undersized screens accept no hidden configuration edit/save.
 
@@ -177,5 +183,20 @@ Apple Silicon macOS is the real acceptance platform. Windows named-pipe config,
 SID enrollment UI, rendered TUI, handoff, and filesystem atomicity remain
 **DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**. Shared source architecture is
 preserved for Windows, Linux, and BSD; no Linux/BSD live acceptance is claimed.
-B021-D, B-022, networking, doors, scheduler, exports, service packaging, and
+B-022, networking, doors, scheduler, exports, service packaging, and
 release distribution remain outside this implementation.
+
+
+## B021-D recovery acceptance
+
+The [operator recovery chapter](../manual/operator-recovery.md) is the supported
+first-start, permission recovery, invalid-configuration, and known-good restore
+journey. Reopening explicit offline authority requires the same exclusive lock
+as daemon startup; neither mode silently takes over. Invalid persisted bytes are
+left unchanged, and full restore into a new root avoids relying on invalid
+existing configuration to prove replacement identity. The restored receipt link
+is reconciled against the preserved journal before another typed save.
+
+Fault-injection tests require preparation-audit failure to prevent replacement,
+post-replacement receipt failure to recover once, and no fabricated success.
+No repair, shell, key editor, schema change, or extra durable authority is added.

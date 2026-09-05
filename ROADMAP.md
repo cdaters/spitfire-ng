@@ -4,6 +4,9 @@ SPITFIRE NG is moving from historical research and stock-core implementation
 into public Development Preview releases. This roadmap describes major
 outcomes rather than internal checkpoint chronology.
 
+> Current operator checkpoint: **B021-D COMPLETE / ACCEPTED; B-021 VERIFIED**.
+> Earlier slice descriptions retain their historical scope. B-022 remains NOT STARTED.
+
 ## Completed foundations
 
 ### Preservation model
@@ -61,8 +64,8 @@ outcomes rather than internal checkpoint chronology.
 - Added schema-19/B021-A protected read-only operator attachment through
   Unix-domain sockets and Windows named pipes, plus OS-backed host-operator
   identity, protocol/capability negotiation, the shared `OperatorClient`, and
-  localized CLI views. B021-A is cross-platform closed; B-021 remains PARTIAL
-  and B-022 remains NOT STARTED.
+  localized CLI views. B021-A is cross-platform closed; final B-021 closure is recorded below.
+  B-022 remains NOT STARTED.
 - Added the read-only `sfmonitor` 0.1 local operator application over the same
   `OperatorClient`, with responsive Dashboard, Nodes, Callers, Activity,
   Statistics, Notifications, Maintenance / Errors, help, and reconnect views.
@@ -231,8 +234,8 @@ audit/receipt recovery, exact-session safety, chat privacy, and transfer integri
 remain binding. Windows live B021-B acceptance remains deferred to a real Windows
 environment. See the [integrated report](docs/research/m039-tranche-7-b021b3-shutdown-integrated.md).
 
-B-021 remains PARTIAL; B-022 NOT STARTED; totals remain 14/2/4/5. Exact next
-development action after B021-C: separately scope B021-D. No networking, doors, scheduler, exports, or release work.
+At the B021-B checkpoint, B-021 remained PARTIAL and totals were 14/2/4/5.
+B021-C and final B021-D closure follow below; B-022 remains NOT STARTED.
 
 ## Completed B021-C source milestone
 
@@ -242,6 +245,23 @@ recoverable saves, effect presentation, bounded operator profiles, secret-safe
 status, and sfmonitor terminal handoff pass native macOS acceptance. Schema 19;
 en-US 1.15.0. The [configuration report](docs/research/m039-tranche-7-b021c-sfconfig.md)
 records scope, tests, and limits. Real Windows sfconfig acceptance remains deferred.
-B-021 stays PARTIAL because B021-D remains; B-022 NOT STARTED; totals 14/2/4/5.
-Next: a separately scoped B021-D pass, without beginning networking, doors,
-scheduler, report publication, or release work in this milestone.
+At the B021-C checkpoint, B-021 remained PARTIAL pending B021-D, with totals
+14/2/4/5. The accepted closure follows below; no deferred family was implemented.
+
+## Completed B021-D and stock operator controls
+
+B021-A/B/C remain accepted. B021-D is **COMPLETE / ACCEPTED** and **B-021 VERIFIED**.
+The [closure report](docs/research/m039-tranche-7-b021d-operator-closure.md) records
+the historical outcome map, native macOS integration, narrow frontend fixes,
+maintenance-owner guidance, explicit local recovery, audit and regression evidence.
+
+Schema 19; read-only bootstrap; 16 recognized capabilities within the unchanged
+32-entry bound; explicit protected-IPC mutation enrollment; no secret projection
+or persisted chat. en-US 1.16.0 / 988 messages. All 25 Category-B rows recount to
+15 VERIFIED / 2 IMPLEMENTED / 3 PARTIAL / 5 NOT STARTED. B-022 remains NOT STARTED.
+Windows live integrated operator acceptance remains DEFERRED — REAL WINDOWS
+ENVIRONMENT REQUIRED; Linux/BSD live acceptance is not claimed.
+
+Stop at this source milestone. Subsequent development requires a separately
+scoped B-022 interface/resource/transaction gate; implementation has not begun.
+No networking, doors, scheduler, host deployment or release work is included.

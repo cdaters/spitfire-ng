@@ -155,3 +155,6 @@ second set of counters.
 
 For field definitions, ordering, query limits, transactions, and recovery,
 see [Operator Observability](../technical/observability.md).
+
+For the complete first-start, permission recovery, invalid configuration, and
+cold-backup journey, see [Operator Startup and Recovery](operator-recovery.md).

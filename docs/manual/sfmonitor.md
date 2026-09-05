@@ -97,7 +97,8 @@ reported without mutation.
 
 <!-- help-topic: operator.errors -->
 
-**Maintenance / Errors** shows open warnings and errors, unavailable storage,
+**Maintenance / Errors** shows open attention counts and recent warning/error
+history, unavailable storage,
 files awaiting review, active or incomplete transfers, and retention periods.
 It cannot run cleanup, backup, repair, or other maintenance.
 
@@ -111,8 +112,12 @@ remains read-only. The daemon and callers continue during the handoff.
 
 Board creation and older-board owner bootstrap provide monitoring access,
 not mutation permission. Retain the six read capabilities for all monitor
-views. To authorize live controls, deliberately add only the desired entries
-to the existing local identity in `spitfire.toml`:
+views. To authorize live controls, stop the board and open
+[sfconfig in explicit offline mode](sfconfig.md#enroll-operator-permissions-explicitly).
+In Operators, toggle only the desired capability rows, then Review and Save.
+An already enrolled sensitive configuration operator can also make this change
+online. The resulting capability field is illustrated below; do not manually
+rewrite a running configuration or its recovery metadata:
 
 ```toml
 capabilities = [
@@ -252,3 +257,6 @@ never reuses authority from the old daemon generation.
 For the meaning, privacy, and retention of the underlying views, see [Board
 Activity and System Statistics](board-activity.md). For protocol and terminal
 details, see [sfmonitor Technical Architecture](../technical/sfmonitor.md).
+
+For the complete first-start, permission recovery, invalid configuration, and
+cold-backup journey, see [Operator Startup and Recovery](operator-recovery.md).

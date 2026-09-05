@@ -647,3 +647,12 @@ Preparation audit names semantic field categories; a separate successful apply
 record proves durable commit. See the [configuration authority reference](technical/configuration.md)
 and [sfconfig manual](manual/sfconfig.md) for CAS, recovery, permission enrollment,
 and explicit online/offline behavior.
+
+
+B021-D retains the 16-entry implemented operator vocabulary within the 32-entry
+ceiling and keeps the six-read bootstrap separate. Exclusive offline sfconfig
+provides deliberate local recovery from self-revocation; it never silently grants
+IPC mutation. Online-loss state stops probes and retains drafts only in memory.
+Maintenance descriptors carry public owner/help metadata, not permission,
+execution, private paths, or a second audit authority. See the
+[operator recovery procedure](manual/operator-recovery.md).

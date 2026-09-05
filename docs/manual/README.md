@@ -125,6 +125,8 @@ shell, command execution, SCP, SFTP, or forwarding.
 
 ### Maintenance, security, and recovery
 
+- **Operator recovery:** [Setup, permissions, offline authority, invalid configuration, and maintenance routes](operator-recovery.md).
+
 - **Backup and restore:** [Create, protect, verify, and restore a cold backup](../operator/backup-restore.md).
 - **Upgrades:** [Protect a board before changing source or binaries](../operator/upgrades.md).
 - **Security and privacy:** [Deployment and data-protection principles](../03-security-philosophy.md).

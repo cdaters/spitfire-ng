@@ -184,7 +184,7 @@ use SQLite transactions. No half-written event or summary becomes authority.
 
 ## Presentation and localization
 
-The en-US 1.12.0 catalog contains operator activity, category/severity/outcome,
+The en-US 1.16.0 catalog contains operator activity, category/severity/outcome,
 statistics, notification/remediation, maintenance, pagination, and retention
 language. Modern 1.5.0, Minimal 1.5.0, and Classic 1.6.0 presentation packages
 remain unchanged: profiles may frame values differently but cannot alter
@@ -193,3 +193,12 @@ counts, privacy, authorization, retention, or notification state.
 See the [Sysop explanation](../manual/board-activity.md), the [Tranche 7
 gate](../research/m039-tranche-7-operator-observability-reports-gate.md), and
 the [B-017 implementation report](../research/m039-tranche-7-b017-observability-implementation.md).
+
+
+B021-D keeps the three maintenance-owner descriptors as navigation metadata, not
+another health authority. Acknowledgement reduces open attention count while the
+source event and recent-error count remain. Regression tests exercise this
+relationship with a failed-backup event. Configuration errors come from typed
+configuration authority; they are not manufactured into duplicate polling events.
+After online sfconfig loses authority it stops probing, preventing denial storms.
+See [Operator Recovery](../manual/operator-recovery.md).

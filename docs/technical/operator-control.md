@@ -7,7 +7,7 @@
 Schema 19 and B021-A provide the first protected control-plane slice for a
 running board. Attachment defaults remain read-only; B021-B adds explicit live
 controls below. The `spitfire operator` client,
-the foreground console, `sfmonitor`, and future `sfconfig` clients share the
+the foreground console, `sfmonitor`, and `sfconfig` clients share the
 daemon-owned `OperatorService`; none reads SQLite, transient status files, or
 diagnostic logs as operational authority.
 
@@ -152,8 +152,8 @@ configuration, maintenance, and observation remain excluded. See the
 [B021-B Live Operator Controls Gate](../research/m039-tranche-7-b021b-live-operator-controls-gate.md).
 
 The original `sfmonitor` 0.1 MVP used only the nine read features. Current
-source adds capability-aware Actions over the same client, while System
-Configuration remains informational until `sfconfig` exists. See
+source adds capability-aware Actions over the same client, and System
+Configuration launches the separate B021-C sfconfig. See
 [sfmonitor Technical Architecture](sfmonitor.md).
 
 Previously accepted native B021-A Windows tests exercise SID parsing, DACL construction,
@@ -185,8 +185,9 @@ do not authorize mutations. The six defaults are `board-statistics`,
 capability-list ceiling for configuration validation and client decoding.
 Only unique recognized entries count as grants; empty, duplicate, unknown,
 malformed, or oversized lists fail closed. This replaces the incorrect
-six-entry profile ceiling and represents all six reads plus the seven implemented
-B1/B2/B3 control capabilities without truncation. Remaining capacity grants nothing.
+six-entry profile ceiling and represents all 16 implemented capabilities:
+six monitor reads, seven B1/B2/B3 controls, and three B021-C configuration grants.
+The shared explicit vocabulary is not a grant-all preset. Remaining capacity grants nothing.
 
 Existing read-only profiles are unchanged. Empty-list boards lose the
 previously unintended implicit B1 grant; enroll desired controls explicitly
@@ -316,3 +317,25 @@ validation, atomic file replacement, session-policy publication, and schema-19
 receipt/audit recovery. No raw configuration editor or direct client database
 access exists. See [Configuration Authority](configuration.md) and the
 [sfconfig manual](../manual/sfconfig.md).
+
+## B021-D maintenance and recovery boundary
+
+`MaintenanceService::ALL` is a closed three-owner navigation descriptor registry
+for B-015 files, B-017 retention, and native cold backup/recovery. It supplies
+localized routes/help topics to sfmonitor and sfconfig; it has no invocation,
+wire mutation, capability grant, or job state. Live metrics remain the existing
+MaintenanceStatus read over OperatorService. No protocol increment is required
+for local presentation metadata, and no new enum is sent to older peers.
+
+The gate's maintenance execution contracts remain conditional on an approved
+operation being exposed. No additional attached execution is necessary for the
+stock B-021 outcome: file/retention services retain their existing owners, and
+backup/restore retain explicit exclusive cold-board commands. Acknowledgement
+only records attention. B-018 pack/purge and B-022 output remain separate.
+
+The foreground console retains its accepted daemon-owning caller/security
+administration and domain audit; it cannot attach as a second board owner.
+Those established B-016 services are not duplicated as new monitor controls.
+Host-local startup/offline administration and enrolled protected IPC are distinct
+accepted entry boundaries. Bootstrap and every IPC mutation retain their existing
+read-only/explicit-enrollment policy. See [Operator Startup and Recovery](../manual/operator-recovery.md).

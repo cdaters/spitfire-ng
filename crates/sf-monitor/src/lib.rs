@@ -363,6 +363,14 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
         return InputOutcome::Quit;
     }
     if model.show_help {
+        match key.code {
+            KeyCode::Down => model.help_scroll = model.help_scroll.saturating_add(1).min(128),
+            KeyCode::PageDown => model.help_scroll = model.help_scroll.saturating_add(5).min(128),
+            KeyCode::Up => model.help_scroll = model.help_scroll.saturating_sub(1),
+            KeyCode::PageUp => model.help_scroll = model.help_scroll.saturating_sub(5),
+            KeyCode::Home => model.help_scroll = 0,
+            _ => {}
+        }
         if matches!(key.code, KeyCode::Esc | KeyCode::Char('?') | KeyCode::F(1)) {
             model.show_help = false;
         }
@@ -370,6 +378,7 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
     }
     if key.code == KeyCode::F(1) || (key.code == KeyCode::Char('?') && model.live.chat.is_none()) {
         model.show_help = true;
+        model.help_scroll = 0;
         return InputOutcome::Continue;
     }
     if live_ui::handle_key(model, worker, key) {
@@ -690,6 +699,25 @@ mod tests {
         assert!(commands.try_recv().is_err());
     }
 
+    #[test]
+    fn maintenance_help_scrolls_at_compact_size_without_dispatching_actions() {
+        let (worker, commands) = MonitorWorker::test_channels();
+        let mut model = MonitorModel {
+            view: View::Maintenance,
+            ..MonitorModel::default()
+        };
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        handle_key(&mut model, &worker, key(KeyCode::F(1)));
+        assert!(model.show_help);
+        handle_key(&mut model, &worker, key(KeyCode::PageDown));
+        assert_eq!(model.help_scroll, 5);
+        handle_key(&mut model, &worker, key(KeyCode::Home));
+        assert_eq!(model.help_scroll, 0);
+        handle_key(&mut model, &worker, key(KeyCode::Char('s')));
+        assert!(commands.try_recv().is_err());
+        handle_key(&mut model, &worker, key(KeyCode::Esc));
+        assert!(!model.show_help);
+    }
     #[test]
     fn action_keys_require_both_feature_support_and_explicit_authorization() {
         let (worker, commands) = MonitorWorker::test_channels();

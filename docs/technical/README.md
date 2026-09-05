@@ -224,4 +224,9 @@ B021-C is implemented: [Configuration Authority](configuration.md) specifies
 daemon-only online ownership, explicit locked offline ownership, revision/digest
 CAS, validated atomic replacement, receipt recovery, secret-safe projection, and
 sfmonitor handoff. The [sfconfig manual](../manual/sfconfig.md) documents the
-separate usable application. B021-D remains a later integration/maintenance slice.
+separate usable application. B021-D integration is complete and B-021 is VERIFIED.
+
+## Completed B-021 operator integration
+
+B021-D is COMPLETE / ACCEPTED; B-021 VERIFIED. The [closure report](../research/m039-tranche-7-b021d-operator-closure.md)
+records final owner boundaries, regression/native evidence, and Windows deferrals.
