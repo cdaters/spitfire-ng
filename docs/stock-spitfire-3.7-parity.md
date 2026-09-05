@@ -553,7 +553,7 @@ stock-core operation.
 
 | ID | Capability | Manual evidence | Status | Planned treatment |
 |---|---|---|---|---|
-| C-001 | LAKOTA QWK download/upload and pointer management | SF37 §10.2, §19.3, §24.4 | DEFERRED | Historical/ecosystem phase using the shared message abstraction. |
+| C-001 | LAKOTA QWK download/upload and pointer management | SF37 §10.2, §19.3, §24.4 | PARTIAL | [M045/N1](research/m045-networking-n1-qwk-offline.md) implements caller download/reply import, native pointers, permissions and durable replay receipts. Exact original LAKOTA LMR interoperability remains evidence-qualified; this is not full C-001 verification or QWK networking. |
 | C-002 | Net-mail, front-end mailers, and UTI drivers | SF37 §4.0, §10, §19 | DEFERRED | Network adapters; FidoNet and other targets remain separately specified. |
 | C-003 | Doors and `SFDOORS.DAT`/industry drop files | SF37 §15, §24.2 | DEFERRED | Isolated legacy runtime; never execute DOS doors inside the core process. |
 | C-004 | Main/Message/File/Sysop menu extensions and batch hooks | SF37 §9–12 | DEFERRED | Controlled extension interface after stock commands are complete. |

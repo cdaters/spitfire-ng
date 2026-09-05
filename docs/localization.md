@@ -38,9 +38,9 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.16.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.17.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
-copy. It contains 988 semantic messages in the complete schema-19 caller and
+copy. It contains 1,014 semantic messages in the complete schema-20 caller and
 operator catalog, including
 the schema-14 public-information catalog, across shared, caller, and operator
 messages. The
@@ -246,3 +246,7 @@ reuses the same catalog. Presentation-package versions remain unchanged.
 B021-D advances en-US to 1.16.0 with 988 unique semantic messages, shared
 maintenance-owner guidance, explicit online-loss recovery, and concise monitor
 key hints. Presentation-package versions remain unchanged.
+
+## M045 caller QWK strings
+
+en-US 1.17.0 contains 1014 messages. New strings cover Messages L, D/U/S/Q, selection, protocol constraints, pointer confirmation/reset, packet errors, duplicate/new-submission review, import counts and concise help. Modern/Minimal profiles are 1.6.0; Classic is 1.7.0 for QWK menu placement. No future network operator strings are added. Older version statements above describe their dated milestones.

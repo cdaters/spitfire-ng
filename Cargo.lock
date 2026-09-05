@@ -2250,6 +2250,7 @@ dependencies = [
  "serialport",
  "sf-core",
  "sf-legacy",
+ "sf-net",
  "sha2 0.10.9",
  "tempfile",
  "terminal_size",
@@ -2289,6 +2290,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sf-net",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.20",
@@ -2315,6 +2317,16 @@ dependencies = [
  "sf-core",
  "thiserror 2.0.20",
  "tokio",
+]
+
+[[package]]
+name = "sf-net"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "zip",
 ]
 
 [[package]]

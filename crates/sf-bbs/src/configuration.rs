@@ -466,7 +466,7 @@ impl OfflineConfiguration {
         let config = RuntimeConfig::load(&path)?;
         let paths = LogicalPaths::resolve(root, &config.validate()?)?;
         let database = RuntimeDatabase::open_read_only(paths.database())?;
-        if database.schema_version()? != 19
+        if database.schema_version()? != sf_core::SCHEMA_VERSION
             || database.validate_current_snapshot()? != config.validate()?.identity
         {
             return Err(failure());
@@ -603,7 +603,7 @@ mod tests {
                 .inactivity_minutes,
             7
         );
-        assert_eq!(runtime.schema_version(), 19);
+        assert_eq!(runtime.schema_version(), sf_core::SCHEMA_VERSION);
     }
     #[test]
     fn online_concurrent_clients_cas_then_refresh_and_retry() {
@@ -805,7 +805,7 @@ mod tests {
         drop(offline);
         let runtime = crate::BoardRuntime::load(&path).unwrap();
         let database = RuntimeDatabase::open_read_only(runtime.database_path()).unwrap();
-        assert_eq!(database.schema_version().unwrap(), 19);
+        assert_eq!(database.schema_version().unwrap(), sf_core::SCHEMA_VERSION);
         database.validate_current_snapshot().unwrap();
         assert_eq!(std::fs::read(&board.config_path).unwrap(), broken);
     }

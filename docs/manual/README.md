@@ -1,8 +1,11 @@
 # SPITFIRE NG Sysop Reference Manual
 
+Current source: [QWK offline mail](qwk-offline.md) adds caller packet download/reply upload; QWK networking, DOVE-Net and FidoNet/BinkP remain unimplemented.
+
+
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 20)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >

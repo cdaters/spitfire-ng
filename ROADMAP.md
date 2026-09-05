@@ -1,5 +1,9 @@
 # SPITFIRE NG Roadmap
 
+> Current source checkpoint: **M045 / N1 caller QWK offline COMPLETE / ACCEPTED**.
+> Schema 20; QWK networking, DOVE-Net and FidoNet/BinkP remain unimplemented.
+
+
 SPITFIRE NG is moving from historical research and stock-core implementation
 into public Development Preview releases. This roadmap describes major
 outcomes rather than internal checkpoint chronology.
@@ -265,3 +269,17 @@ ENVIRONMENT REQUIRED; Linux/BSD live acceptance is not claimed.
 Stop at this source milestone. Subsequent development requires a separately
 scoped B-022 interface/resource/transaction gate; implementation has not begun.
 No networking, doors, scheduler, host deployment or release work is included.
+
+## N1 complete; later networking remains scoped separately
+
+The shared QWK codec, native mapping/artifact/receipt foundation and real caller
+Messages L D/U/S/Q cycle are implemented. Independent MultiMail/QWKE and disposable
+macOS transfer/replay/restart/backup acceptance pass. Original LAKOTA LMR remains
+evidence-qualified, so C-001 is PARTIAL. B-021 stays VERIFIED; B-022 NOT STARTED.
+
+See the [M044 architecture summary](docs/research/m044-networking-foundation-gate.md)
+and [M045 report](docs/research/m045-networking-n1-qwk-offline.md). The next
+implementation slice is separately scoped N2 QWK partners/DOVE profile, not part
+of N1. FTN/BinkP, directories, Networks operator views, scheduler and doors are not
+implemented. Windows live networking acceptance remains deferred to a real Windows
+environment. No release, DDEV or production change is part of this source update.

@@ -208,6 +208,7 @@ pub struct BoardRuntime {
     caller_config: CallerConfig,
     credential_hasher: CredentialHasher,
     file_storage: FileStorage,
+    network_artifacts: crate::DiskArtifactStore,
     interaction: InteractionHub,
     presentation: PresentationResolver,
     language: sf_core::LanguageResolver,
@@ -340,6 +341,9 @@ impl BoardRuntime {
         let migration = database.migrate()?;
         let identity = database.ensure_board_identity(&validated.identity)?;
         let file_storage = FileStorage::new(&paths)?;
+        let network_artifacts =
+            crate::DiskArtifactStore::new(paths.get(sf_core::LogicalPath::System))?;
+        network_artifacts.recover(&mut database)?;
         if identity.name() == "SPITFIRE NG Fixture Board"
             && identity.sysop_name() == "Fixture Sysop"
         {
@@ -423,6 +427,7 @@ impl BoardRuntime {
             caller_config: validated.caller,
             credential_hasher,
             file_storage,
+            network_artifacts,
             interaction: InteractionHub::new(),
             presentation,
             language,
@@ -1204,6 +1209,7 @@ impl BoardRuntime {
                     text_resources: &text_resources,
                     status: &lease,
                     file_storage: &self.file_storage,
+                    network_artifacts: &self.network_artifacts,
                     interaction: &self.interaction,
                     time_controller: self.session_time_adjustments.as_ref(),
                     page_timeout: Duration::from_secs(30),
@@ -2060,11 +2066,22 @@ mod tests {
                 .data(b"#\rN\rL\rPixel\rY\rO\rA\rB\r1\rN\rT\rM\r".as_slice())
                 .await
                 .unwrap();
-            tokio::time::sleep(Duration::from_millis(300)).await;
-            let status = crate::board_status(&config_path).unwrap();
-            assert!(
-                status.contains("caller=pixelwizard (PixelWizard) lifecycle=active transport=ssh")
-            );
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let status = loop {
+                let status = crate::board_status(&config_path).unwrap();
+                if status
+                    .contains("caller=pixelwizard (PixelWizard) lifecycle=active transport=ssh")
+                    && status
+                        .contains("terminal=xterm-256color ansi=true encoding=utf-8 size=120x50")
+                {
+                    break status;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "SSH caller state did not converge:\n{status}"
+                );
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            };
             assert!(
                 status.contains("terminal=xterm-256color ansi=true encoding=utf-8 size=120x50"),
                 "unexpected SSH status after resize:\n{status}"
@@ -2568,9 +2585,11 @@ mod tests {
             Some("Hello from caller")
         );
         operator.send_line("Hello from the Sysop").unwrap();
-        operator.end();
+        // Keep the operator endpoint live until the scripted caller consumes
+        // the reply and leaves chat; ending here can invalidate queued input.
 
         let (report, terminal) = caller.join().unwrap();
+        operator.end();
         assert!(matches!(report, ConnectionReport::Completed(_)));
         assert!(contains(terminal.output(), b"Interactive chat is active"));
         assert!(contains(terminal.output(), b"Sysop> Hello from the Sysop"));
@@ -2786,8 +2805,10 @@ mod tests {
             Some("Clean caller checking in")
         );
         operator.send_line("Clean board is online").unwrap();
-        operator.end();
+        // Keep the operator endpoint live until the scripted caller consumes
+        // the reply and leaves chat; ending here can invalidate queued input.
         let (report, terminal) = caller.join().unwrap();
+        operator.end();
         assert!(matches!(report, ConnectionReport::Completed(_)));
         assert!(contains(terminal.output(), b"Clean board welcome"));
         assert!(contains(terminal.output(), b"Message 2 was saved"));
@@ -4157,8 +4178,16 @@ mod tests {
                     .is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionReset)
         );
         assert_eq!(handle.join().unwrap().completed_sessions, 2);
-        assert!(contains(&first_output, b"ASCII download complete"));
-        assert!(contains(&second_output, b"ASCII download complete"));
+        assert!(
+            contains(&first_output, b"ASCII download complete"),
+            "{}",
+            String::from_utf8_lossy(&first_output)
+        );
+        assert!(
+            contains(&second_output, b"ASCII download complete"),
+            "{}",
+            String::from_utf8_lossy(&second_output)
+        );
 
         let validated = RuntimeConfig::load(&config_path)
             .unwrap()
@@ -5310,7 +5339,7 @@ mod tests {
         let connection = rusqlite::Connection::open(runtime.database_path()).unwrap();
         assert_eq!(connection.query_row("SELECT count(*) FROM operator_control_audit WHERE command_id=?1 AND detail_code='shutdown-complete'", [first_id], |row| row.get::<_, i64>(0)).unwrap(), 1);
         assert_eq!(connection.query_row("SELECT count(*) FROM operational_events WHERE event_code='operator.shutdown-requested'", [], |row| row.get::<_, i64>(0)).unwrap(), 1);
-        assert_eq!(database.schema_version().unwrap(), 19);
+        assert_eq!(database.schema_version().unwrap(), sf_core::SCHEMA_VERSION);
     }
 
     #[test]

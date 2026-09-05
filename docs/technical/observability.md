@@ -202,3 +202,7 @@ relationship with a failed-backup event. Configuration errors come from typed
 configuration authority; they are not manufactured into duplicate polling events.
 After online sfconfig loses authority it stops probing, preventing denial storms.
 See [Operator Recovery](../manual/operator-recovery.md).
+
+## M045 / schema 20 caller QWK integration
+
+The [QWK offline Technical Reference](qwk-offline.md) defines the implemented adapter, native authority, delivery/pointer semantics, private artifact custody, transactional receipts and recovery. Caller QWK uses ordinary authenticated message permissions and existing binary transfers. No QWK networking, DOVE-Net, FTN, scheduler or separate message store is added. Earlier dated schema/milestone descriptions retain their historical scope.

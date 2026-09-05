@@ -258,6 +258,7 @@ pub struct StockSessionContext<'a> {
     pub text_resources: &'a StockResources,
     pub status: &'a dyn SessionStatusObserver,
     pub file_storage: &'a FileStorage,
+    pub network_artifacts: &'a dyn crate::network::NetworkArtifactStore,
     pub interaction: &'a InteractionHub,
     pub time_controller: &'a dyn SessionTimeController,
     pub page_timeout: Duration,
@@ -3275,6 +3276,8 @@ fn write_key_line(
 
 #[derive(Debug, Error)]
 pub enum SessionError {
+    #[error(transparent)]
+    Network(#[from] crate::network::NetworkError),
     #[error("session identifier must be nonzero, got {0}")]
     InvalidSessionId(u64),
     #[error("cannot {operation} a session in state {from:?}")]

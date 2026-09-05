@@ -584,3 +584,12 @@ M039 Tranche 7 must apply this policy when it begins: B-017/B-021/B-022 work
 will require appropriate Sysop guidance, Technical Reference updates, and
 contextual-help planning. This policy does not begin that gate or implement
 those rows.
+
+### M045 integration-test source scope
+
+The header verifier includes independently authored Rust integration-test sources
+under `crates/*/tests/**/*.rs` as well as crate `src` trees. The N1 subprocess test
+is project source with the same required header; external QWK peer assets and
+packet fixtures remain outside the reviewed source scope and are not published.
+The sf-net manifest inherits the workspace license; no ownership header is added
+to Cargo metadata or generated dependency state.

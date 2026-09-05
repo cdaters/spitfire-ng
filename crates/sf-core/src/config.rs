@@ -303,6 +303,9 @@ pub struct StorageConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CallerConfig {
+    /// Offline QWK identity; unset disables packet exchange. Restart after changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qwk_board_id: Option<String>,
     #[serde(default = "default_sysop_caller_name")]
     pub sysop_caller_name: String,
     #[serde(default = "default_new_caller_security")]
@@ -342,6 +345,7 @@ pub struct CallerConfig {
 impl Default for CallerConfig {
     fn default() -> Self {
         Self {
+            qwk_board_id: None,
             sysop_caller_name: default_sysop_caller_name(),
             new_caller_security: default_new_caller_security(),
             sysop_security: default_sysop_security(),
@@ -1046,6 +1050,13 @@ fn validate_transports(transports: &[TransportConfig]) -> Result<(), ConfigError
 }
 
 fn validate_caller(caller: &CallerConfig) -> Result<(), ConfigError> {
+    if caller
+        .qwk_board_id
+        .as_ref()
+        .is_some_and(|id| !sf_net::qwk::valid_board_id(id))
+    {
+        return Err(ConfigError::InvalidQwkBoardId);
+    }
     if canonicalize_caller_name(caller.sysop_caller_name.as_bytes()).is_err() {
         return Err(ConfigError::InvalidSysopCallerName);
     }
@@ -1201,6 +1212,8 @@ fn validate_ssh_host_key(path: &Path) -> Result<(), ConfigError> {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("QWK board ID must be 1..8 uppercase ASCII letters/digits and a safe DOS basename")]
+    InvalidQwkBoardId,
     #[error("local operator configuration is invalid or exceeds its bounds")]
     InvalidOperatorConfiguration,
     #[error("could not read configuration {path}: {source}")]

@@ -91,7 +91,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite and require current schema 19, exact migration names,
+3. open SQLite and require current schema 20, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -112,9 +112,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-19 snapshots.
+target. This build accepts exact schema-10 through schema-20 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 19. Validation rejects
+applies the transactional migrations through schema 20. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -230,7 +230,7 @@ one; clients will correctly report a changed host fingerprint. See
 
 ## Schema-14 public-information recovery boundary
 
-M043 schema-14 state remains preserved within current schema 19. Cold backup preserves directory policy, each
+M043 schema-14 state remains preserved within current schema 20. Cold backup preserves directory policy, each
 caller's opt-out and publicity version, ordered Other BBS rows/lifecycle/
 contributors/versions, recognized resource generations/digests, semantic
 events, and authoritative bulletin/newsletter/native-thought bytes under the
@@ -302,3 +302,7 @@ validates a snapshot. Invalid current configuration may prohibit `--replace`;
 restore to a new root, inspect with offline sfconfig, and deliberately select the
 recovered board instead. The [operator recovery chapter](manual/operator-recovery.md)
 is the canonical practical path, including deliberate permission recovery.
+
+## M045 / schema 20 caller QWK integration
+
+The [QWK offline Technical Reference](technical/qwk-offline.md) defines the implemented adapter, native authority, delivery/pointer semantics, private artifact custody, transactional receipts and recovery. Caller QWK uses ordinary authenticated message permissions and existing binary transfers. No QWK networking, DOVE-Net, FTN, scheduler or separate message store is added. Earlier dated schema/milestone descriptions retain their historical scope.

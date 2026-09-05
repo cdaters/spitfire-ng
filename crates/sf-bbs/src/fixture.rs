@@ -32,7 +32,7 @@ const DISPLAY_NOTICE_FILE: &str = "GENERATED-RESOURCES.txt";
 const PROJECT_ASSET_LICENSE: &[u8] = b"SPDX-License-Identifier: MIT OR Apache-2.0\n\nCopyright (C) 2026 Craig Daters and SPITFIRE NG contributors.\nThese project-authored resources are available under the SPITFIRE NG repository's LICENSE-MIT or LICENSE-APACHE terms, at your option.\nHistorical and third-party research material is excluded and retains its original copyright and license.\n";
 
 const MAIN_MENU: &[u8] = b"M,<M>.......... Message Section,,5,E\r\nC,<C>.......... Comment To Sysop,,5,J\r\nF,<F>............. File Section,,5,Q\r\nP,<P>............ Page The Sysop,,5,H\r\nY,<Y>.......... Your Statistics,,5,G\r\nR,<R>....... Your Caller Profile,,5,D\r\nU,<U>.... Terminal Preferences,,5,R\r\nV,<V>........... About SPITFIRE NG,,5,V\r\nB,<B>................ Bulletins,,5,Y\r\n#,<#>......... Caller Directory,,5,L\r\nL,<L>......... Locate A Caller,,5,I\r\nT,<T>...... System Information,,5,K\r\nN,<N>............... Newsletter,,5,X\r\nO,<O>..... Other BBS Information,,5,P\r\nA,<A>............ Add Other BBS,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
-const MESSAGE_MENU: &[u8] = b"C,<C>....... Change Conference,,5,Z\r\nR,<R>............. Read Messages,,5,I\r\nB,<B>........... Browse Messages,,5,J\r\nE,<E>......... Enter New Message,,5,L\r\nY,<Y>............. Your Messages,,5,G\r\nA,<A>.... Alter Conference Queue,,5,K\r\nS,<S>.. Specific Caller Messages,,5,S\r\nT,<T>............... Text Search,,5,X\r\nF,<F>.............. File Section,,5,D\r\nQ,<Q>......... Quit To Main Menu,,5,C\r\n@,<@>........... Sysop Utilities,,50,R\r\nX,<X>......... Xpert Mode Toggle,,5,B\r\nG,<G>......... Goodbye & Log Off,,5,A\r\n?,<?>........ HELP With Commands,,5,?\r\n";
+const MESSAGE_MENU: &[u8] = b"L,<L>.......... QWK Offline Mail,,5,E\r\nC,<C>....... Change Conference,,5,Z\r\nR,<R>............. Read Messages,,5,I\r\nB,<B>........... Browse Messages,,5,J\r\nE,<E>......... Enter New Message,,5,L\r\nY,<Y>............. Your Messages,,5,G\r\nA,<A>.... Alter Conference Queue,,5,K\r\nS,<S>.. Specific Caller Messages,,5,S\r\nT,<T>............... Text Search,,5,X\r\nF,<F>.............. File Section,,5,D\r\nQ,<Q>......... Quit To Main Menu,,5,C\r\n@,<@>........... Sysop Utilities,,50,R\r\nX,<X>......... Xpert Mode Toggle,,5,B\r\nG,<G>......... Goodbye & Log Off,,5,A\r\n?,<?>........ HELP With Commands,,5,?\r\n";
 const FILE_MENU: &[u8] = b"C,<C>......... Change File Area,,5,Z\r\nL,<L>.. List Files In This Area,,5,X\r\nR,<R>......... Read A Text File,,5,J\r\nV,<V>....... View A File Archive,,5,G\r\nD,<D>.......... Download A File,,5,L\r\nU,<U>............ Upload A File,,5,I\r\nN,<N>................ New Files,,5,N\r\nT,<T>.. Text Search Description,,5,S\r\nF,<F>.............. Find A File,,5,P\r\nM,<M>.......... Message Section,,5,E\r\nQ,<Q>........ Quit To Main Menu,,5,C\r\n@,<@>.......... Sysop Utilities,,50,F\r\nX,<X>........ Xpert Mode Toggle,,5,B\r\nG,<G>........ Goodbye & Log Off,,5,A\r\n?,<?>....... HELP With Commands,,5,?\r\n";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -320,7 +320,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "MSG10.BBS",
-            b"\r\n>>>>>>> MESSAGE MENU <<<<<<<\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<S> Caller Search      <T> Text Search\r\n<F> Files <Q> Main      <?> Help\r\n".as_slice(),
+            b"\r\n>>>>>>> MESSAGE MENU <<<<<<<\r\n<L> QWK Offline Mail\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<S> Caller Search      <T> Text Search\r\n<F> Files <Q> Main      <?> Help\r\n".as_slice(),
         ),
         (
             "FILE10.BBS",
@@ -436,7 +436,7 @@ pub(crate) fn write_default_resources(
         ),
         (
             "MSG10.CLR",
-            "@CLS@\x1B[1;36m>>>>>>> MESSAGE MENU <<<<<<<\x1B[0m\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<S> Caller Search      <T> Text Search\r\n<F> Files <Q> Main      <?> Help\r\n",
+            "@CLS@\x1B[1;36m>>>>>>> MESSAGE MENU <<<<<<<\x1B[0m\r\n<L> QWK Offline Mail\r\n<C> Change Conference  <R> Read  <B> Browse  <E> Enter\r\n<Y> Your Messages      <A> Alter Queue\r\n<S> Caller Search      <T> Text Search\r\n<F> Files <Q> Main      <?> Help\r\n",
         ),
         (
             "FILE10.CLR",
@@ -1059,7 +1059,8 @@ const CLASSIC_MAIN50: [&str; 7] = [
     "<N> Newsletter <O> Other BBS <A> Add BBS",
     "<@> Sysop <X> Xpert <G> Goodbye <?> HELP",
 ];
-const CLASSIC_MSG10: [&str; 7] = [
+const CLASSIC_MSG10: [&str; 8] = [
+    "<L>.... QWK Offline Mail",
     "<C>... Change Conference         <R>......... Read Messages",
     "<B>...... Browse Messages        <E>.... Enter New Message",
     "<Y>........ Your Messages        <A>.. Alter Conf. Queue",
@@ -1068,7 +1069,8 @@ const CLASSIC_MSG10: [&str; 7] = [
     "<X>.......... Xpert Mode         <G>..... Goodbye & Log Off",
     "<?>.. HELP With Commands",
 ];
-const CLASSIC_MSG50: [&str; 7] = [
+const CLASSIC_MSG50: [&str; 8] = [
+    "<L>.... QWK Offline Mail",
     "<C>... Change Conference         <R>......... Read Messages",
     "<B>...... Browse Messages        <E>.... Enter New Message",
     "<Y>........ Your Messages        <A>.. Alter Conf. Queue",

@@ -1979,7 +1979,7 @@ fn first_command(input: &[u8]) -> Option<u8> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SelectedProtocol {
+pub(crate) enum SelectedProtocol {
     Canceled,
     Ascii,
     Binary(TransferProtocol),
@@ -2009,7 +2009,7 @@ impl SelectedProtocol {
     }
 }
 
-fn choose_transfer_protocol(
+pub(crate) fn choose_transfer_protocol(
     terminal: &mut dyn Terminal,
     preference: TransferPreference,
 ) -> Result<SelectedProtocol, SessionError> {

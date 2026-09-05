@@ -99,6 +99,13 @@ pub(crate) fn run_message_menu(
                 )?;
             }
         }
+        if caller_config.qwk_board_id.is_some()
+            && menu
+                .find(b'L', authenticated.caller.security_level.get())
+                .is_none()
+        {
+            write_key_line(terminal, "qwk-menu-entry", &crate::LocalizationArgs::new())?;
+        }
         write_line(
             terminal,
             &format!("Conference {}: {}", current.number, current.name),
@@ -132,6 +139,22 @@ pub(crate) fn run_message_menu(
             });
         }
         let actor = message_actor(authenticated, caller_config)?;
+        if command.eq_ignore_ascii_case(&b'L')
+            && caller_config.qwk_board_id.is_some()
+            && menu
+                .find(command, authenticated.caller.security_level.get())
+                .is_none()
+        {
+            crate::qwk_session::run(
+                terminal,
+                backend,
+                session,
+                stock,
+                authenticated,
+                caller_config,
+            )?;
+            continue;
+        }
         let Some(item) = menu.find(command, authenticated.caller.security_level.get()) else {
             write_key_line(
                 terminal,
@@ -141,6 +164,14 @@ pub(crate) fn run_message_menu(
             continue;
         };
         match item.identifier {
+            b'E' => crate::qwk_session::run(
+                terminal,
+                backend,
+                session,
+                stock,
+                authenticated,
+                caller_config,
+            )?,
             b'Z' => {
                 if let Some(selected) = choose_conference(terminal, backend, actor)? {
                     current = selected;

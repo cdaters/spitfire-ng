@@ -29,11 +29,11 @@ pub const RESOURCE_API_VERSION: u32 = 1;
 pub const PROFILE_DIRECTORY: &str = "presentation-profiles";
 pub const PROFILE_DESCRIPTOR: &str = "profile.toml";
 pub const MODERN_PROFILE_ID: &str = "modern-ng";
-pub const MODERN_PROFILE_VERSION: &str = "1.5.0";
+pub const MODERN_PROFILE_VERSION: &str = "1.6.0";
 pub const MINIMAL_PROFILE_ID: &str = "minimal-terminal";
-pub const MINIMAL_PROFILE_VERSION: &str = "1.5.0";
+pub const MINIMAL_PROFILE_VERSION: &str = "1.6.0";
 pub const CLASSIC_PROFILE_ID: &str = "classic-spitfire";
-pub const CLASSIC_PROFILE_VERSION: &str = "1.6.0";
+pub const CLASSIC_PROFILE_VERSION: &str = "1.7.0";
 const MAX_DESCRIPTOR_BYTES: usize = 256 * 1024;
 const MAX_PROFILE_ASSETS: usize = 4096;
 const MAX_ASSET_BYTES: usize = 1024 * 1024;
@@ -1135,8 +1135,8 @@ mod tests {
         for (section, security, expected) in [
             (MenuSection::Main, 10, b"MCFPYRUVB#LTNOAXG?".as_slice()),
             (MenuSection::Main, 50, b"MCFPYRUVB#LTNOA@XG?".as_slice()),
-            (MenuSection::Message, 10, b"CRBEYASTFQXG?".as_slice()),
-            (MenuSection::Message, 50, b"CRBEYASTFQ@XG?".as_slice()),
+            (MenuSection::Message, 10, b"LCRBEYASTFQXG?".as_slice()),
+            (MenuSection::Message, 50, b"LCRBEYASTFQ@XG?".as_slice()),
             (MenuSection::File, 10, b"CLRVDUNTFMQXG?".as_slice()),
             (MenuSection::File, 50, b"CLRVDUNTFMQ@XG?".as_slice()),
             (MenuSection::Sysop, 50, b"QXG".as_slice()),

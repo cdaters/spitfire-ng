@@ -27,3 +27,5 @@ tracing.workspace = true
 unic-langid.workspace = true
 zmodem2.workspace = true
 zip.workspace = true
+
+sf-net = { path = "../sf-net" }

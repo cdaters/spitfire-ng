@@ -46,6 +46,7 @@ impl SetupPlan {
         node_count: u32,
     ) -> Self {
         let caller = CallerConfig {
+            qwk_board_id: Some(format!("NG{:06X}", rand::random::<u32>() & 0x00ff_ffff)),
             sysop_caller_name: sysop_caller_name.into(),
             ..CallerConfig::default()
         };

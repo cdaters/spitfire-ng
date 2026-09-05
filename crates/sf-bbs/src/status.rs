@@ -662,7 +662,10 @@ mod tests {
         let report = setup_board(&root, &plan, b"test-only status password").unwrap();
         let offline = board_status(&report.config_path).unwrap();
         assert!(offline.contains("Runtime: offline"));
-        assert!(offline.contains("Active: modern-ng 1.5.0"));
+        assert!(offline.contains(&format!(
+            "Active: modern-ng {}",
+            crate::MODERN_PROFILE_VERSION
+        )));
         assert!(offline.contains("Public information: directory=false"));
         assert!(offline.contains("Effective: active profile modern-ng"));
         assert!(offline.contains("Status: ready"));

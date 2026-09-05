@@ -22,10 +22,12 @@ pub use configuration::{
 mod error;
 mod fixture;
 mod live_control;
+mod network_artifacts;
 mod operator;
 mod operator_control;
 mod presentation;
 mod resources;
+pub use network_artifacts::DiskArtifactStore;
 mod runtime;
 mod setup;
 mod shutdown;

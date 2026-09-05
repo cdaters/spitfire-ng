@@ -175,6 +175,14 @@ pub fn backup_board(
     if database.schema_version()? >= 16 && !database.transfer_operations_ready_for_cold_backup()? {
         return Err(BoardBackupError::UnnormalizedTransferOperations.into());
     }
+    if database.schema_version()? >= 20 {
+        crate::DiskArtifactStore::validate_custody(paths.get(LogicalPath::System), &database)
+            .map_err(|_| {
+                BoardBackupError::ResourceValidation(
+                    "network artifact custody is inconsistent".into(),
+                )
+            })?;
+    }
     let backup_started_at = now_unix_seconds()?;
     let mut started = NewOperationalEvent::new(
         backup_started_at,
@@ -530,6 +538,11 @@ fn stage_restored_board(
     let paths = LogicalPaths::resolve(staging_root, &validated)?;
     validate_native_layout(&validated, &paths)?;
     paths.create_directories()?;
+    if backup.manifest.schema_version >= 20 {
+        crate::DiskArtifactStore::new(paths.get(LogicalPath::System)).map_err(|_| {
+            BoardBackupError::ResourceValidation("network artifact custody is inconsistent".into())
+        })?;
+    }
 
     for entry in &backup.manifest.entries {
         let destination = match entry.kind {
@@ -550,6 +563,16 @@ fn stage_restored_board(
         }
     }
     let mut restored_database = RuntimeDatabase::open(paths.database())?;
+    if restored_database.schema_version()? >= 20 {
+        crate::DiskArtifactStore::new(paths.get(LogicalPath::System))
+            .and_then(|store| store.recover(&mut restored_database))
+            .map_err(|_| {
+                BoardBackupError::ResourceValidation(
+                    "network artifact custody is inconsistent".into(),
+                )
+            })?;
+    }
+
     if restored_database.schema_version()? >= 16 {
         restored_database.normalize_external_storage_after_restore(
             i64::try_from(
@@ -579,6 +602,15 @@ fn validate_staged_board(
     let identity = database.validate_snapshot_at_version(backup.manifest.schema_version)?;
     if identity != validated.identity {
         return Err(BoardBackupError::IdentityMismatch);
+    }
+    if backup.manifest.schema_version >= 20 {
+        crate::DiskArtifactStore::new(paths.get(LogicalPath::System))
+            .and_then(|store| store.validate(&database))
+            .map_err(|_| {
+                BoardBackupError::ResourceValidation(
+                    "network artifact custody is inconsistent".into(),
+                )
+            })?;
     }
     let storage = FileStorage::new(&paths)?;
     for (area, file) in database.managed_cataloged_files()? {
@@ -1295,7 +1327,23 @@ mod tests {
         RuntimeDatabase::open_read_only(paths.database()).unwrap()
     }
 
+    fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
+        let has: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=20)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        if !has {
+            return;
+        }
+        connection.execute_batch("DROP TRIGGER network_receipt_no_update; DROP TRIGGER network_receipt_no_delete; DROP TABLE network_import_receipts; DROP TABLE qwk_manifest_members; DROP TABLE qwk_manifest_conferences; DROP TABLE qwk_requests; DROP TABLE network_area_mappings; ALTER TABLE transfer_records DROP COLUMN artifact_id; ALTER TABLE transfer_records DROP COLUMN purpose; DROP TABLE network_artifacts; DROP TRIGGER caller_pointer_version; ALTER TABLE caller_last_read DROP COLUMN pointer_version; ALTER TABLE caller_last_read DROP COLUMN reset_version; DELETE FROM schema_migrations WHERE version=20;").unwrap();
+    }
+
     fn downgrade_schema_19_to_18(connection: &rusqlite::Connection) {
+        downgrade_schema_20_to_19(connection);
+
         let has_schema_19: bool = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=19)",
@@ -2001,8 +2049,14 @@ mod tests {
             fs::read(source.join("system/language-packs/en-US/language.toml")).unwrap()
         );
         let restored_status = crate::board_status(&restore.config_path).unwrap();
-        assert!(restored_status.contains("Active: classic-spitfire 1.6.0"));
-        assert!(restored_status.contains("Base: modern-ng 1.5.0"));
+        assert!(restored_status.contains(&format!(
+            "Active: classic-spitfire {}",
+            crate::CLASSIC_PROFILE_VERSION
+        )));
+        assert!(restored_status.contains(&format!(
+            "Base: modern-ng {}",
+            crate::MODERN_PROFILE_VERSION
+        )));
         assert!(restored_status.contains("Status: ready"));
         assert!(restored_status.contains("Default locale: en-US"));
         assert!(restored_status.contains(&format!(
@@ -2146,7 +2200,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 15,
                 ending_version: SCHEMA_VERSION,
-                applied: 4,
+                applied: SCHEMA_VERSION as usize - 15,
             }
         );
         let restored_requests = restored_database
@@ -2373,7 +2427,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 17,
                 ending_version: SCHEMA_VERSION,
-                applied: 2,
+                applied: SCHEMA_VERSION as usize - 17,
             }
         );
         assert!(database
@@ -2690,7 +2744,7 @@ mod tests {
         let migration = migrated.migrate().unwrap();
         assert_eq!(migration.starting_version, 10);
         assert_eq!(migration.ending_version, SCHEMA_VERSION);
-        assert_eq!(migration.applied, 9);
+        assert_eq!(migration.applied, SCHEMA_VERSION as usize - 10);
         migrated.validate_current_snapshot().unwrap();
     }
 
@@ -2716,7 +2770,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 11,
                 ending_version: SCHEMA_VERSION,
-                applied: 8,
+                applied: SCHEMA_VERSION as usize - 11,
             }
         );
         database.validate_current_snapshot().unwrap();
@@ -2748,7 +2802,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 13,
                 ending_version: SCHEMA_VERSION,
-                applied: 6
+                applied: SCHEMA_VERSION as usize - 13
             }
         );
         assert!(!database.public_directory_policy().unwrap().enabled);
@@ -2782,7 +2836,7 @@ mod tests {
             sf_core::MigrationReport {
                 starting_version: 14,
                 ending_version: SCHEMA_VERSION,
-                applied: 5,
+                applied: SCHEMA_VERSION as usize - 14,
             }
         );
         database.validate_current_snapshot().unwrap();

@@ -24,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sf-core = { path = "../sf-core" }
+sf-net = { path = "../sf-net" }
 sf-legacy = { path = "../sf-legacy" }
 serialport.workspace = true
 tempfile.workspace = true

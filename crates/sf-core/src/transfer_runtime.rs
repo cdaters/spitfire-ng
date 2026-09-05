@@ -1084,7 +1084,11 @@ impl RuntimeDatabase {
         let (chargeable_files, chargeable_bytes) = queue.chargeable_totals();
         let transfer_id = TransferId::generated(node_id.get() as i64);
         let reservation_id = ReservationId::for_transfer(&transfer_id);
-        let transaction = self.connection.transaction()?;
+        // Acquire the write reservation before reading quota/receipt state.
+        // Concurrent deferred readers cannot both upgrade their SQLite locks.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let active: (i64, i64) = transaction.query_row(
             "SELECT COALESCE(SUM(reserved_file_count),0),COALESCE(SUM(reserved_bytes),0) FROM transfer_quota_reservations WHERE caller_id=?1 AND board_day=?2 AND timezone_policy_version=?3 AND state='active' AND expires_at>?4",
             params![caller.id.get(), board_day, sqlite_i64(timezone_version)?, now],
@@ -1274,7 +1278,11 @@ impl RuntimeDatabase {
         now: i64,
     ) -> Result<bool, TransferRuntimeError> {
         validate_identifier(item_id)?;
-        let transaction = self.connection.transaction()?;
+        // Acquire the write reservation before reading quota/receipt state.
+        // Concurrent deferred readers cannot both upgrade their SQLite locks.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let reservation: (String, i64, String, i64, String, i64) = transaction
             .query_row(
                 "SELECT r.transfer_id,r.caller_id,r.board_day,r.timezone_policy_version,r.state,t.node_id FROM transfer_quota_reservations r JOIN transfer_records t ON t.transfer_id=r.transfer_id WHERE r.reservation_id=?1",
@@ -2511,6 +2519,84 @@ mod tests {
     }
 
     #[test]
+    fn daily_limit_boundaries_and_fall_back_hour_share_one_board_day() {
+        let mut fixture = fixture();
+        let mut policy = TransferPolicy::unlimited(SecurityLevel::new(50).unwrap());
+        policy.daily_file_limit = Some(2);
+        policy.daily_byte_limit = Some(24);
+        fixture
+            .database
+            .update_transfer_policy(fixture.actor, &policy, 0, 1_700_000_000)
+            .unwrap();
+        let mut queue = TransferQueue::default();
+        queue.tag(&fixture.file, false).unwrap();
+        let timezone = chrono_tz::America::New_York;
+        let first_repeated_hour = Utc
+            .with_ymd_and_hms(2026, 11, 1, 5, 30, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let second_repeated_hour = Utc
+            .with_ymd_and_hms(2026, 11, 1, 6, 30, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let first = fixture
+            .database
+            .reserve_download_queue(
+                fixture.actor,
+                NodeId::new(1).unwrap(),
+                timezone,
+                TransferMethod::Ascii,
+                &queue,
+                first_repeated_hour,
+            )
+            .unwrap();
+        assert_eq!(first.board_day, "2026-11-01");
+        fixture
+            .database
+            .settle_download_item(
+                &first.id,
+                &queue.items()[0].item_id,
+                fixture.file.size_bytes,
+                first_repeated_hour + 1,
+            )
+            .unwrap();
+        let second = fixture
+            .database
+            .reserve_download_queue(
+                fixture.actor,
+                NodeId::new(2).unwrap(),
+                timezone,
+                TransferMethod::Ascii,
+                &queue,
+                second_repeated_hour,
+            )
+            .unwrap();
+        assert_eq!(second.board_day, first.board_day);
+        fixture
+            .database
+            .settle_download_item(
+                &second.id,
+                &queue.items()[0].item_id,
+                fixture.file.size_bytes,
+                second_repeated_hour + 1,
+            )
+            .unwrap();
+        assert!(matches!(
+            fixture.database.reserve_download_queue(
+                fixture.actor,
+                NodeId::new(3).unwrap(),
+                timezone,
+                TransferMethod::Ascii,
+                &queue,
+                second_repeated_hour + 2,
+            ),
+            Err(TransferRuntimeError::DailyLimitExceeded)
+        ));
+    }
+
+    #[test]
     fn spring_forward_no_dst_midnight_and_cross_midnight_settlement_use_civil_days() {
         let mut fixture = fixture();
         let mut queue = TransferQueue::default();
@@ -2611,84 +2697,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(usage, ("2026-06-01".to_owned(), 1));
-    }
-
-    #[test]
-    fn daily_limit_boundaries_and_fall_back_hour_share_one_board_day() {
-        let mut fixture = fixture();
-        let mut policy = TransferPolicy::unlimited(SecurityLevel::new(50).unwrap());
-        policy.daily_file_limit = Some(2);
-        policy.daily_byte_limit = Some(24);
-        fixture
-            .database
-            .update_transfer_policy(fixture.actor, &policy, 0, 1_700_000_000)
-            .unwrap();
-        let mut queue = TransferQueue::default();
-        queue.tag(&fixture.file, false).unwrap();
-        let timezone = chrono_tz::America::New_York;
-        let first_repeated_hour = Utc
-            .with_ymd_and_hms(2026, 11, 1, 5, 30, 0)
-            .single()
-            .unwrap()
-            .timestamp();
-        let second_repeated_hour = Utc
-            .with_ymd_and_hms(2026, 11, 1, 6, 30, 0)
-            .single()
-            .unwrap()
-            .timestamp();
-        let first = fixture
-            .database
-            .reserve_download_queue(
-                fixture.actor,
-                NodeId::new(1).unwrap(),
-                timezone,
-                TransferMethod::Ascii,
-                &queue,
-                first_repeated_hour,
-            )
-            .unwrap();
-        assert_eq!(first.board_day, "2026-11-01");
-        fixture
-            .database
-            .settle_download_item(
-                &first.id,
-                &queue.items()[0].item_id,
-                fixture.file.size_bytes,
-                first_repeated_hour + 1,
-            )
-            .unwrap();
-        let second = fixture
-            .database
-            .reserve_download_queue(
-                fixture.actor,
-                NodeId::new(2).unwrap(),
-                timezone,
-                TransferMethod::Ascii,
-                &queue,
-                second_repeated_hour,
-            )
-            .unwrap();
-        assert_eq!(second.board_day, first.board_day);
-        fixture
-            .database
-            .settle_download_item(
-                &second.id,
-                &queue.items()[0].item_id,
-                fixture.file.size_bytes,
-                second_repeated_hour + 1,
-            )
-            .unwrap();
-        assert!(matches!(
-            fixture.database.reserve_download_queue(
-                fixture.actor,
-                NodeId::new(3).unwrap(),
-                timezone,
-                TransferMethod::Ascii,
-                &queue,
-                second_repeated_hour + 2,
-            ),
-            Err(TransferRuntimeError::DailyLimitExceeded)
-        ));
     }
 
     #[test]

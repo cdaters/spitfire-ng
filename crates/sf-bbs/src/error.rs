@@ -15,6 +15,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
+    #[error(transparent)]
+    Network(#[from] sf_core::network::NetworkError),
     #[error("{0}")]
     Usage(String),
     #[error("fixture output directory already exists: {0}")]

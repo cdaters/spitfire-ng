@@ -139,7 +139,7 @@ impl Conference {
                 .allows(caller.security_level, self.read_security)
     }
 
-    fn allows_post(&self, caller: &Caller, sysop_security: SecurityLevel) -> bool {
+    pub(crate) fn allows_post(&self, caller: &Caller, sysop_security: SecurityLevel) -> bool {
         caller.security_level.is_sysop(sysop_security)
             || self
                 .privileged_security_levels
@@ -325,6 +325,9 @@ pub struct MessageActor {
 }
 
 impl MessageActor {
+    pub(crate) const fn sysop_security(self) -> SecurityLevel {
+        self.sysop_security
+    }
     pub const fn new(caller_id: CallerId, sysop_security: SecurityLevel) -> Self {
         Self {
             caller_id,
@@ -1193,7 +1196,7 @@ impl MessageBackend for RuntimeDatabase {
         message: NewMessage,
         cc_recipients: &[MessageRecipient],
     ) -> Result<Vec<Message>, MessageError> {
-        self.post_message_fanout(actor, message, cc_recipients)
+        self.post_message_fanout(actor, message, cc_recipients, None)
     }
 
     fn mutation_capabilities(
@@ -1413,11 +1416,54 @@ impl RuntimeDatabase {
         Ok(())
     }
 
-    fn post_message_fanout(
+    pub(crate) fn apply_offline_queue_control(
+        &mut self,
+        actor: MessageActor,
+        conference_id: ConferenceId,
+        add: bool,
+        receipt: &crate::network::ImportReceipt,
+    ) -> Result<(), MessageError> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(MessageError::Sqlite)?;
+        let (_, security) = active_actor_snapshot(&tx, actor.caller_id)?;
+        let conference = conference_policy_snapshot(&tx, conference_id)?;
+        ensure_read_authority(&tx, &conference, security, actor.sysop_security)?;
+        if !add && conference.number == 1 {
+            return Err(MessageError::ConferenceAccessDenied(1));
+        }
+        if add {
+            tx.execute(
+                "INSERT OR IGNORE INTO caller_message_queue(caller_id,conference_id) VALUES(?1,?2)",
+                params![actor.caller_id.get(), conference_id.get()],
+            )
+            .map_err(MessageError::Sqlite)?;
+        } else {
+            tx.execute(
+                "DELETE FROM caller_message_queue WHERE caller_id=?1 AND conference_id=?2",
+                params![actor.caller_id.get(), conference_id.get()],
+            )
+            .map_err(MessageError::Sqlite)?;
+        }
+        receipt
+            .insert(
+                &tx,
+                None,
+                "control",
+                if add { "queue-add" } else { "queue-drop" },
+            )
+            .map_err(MessageError::Sqlite)?;
+        tx.commit().map_err(MessageError::Sqlite)?;
+        Ok(())
+    }
+
+    pub(crate) fn post_message_fanout(
         &mut self,
         actor: MessageActor,
         message: NewMessage,
         cc_recipients: &[MessageRecipient],
+        receipt: Option<&crate::network::ImportReceipt>,
     ) -> Result<Vec<Message>, MessageError> {
         let (caller, conference) =
             self.authorized_conference(actor, message.conference_id, true)?;
@@ -1477,6 +1523,12 @@ impl RuntimeDatabase {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(MessageError::Sqlite)?;
+        if let Some(receipt) = receipt {
+            let seen: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM network_import_receipts WHERE caller_id=?1 AND profile='qwk-offline-cp437-v1' AND packet_digest=?2 AND ordinal=?3)", params![actor.caller_id.get(),receipt.packet,receipt.ordinal as i64], |r|r.get(0)).map_err(MessageError::Sqlite)?;
+            if seen {
+                return Err(MessageError::ImportAlreadyRecorded);
+            }
+        }
         let (actor_name, actor_security) = active_actor_snapshot(&transaction, actor.caller_id)?;
         ensure_post_authority(
             &transaction,
@@ -1484,6 +1536,44 @@ impl RuntimeDatabase {
             actor_security,
             actor.sysop_security,
         )?;
+        let current_policy = conference_policy_snapshot(&transaction, message.conference_id)?;
+        ensure_read_authority(
+            &transaction,
+            &current_policy,
+            actor_security,
+            actor.sysop_security,
+        )?;
+        if current_policy.public_only && message.visibility == MessageVisibility::Private {
+            return Err(MessageError::PrivateMessagesNotAllowed(
+                current_policy.number,
+            ));
+        }
+        let maximum_lines: u16 = transaction
+            .query_row(
+                "SELECT maximum_lines FROM message_conferences WHERE conference_id=?1",
+                [message.conference_id.get()],
+                |r| r.get(0),
+            )
+            .map_err(MessageError::Sqlite)?;
+        validate_message_contents(&message.subject, &message.body, maximum_lines)?;
+        if let Some(parent) = message.parent_message_id {
+            let parent_message = transaction
+                .query_row(MESSAGE_SELECT_BY_ID, [parent.get()], message_from_row)
+                .optional()
+                .map_err(MessageError::Sqlite)?
+                .ok_or(MessageError::ParentMessageNotFound(parent.get()))?;
+            check_offline_message(
+                &transaction,
+                actor,
+                parent_message.conference_id,
+                parent_message.number,
+                parent_message.id,
+                parent_message.state_version,
+            )?;
+            if parent_message.conference_id != message.conference_id {
+                return Err(MessageError::ParentMessageNotFound(parent.get()));
+            }
+        }
         for recipient in &recipients {
             validate_recipient_connection(
                 &transaction,
@@ -1558,7 +1648,7 @@ impl RuntimeDatabase {
                         conference.id.get(),
                         sqlite_i64(number)?,
                         caller.id.get(),
-                        caller.display_name,
+                        actor_name,
                         message.created_at,
                         message.parent_message_id.map(MessageId::get),
                         audience,
@@ -1633,6 +1723,11 @@ impl RuntimeDatabase {
         };
         insert_operational_event_tx(&transaction, &event)?;
         validate_fanout(&transaction, fanout_id)?;
+        if let Some(receipt) = receipt {
+            receipt
+                .insert(&transaction, Some(first_id), "imported", "posted")
+                .map_err(MessageError::Sqlite)?;
+        }
         transaction.commit().map_err(MessageError::Sqlite)?;
 
         ids.into_iter()
@@ -2503,6 +2598,8 @@ fn to_sql_conversion_error(
 
 #[derive(Debug, Error)]
 pub enum MessageError {
+    #[error("offline reply already has a durable receipt")]
+    ImportAlreadyRecorded,
     #[error("conference identifier must be positive, got {0}")]
     InvalidConferenceId(i64),
     #[error("message identifier must be positive, got {0}")]
@@ -2597,6 +2694,53 @@ pub enum MessageError {
     Database(#[from] crate::DatabaseError),
     #[error("SQLite message operation failed: {0}")]
     Sqlite(#[source] rusqlite::Error),
+}
+
+pub(crate) fn check_offline_conference(
+    connection: &rusqlite::Connection,
+    actor: MessageActor,
+    id: ConferenceId,
+) -> Result<Conference, MessageError> {
+    let (_, security) = active_actor_snapshot(connection, actor.caller_id)?;
+    let policy = conference_policy_snapshot(connection, id)?;
+    ensure_read_authority(connection, &policy, security, actor.sysop_security)?;
+    let mut c=connection.query_row("SELECT conference_id,conference_number,name,description,access_mode,read_security,post_security,public_only,caller_deletion_enabled,maximum_lines,active FROM message_conferences WHERE conference_id=?1",[id.get()],conference_from_row).map_err(MessageError::Sqlite)?;
+    let mut s=connection.prepare("SELECT security_level FROM conference_privileged_security WHERE conference_id=?1 ORDER BY security_level").map_err(MessageError::Sqlite)?;
+    let levels = s
+        .query_map([id.get()], |r| r.get::<_, u16>(0))
+        .map_err(MessageError::Sqlite)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(MessageError::Sqlite)?;
+    c.privileged_security_levels = levels
+        .into_iter()
+        .map(SecurityLevel::new)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(c)
+}
+pub(crate) fn check_offline_message(
+    connection: &rusqlite::Connection,
+    actor: MessageActor,
+    conference: ConferenceId,
+    number: u64,
+    id: MessageId,
+    version: u64,
+) -> Result<(), MessageError> {
+    let (_, security) = active_actor_snapshot(connection, actor.caller_id)?;
+    let policy = conference_policy_snapshot(connection, conference)?;
+    ensure_read_authority(connection, &policy, security, actor.sysop_security)?;
+    let m = load_message_by_number_connection(connection, conference, number)?
+        .ok_or(MessageError::MessageAccessDenied)?;
+    if m.id != id
+        || m.state_version != version
+        || m.lifecycle != MessageLifecycle::Active
+        || (m.visibility == MessageVisibility::Private
+            && !security.is_sysop(actor.sysop_security)
+            && m.author_caller_id != Some(actor.caller_id)
+            && m.recipient_caller_id != Some(actor.caller_id))
+    {
+        return Err(MessageError::MessageAccessDenied);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

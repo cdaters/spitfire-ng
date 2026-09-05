@@ -33,7 +33,7 @@ HEADER_BODY = [
 
 ROOT = File.expand_path("..", __dir__)
 SCOPES = {
-  rust: "crates/*/src/**/*.rs",
+  rust: "crates/*/{src,tests}/**/*.rs",
   shell: "tools/*.sh",
   powershell: "tools/*.ps1",
   ruby: "tools/*.rb"
@@ -49,6 +49,7 @@ EXCLUDED_NON_SOURCE_PATHS = {
   "Cargo.toml" => "workspace manifest with explicit license metadata",
   "crates/sf-bbs/Cargo.toml" => "crate manifest inheriting workspace license",
   "crates/sf-core/Cargo.toml" => "crate manifest inheriting workspace license",
+  "crates/sf-net/Cargo.toml" => "crate manifest inheriting workspace license",
   "crates/sf-legacy/Cargo.toml" => "crate manifest inheriting workspace license"
 }.freeze
 

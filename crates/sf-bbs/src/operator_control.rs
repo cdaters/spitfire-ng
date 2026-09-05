@@ -2703,7 +2703,7 @@ mod windows_tests {
             let mut second = OperatorClient::connect(&config).await.unwrap();
             assert_eq!(first.features(), OperatorFeature::ALL);
             let board = first.board_status().await.unwrap();
-            assert_eq!(board.schema_version, 19);
+            assert_eq!(board.schema_version, sf_core::SCHEMA_VERSION);
             let nodes = first.nodes().await.unwrap();
             assert!(!nodes.is_empty());
             assert!(first.node_status(nodes[0].node_id).await.unwrap().is_some());
@@ -4077,7 +4077,10 @@ mod tests {
                 .authorized_capabilities
                 .contains(&LocalOperatorCapability::AdjustSessionTime));
             assert!(client.supports_mutation(OperatorFeature::SessionTimeAdjustment));
-            assert_eq!(client.board_status().await.unwrap().schema_version, 19);
+            assert_eq!(
+                client.board_status().await.unwrap().schema_version,
+                sf_core::SCHEMA_VERSION
+            );
         });
         shutdown.store(true, Ordering::SeqCst);
         handle.join().unwrap();
@@ -4130,7 +4133,7 @@ mod tests {
             let mut client = OperatorClient::connect(&config).await.unwrap();
             assert_eq!(client.describe_operator_controls().await.unwrap().authorized_capabilities, LocalOperatorCapability::READ_ONLY);
             assert!(client.supports_mutation(OperatorFeature::SessionTimeAdjustment));
-            assert_eq!(client.board_status().await.unwrap().schema_version, 19);
+            assert_eq!(client.board_status().await.unwrap().schema_version, sf_core::SCHEMA_VERSION);
             assert!(!client.nodes().await.unwrap().is_empty());
             assert!(client.node_status(1).await.unwrap().is_some());
             let _ = client.recent_events(10).await.unwrap();
@@ -4215,7 +4218,10 @@ mod tests {
             let mut first = OperatorClient::connect(&config).await.unwrap();
             let mut second = OperatorClient::connect(&config).await.unwrap();
             assert_eq!(first.daemon_generation(), generation);
-            assert_eq!(first.board_status().await.unwrap().schema_version, 19);
+            assert_eq!(
+                first.board_status().await.unwrap().schema_version,
+                sf_core::SCHEMA_VERSION
+            );
             assert!(!first.nodes().await.unwrap().is_empty());
             assert!(second
                 .recent_events(100)

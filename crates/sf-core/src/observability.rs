@@ -1635,7 +1635,10 @@ fn validate_new_event(event: &NewOperationalEvent) -> Result<(), DatabaseError> 
                     EventCategory::Authentication,
                     EventAttributes::Session { .. }
                 )
-                | (EventCategory::Message, EventAttributes::Message { .. })
+                | (
+                    EventCategory::Message,
+                    EventAttributes::Message { .. } | EventAttributes::None
+                )
                 | (EventCategory::File, EventAttributes::File { .. })
                 | (EventCategory::Transfer, EventAttributes::Transfer { .. })
                 | (EventCategory::Storage, EventAttributes::Storage { .. })

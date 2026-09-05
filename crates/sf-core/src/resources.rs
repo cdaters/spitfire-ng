@@ -354,6 +354,7 @@ fn menu_action_key(section: MenuSection, command: u8, identifier: u8) -> Option<
         (MenuSection::Main, b'R') => "menu-action-main-terminal",
         (MenuSection::Main, b'V') => "menu-action-main-about",
         (MenuSection::Main, b'F') => "menu-action-main-sysop",
+        (MenuSection::Message, b'E') => "menu-action-message-qwk",
         (MenuSection::Message, b'Z') => "menu-action-message-change",
         (MenuSection::Message, b'I') => "menu-action-message-read",
         (MenuSection::Message, b'J') => "menu-action-message-browse",
