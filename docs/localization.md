@@ -38,7 +38,7 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.21.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.22.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
 copy. It contains 1,014 semantic messages in the complete schema-20 caller and
 operator catalog, including
@@ -275,3 +275,12 @@ queue/retry/held/authentication/address/interruption/health labels and the hidde
 credential prompt/update result. sfmonitor's minimal Networks summary localizes
 finite status categories. sfconfig reuses the Test Link label for explicit
 network-test capability enrollment. No future AreaFix/FileEcho/TLS UI is advertised.
+
+## N5 / en-US 1.22.0
+
+N5 advances en-US to **1.22.0 / 1,217 messages** (146 additions) for implemented
+Networks sections/actions, named configuration fields/reviews, conference
+selection, safe link diagnostics, directory lookup, credential status and recovery.
+Machine identities and protocol state tokens remain stable. No speculative
+NodelistDB/AreaFix/FileEcho/CircuitNET UI strings were added. Terminal guards and
+locale fallback remain unchanged. See [Networks operations](manual/network-operations.md).

@@ -45,11 +45,12 @@ pub enum View {
     Statistics,
     Notifications,
     Maintenance,
+    Networks,
     SystemConfiguration,
 }
 
 impl View {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Dashboard,
         Self::Nodes,
         Self::Callers,
@@ -57,6 +58,7 @@ impl View {
         Self::Statistics,
         Self::Notifications,
         Self::Maintenance,
+        Self::Networks,
         Self::SystemConfiguration,
     ];
 
@@ -69,6 +71,7 @@ impl View {
             Self::Statistics => "sfmonitor-view-statistics",
             Self::Notifications => "sfmonitor-view-notifications",
             Self::Maintenance => "sfmonitor-view-maintenance",
+            Self::Networks => "networks-title",
             Self::SystemConfiguration => "sfmonitor-view-system-configuration",
         }
     }
@@ -82,6 +85,7 @@ impl View {
             Self::Statistics => "sfmonitor-help-statistics",
             Self::Notifications => "sfmonitor-help-notifications",
             Self::Maintenance => "sfmonitor-help-maintenance",
+            Self::Networks => "networks-help",
             Self::SystemConfiguration => "sfmonitor-help-configuration",
         }
     }
@@ -209,6 +213,7 @@ impl EventFilter {
 
 #[derive(Clone, Debug, Default)]
 pub struct MonitorSnapshot {
+    pub networks: Option<sf_bbs::networks::Snapshot>,
     pub ftn: Option<sf_core::ftn::Status>,
     pub binkp: Option<sf_bbs::binkp::Status>,
     pub shutdown: Option<sf_bbs::ShutdownImpact>,
@@ -238,6 +243,7 @@ pub enum ConnectionState {
 
 #[derive(Clone, Debug, Default)]
 pub struct MonitorModel {
+    pub networks: crate::networks::Model,
     pub live: crate::live_ui::LiveUi,
     pub view: View,
     pub connection: ConnectionState,
@@ -358,6 +364,8 @@ impl MonitorModel {
     }
 
     pub fn mark_disconnected(&mut self, reason_key: &'static str) {
+        self.networks.pending = None;
+        self.networks.input = None;
         self.live.shutdown_confirmation = None;
         self.live.chat = None;
         self.live.confirmation = None;

@@ -1,13 +1,34 @@
 # CircuitNet Preservation and Modernization Specification
 
+## Current status and approved research direction — N5
+
+CircuitNET preservation/revival is planned. **No CircuitNET adapter or packet
+codec is implemented, and compatibility is not yet claimed.** The speculative
+feature inventory below remains a research agenda, not current functionality.
+
+Future work is authorized to study and reverse-engineer surviving CircuitNET
+binaries and file formats for preservation and interoperability; recover record
+and file layouts where evidence permits; document behavior independently; and
+implement a modern independent SPITFIRE NG adapter. Historical semantics must be
+reconstructed from surviving documentation, binaries and file evidence, with
+confirmed, inferred and unresolved findings kept distinct. Legacy `.CNP`/`.CND`
+compatibility depends on successful format archaeology and round-trip evidence.
+
+The modern adapter will reuse native message, identity, mapping, queue, receipt
+and networking authority. It will not recreate DOS PRIMER/IMPORT/EXTRACT plumbing
+as runtime dependencies. Reference means learn from, not copy: do not copy original
+implementation code or ship proprietary binaries/documentation. Historical inputs
+remain private research material. N5 records this direction only; no CircuitNET
+implementation, new archaeology or proprietary redistribution occurs in N5.
+
 ## 1. Purpose
 
-This document defines the goals for preserving and potentially resurrecting the CircuitNet message network originally used by SPITFIRE Bulletin Board Systems.
+This document defines the goals for preserving and planning the revival of the CircuitNet message network originally used by SPITFIRE Bulletin Board Systems.
 
 CircuitNet should be treated as both:
 
 1. a historical SPITFIRE networking system worthy of preservation
-2. a candidate for modern functional revival
+2. a planned modern preservation/revival adapter
 
 Modernization should preserve the recognizable CircuitNet model while replacing obsolete or unsafe assumptions where appropriate.
 

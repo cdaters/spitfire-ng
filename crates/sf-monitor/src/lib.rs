@@ -13,6 +13,7 @@
 
 mod live_ui;
 mod model;
+mod networks;
 mod ui;
 mod worker;
 
@@ -243,6 +244,23 @@ fn apply_worker_updates(model: &mut MonitorModel, worker: &MonitorWorker) -> boo
     for update in worker.drain_updates() {
         changed = true;
         match update {
+            WorkerUpdate::NetworkResult(result) => {
+                model.networks.result(&result);
+                request_refresh(model, worker);
+            }
+            WorkerUpdate::NetworkLookup(result) => {
+                model.networks.status = text(
+                    if result.is_some() {
+                        "networks-lookup-found"
+                    } else {
+                        "networks-lookup-missing"
+                    },
+                    &LocalizationArgs::new(),
+                );
+                model.networks.detail = result.is_some();
+                model.networks.lookup = result;
+            }
+
             WorkerUpdate::ChatSendResult(accepted) => live_ui::apply_send_result(model, accepted),
             WorkerUpdate::Chat(frame) => {
                 if live_ui::apply_chat(model, frame) {
@@ -387,6 +405,10 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
     if live_ui::handle_key(model, worker, key) {
         return InputOutcome::Continue;
     }
+    if model.view == View::Networks && model.networks.input.is_some() {
+        networks::key(model, worker, key);
+        return InputOutcome::Continue;
+    }
     if matches!(key.code, KeyCode::Char('q') | KeyCode::Char('Q')) {
         return InputOutcome::Quit;
     }
@@ -478,6 +500,9 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
             KeyCode::Char('x') | KeyCode::Char('X') => model.filter.clear(),
             _ => {}
         }
+        return InputOutcome::Continue;
+    }
+    if model.view == View::Networks && networks::key(model, worker, key) {
         return InputOutcome::Continue;
     }
     match key.code {
@@ -596,6 +621,24 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
 
+    #[test]
+    fn network_lookup_accepts_q_in_domain_without_quitting_monitor() {
+        let (worker, _) = MonitorWorker::test_channels();
+        let mut model = MonitorModel {
+            view: View::Networks,
+            ..Default::default()
+        };
+        model.networks.input = Some("10:100/1@".into());
+        assert_eq!(
+            handle_key(
+                &mut model,
+                &worker,
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)
+            ),
+            InputOutcome::Continue
+        );
+        assert_eq!(model.networks.input.as_deref(), Some("10:100/1@q"));
+    }
     #[test]
     fn command_line_requires_an_explicit_board() {
         assert!(parse_arguments(&[]).is_err());

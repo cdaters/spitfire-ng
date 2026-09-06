@@ -140,3 +140,12 @@ The [FTN Sysop chapter](ftn-core.md) documents the implemented typed sfconfig
 policy import, protected packet/directory operations and read-only status counts.
 Cold restore holds uncertain FTN work and origin serial allocation; no manual SQL
 release is prescribed. Full Networks UI and BinkP remain later work.
+
+## N5 operator and recovery extension
+
+[Operating networking](network-operations.md) now provides the Networks cockpit, typed
+configuration, safe queue actions, directory/quarantine visibility and verified
+restore recovery. Same-root replacement retains proven later FTN serial floors
+and matching peer acknowledgements. New-root recovery uses a stopped surviving
+source, retires its origination, and keeps uncertain work held. No live public
+FidoNet participation or N6/N7 functionality is claimed.

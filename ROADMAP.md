@@ -1,8 +1,29 @@
 # SPITFIRE NG Roadmap
 
-## N3 native FTN core — COMPLETE / ACCEPTED
+## N5 operator cockpit and recovery — COMPLETE / ACCEPTED
 
-Current source implements the **native FTN/FidoNet core** on schema **23**:
+sfmonitor Networks and named sfconfig forms operate the accepted QWK/DOVE, FTN
+and BinkP engine. Queue actions, directory/point lookup, safe diagnostics and
+verified restore floors/peer acknowledgements preserve native authority. Schema
+24 remains unchanged; en-US 1.22.0 / 1,217 messages. See [M049](docs/research/m049-networking-n5-operator-recovery.md)
+for private/public validation and controlled independent acceptance.
+
+CircuitNET preservation/revival is planned as a future independent adapter.
+Surviving documentation, binaries and file evidence will guide format archaeology;
+`.CNP`/`.CND` compatibility is conditional on proof. Native networking authority
+will replace DOS PRIMER/IMPORT/EXTRACT plumbing. No original implementation code
+or proprietary binaries/documentation will ship. [Research policy](docs/09-circuitnet.md).
+N5 does not implement CircuitNET.
+
+Stop after N5 publication. The next separately scoped action is N6 hub/operator
+semantics under M044 (downstream subscriptions, AreaFix/rescan and point-boss
+administration); N7 file networking remains later. No N6/N7/general scheduler,
+B-022/doors/release work or live public FidoNet traffic is included.
+
+
+## Previous checkpoint: N3 native FTN core — COMPLETE / ACCEPTED
+
+The N3 checkpoint implemented the **native FTN/FidoNet core** on schema **23**:
 NetMail, transit, EchoMail, points, multiple domains/AKAs, scanner/tosser,
 explicit routing, durable shared queues and nodelist/pointlist directory authority.
 Independent Synchronet/SBBSecho packet interoperability passed in both directions,
@@ -10,7 +31,8 @@ including points and a forwarded return loop. SPITFIRE messages remain canonical
 QWK N1/N2 remain accepted. [FTN Sysop procedure](docs/manual/ftn-core.md),
 [Technical Reference](docs/technical/ftn-core.md) and
 [M047 report](docs/research/m047-networking-n3-ftn-core.md) state exact scope.
-**BinkP is NOT implemented; live public FidoNet participation is NOT claimed.**
+At the N3 checkpoint BinkP was not implemented; accepted N4 transport supersedes
+that historical boundary. Live public FidoNet participation is not claimed.
 SMB remains unimplemented. B-021 VERIFIED; B-022 NOT STARTED. en-US 1.20.0 /
 1,051 messages. The 0.1.0 preview binary remains unchanged; no new release or tag.
 Windows live FTN acceptance remains deferred to a real Windows environment.
@@ -35,8 +57,8 @@ networking acceptance remains deferred to a real Windows environment.
 See [M046](docs/research/m046-networking-n2-qwk-dove.md) for evidence and limitations.
 
 
-> Current source checkpoint: **M047 / N3 native FTN core COMPLETE / ACCEPTED**.
-> Schema 23; N1/N2/N3 are accepted. BinkP remains unimplemented.
+> Current source checkpoint: **M049 / N5 operator/recovery COMPLETE / ACCEPTED**.
+> Schema 24; N1–N4 remain accepted. No live public FidoNet participation.
 
 
 SPITFIRE NG is moving from historical research and stock-core implementation

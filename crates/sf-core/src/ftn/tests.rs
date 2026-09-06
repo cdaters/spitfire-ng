@@ -1223,3 +1223,154 @@ fn binkp_directory_service_resolution_preserves_override_and_generation() {
         .resolve_binkp(&f.policy, &policy, "peer", NOW + 400 * 86400)
         .is_err());
 }
+
+#[test]
+fn recovery_transfers_verified_floor_and_acceptance_without_identity_reuse() {
+    let mut f = fixture();
+    let transport = binkp_policy();
+    for _ in 0..5 {
+        queued_binkp(&mut f);
+    }
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &transport,
+            "peer",
+            "before-backup",
+            BinkpMode::Poll,
+            NOW,
+        )
+        .unwrap();
+    let work =
+        f.db.claim_binkp(&f.policy, &transport, &f.store, &session, NOW)
+            .unwrap();
+    f.db.finish_binkp(&session, None, NOW).unwrap();
+    let snapshot = f.temp.path().join("older.db");
+    f.db.backup_to(&snapshot).unwrap();
+    // Later real acceptance and additional origination are absent from snapshot.
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &transport,
+            "peer",
+            "after-backup",
+            BinkpMode::Poll,
+            NOW + 1000,
+        )
+        .unwrap();
+    let later =
+        f.db.claim_binkp(&f.policy, &transport, &f.store, &session, NOW + 1000)
+            .unwrap();
+    for item in &later {
+        f.db.offered_binkp(&session, &item.queue).unwrap();
+        f.db.accepted_binkp(&session, &item.queue, NOW + 1000)
+            .unwrap();
+    }
+    f.db.finish_binkp(&session, None, NOW + 1000).unwrap();
+    for _ in 0..8 {
+        queued_binkp(&mut f);
+    }
+    let evidence = f.db.ftn_recovery_evidence().unwrap();
+    let old_ids: BTreeSet<String> =
+        f.db.connection
+            .prepare("SELECT msgid FROM ftn_messages")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+    f.db.hold_restored_ftn().unwrap();
+    let mut restored = RuntimeDatabase::open(&snapshot).unwrap();
+    restored.recover_binkp(NOW + 2000).unwrap();
+    restored.hold_restored_ftn().unwrap();
+    let result = restored
+        .reconcile_ftn_recovery(&evidence, "test-operator", NOW + 2000)
+        .unwrap();
+    assert_eq!(result.accepted, work.len() as u32);
+    assert!(restored
+        .ftn_queue(None)
+        .unwrap()
+        .iter()
+        .all(|q| q.state == "accepted"));
+    f.db = restored;
+    queued_binkp(&mut f);
+    let new_id: String =
+        f.db.connection
+            .query_row(
+                "SELECT msgid FROM ftn_messages ORDER BY rowid DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(!old_ids.contains(&new_id));
+    assert_eq!(new_id.split_whitespace().last(), Some("0000000e"));
+    // Idempotent evidence replay never rewinds the counter or revives accepted work.
+    let floor = f.db.ftn_origin_states().unwrap();
+    f.db.reconcile_ftn_recovery(&evidence, "test-operator", NOW + 2001)
+        .unwrap();
+    assert_eq!(f.db.ftn_origin_states().unwrap(), floor);
+    assert_eq!(
+        f.db.ftn_queue(None)
+            .unwrap()
+            .iter()
+            .filter(|q| q.state == "accepted")
+            .count(),
+        5
+    );
+}
+
+#[test]
+fn uncertain_recovery_source_cannot_clear_an_origin_hold() {
+    let mut f = fixture();
+    queued_binkp(&mut f);
+    f.db.hold_restored_ftn().unwrap();
+    let evidence = f.db.ftn_recovery_evidence().unwrap();
+    let result =
+        f.db.reconcile_ftn_recovery(&evidence, "test-operator", NOW)
+            .unwrap();
+    assert!(result.held > 0);
+    assert!(f.db.ftn_origin_states().unwrap().iter().all(|s| s.held));
+}
+
+#[test]
+fn network_projection_is_bounded_and_excludes_private_payloads() {
+    let mut f = fixture();
+    queued_binkp(&mut f);
+    for section in NetworkSection::ALL {
+        let page =
+            f.db.network_page(&NetworkQuery { section, offset: 0 })
+                .unwrap();
+        let text = serde_json::to_string(&page).unwrap();
+        assert!(!text.contains("Private transport payload"));
+        assert!(!text.contains("Transport boundary"));
+        assert!(text.len() < 524288);
+        if section == NetworkSection::Queues {
+            assert_eq!(page.queues.len(), 1);
+            let q = &page.queues[0];
+            assert_eq!(q.final_destination.as_ref().unwrap().address.point(), 9);
+            assert_eq!(q.next_hop.as_ref().unwrap().address.point(), 0);
+            assert_eq!(q.kind, "netmail");
+        }
+    }
+    assert!(f
+        .db
+        .network_page(&NetworkQuery {
+            section: NetworkSection::Queues,
+            offset: 2_000_001
+        })
+        .is_err());
+}
+
+#[test]
+fn configuration_references_reject_orphans_and_allow_disabling() {
+    let f = fixture();
+    let mut changed = f.policy.clone();
+    changed.akas.retain(|a| a.id != "node");
+    assert!(f.db.validate_ftn_policy_references(&changed).is_err());
+    let mut changed = f.policy.clone();
+    changed.links[0].remote = "10:100/99@synthetic".parse().unwrap();
+    assert!(f.db.validate_ftn_policy_references(&changed).is_err());
+    let mut changed = f.policy.clone();
+    changed.enabled = false;
+    assert!(f.db.validate_ftn_policy_references(&changed).is_ok());
+}

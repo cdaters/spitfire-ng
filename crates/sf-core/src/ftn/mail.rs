@@ -123,7 +123,11 @@ impl Envelope {
         Ok(())
     }
 }
-fn mapping(conn: &rusqlite::Connection, domain: &Domain, area: &str) -> Result<Mapping, Error> {
+pub(super) fn mapping(
+    conn: &rusqlite::Connection,
+    domain: &Domain,
+    area: &str,
+) -> Result<Mapping, Error> {
     let mut m=conn.query_row("SELECT conference_id,aka,receive,send,origin,version FROM ftn_area_mappings WHERE domain=?1 AND area=?2",params![domain.as_str(),area],|r|Ok(Mapping{domain:domain.clone(),area:area.into(),conference_id:r.get(0)?,aka:r.get(1)?,receive:r.get(2)?,send:r.get(3)?,origin:r.get(4)?,version:r.get(5)?,links:vec![]})).optional()?.ok_or(Error::Policy)?;
     m.links = conn
         .prepare("SELECT link_id FROM ftn_area_links WHERE domain=?1 AND area=?2 ORDER BY link_id")?

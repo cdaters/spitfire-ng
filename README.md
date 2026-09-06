@@ -7,6 +7,12 @@
 
 # SPITFIRE NG
 
+The [N5 Networks cockpit and recovery](docs/manual/network-operations.md) operate
+accepted QWK/DOVE-compatible networking, native FTN and BinkP through sfmonitor
+and named sfconfig forms. Verified restore protects origin identity and accepted
+queue receipts. CircuitNET preservation/revival is planned as a future independent
+adapter. No live public FidoNet participation is claimed.
+
 Native BinkP client/listener and controlled independent NetMail/EchoMail exchange
 are implemented on schema 24, including point/AKA identity and safe queue recovery.
 QWK N1/N2 and FTN N3 remain accepted. en-US is 1.21.0 / 1,071 messages; B-021

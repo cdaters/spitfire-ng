@@ -703,3 +703,308 @@ fn independent_peer_outbound_and_retained_listener() {
     drop(daemon);
     let _ = temp.keep();
 }
+
+#[test]
+#[cfg(unix)]
+fn network_cockpit_cas_and_verified_restore_collision_journey() {
+    let temp = tempfile::tempdir().unwrap();
+    let one = port();
+    let two = port();
+    let a = board(&temp.path().join("a"), 1, one, two);
+    let b = board(&temp.path().join("b"), 2, two, one);
+    author(&a, "10:100/2.9@synthetic");
+    let da = start(&a.config);
+    let db = start(&b.config);
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut ca = rt.block_on(connect(&a.config));
+    let mut cb = rt.block_on(connect(&b.config));
+    let secret = format!("{:032x}", rand::random::<u128>());
+    rt.block_on(credential(&mut ca, &secret));
+    rt.block_on(credential(&mut cb, &secret));
+    // A real second configuration client cannot overwrite the first client's save.
+    let mut second = rt.block_on(connect(&a.config));
+    let snapshot = rt.block_on(ca.configuration_snapshot()).unwrap();
+    let mut changed = snapshot.config.binkp.clone();
+    changed.links[0].endpoint = Some("localhost".into());
+    let candidate = configuration::ConfigurationCandidate {
+        expected: snapshot.version,
+        edits: vec![],
+        operators: None,
+        ftn: None,
+        binkp: Some(changed),
+    };
+    assert!(matches!(
+        rt.block_on(ca.apply_configuration(
+            format!("{:032x}", rand::random::<u128>()),
+            candidate.clone()
+        ))
+        .unwrap(),
+        sf_bbs::ConfigurationResult::Saved { .. }
+    ));
+    assert!(matches!(
+        rt.block_on(
+            second.apply_configuration(format!("{:032x}", rand::random::<u128>()), candidate)
+        )
+        .unwrap(),
+        sf_bbs::ConfigurationResult::Conflict { .. }
+    ));
+    // Add a QWK/DOVE-compatible partner through the same typed form authority.
+    let qwk = sf_core::qwk_network::Link {
+        id: "qwk-peer".into(),
+        network: "isolated".into(),
+        local_id: "LOCAL".into(),
+        remote_id: "REMOTE".into(),
+        name: "Isolated QWK".into(),
+        profile: sf_core::qwk_network::Profile::DoveHeaders,
+        role: sf_core::qwk_network::PartnerRole::Hub,
+        enabled: true,
+        inbound: true,
+        outbound: true,
+        version: 1,
+    };
+    let mapping = sf_core::qwk_network::Mapping {
+        wire_conference: 2001,
+        area: "general".into(),
+        conference_id: a.conference.get(),
+        enabled: true,
+        inbound: true,
+        outbound: true,
+        version: 1,
+    };
+    assert!(matches!(
+        rt.block_on(ca.qwk_network_action(
+            format!("{:032x}", rand::random::<u128>()),
+            NetworkAction::Configure {
+                link: qwk,
+                mappings: vec![mapping],
+                expected: 0
+            }
+        ))
+        .unwrap(),
+        NetworkResult::Configured
+    ));
+    for section in NetworkSection::ALL {
+        let s = rt
+            .block_on(ca.networks(NetworkQuery { section, offset: 0 }))
+            .unwrap();
+        assert_eq!(s.qwk.len(), 1);
+        let safe = serde_json::to_string(&s).unwrap();
+        assert!(!safe.contains(&secret));
+        assert!(!safe.contains("Private BinkP sentinel"));
+        if section == NetworkSection::Queues {
+            assert_eq!(s.page.queues.len(), 2);
+        }
+        if section == NetworkSection::Directory {
+            assert!(s.page.directory.iter().any(|g| g.active));
+        }
+    }
+    let before = rt.block_on(ca.ftn_queue(None)).unwrap();
+    rt.block_on(poll(&mut ca, true));
+    assert_eq!(rt.block_on(ca.ftn_queue(None)).unwrap(), before);
+    let q = &before[0];
+    rt.block_on(action(
+        &mut ca,
+        binkp::Action::Hold {
+            queue: q.id.clone(),
+            expected: q.version,
+        },
+    ));
+    let held = rt
+        .block_on(ca.ftn_queue(None))
+        .unwrap()
+        .into_iter()
+        .find(|v| v.id == q.id)
+        .unwrap();
+    assert_eq!(held.state, "held");
+    rt.block_on(action(
+        &mut ca,
+        binkp::Action::Release {
+            queue: held.id,
+            expected: held.version,
+        },
+    ));
+    rt.block_on(poll(&mut ca, false));
+    drop(second);
+    drop(ca);
+    graceful(da);
+    // Freeze work before the backup; actual acceptance and more serials follow it.
+    author(&a, "10:100/2.9@synthetic");
+    let mut native = RuntimeDatabase::open(a.paths.database()).unwrap();
+    let store = sf_bbs::DiskArtifactStore::new(a.paths.get(LogicalPath::System)).unwrap();
+    for q in native
+        .ftn_queue(None)
+        .unwrap()
+        .into_iter()
+        .filter(|q| q.state != "accepted")
+    {
+        native
+            .build_ftn(
+                &store,
+                &a.policy,
+                &q.id,
+                q.version,
+                chrono::Utc::now().timestamp(),
+            )
+            .unwrap();
+    }
+    drop(native);
+    let backup = temp.path().join("backup");
+    sf_bbs::backup_board(&a.config, &backup).unwrap();
+    let da = start(&a.config);
+    let mut ca = rt.block_on(connect(&a.config));
+    rt.block_on(poll(&mut ca, false));
+    author(&a, "10:100/2.9@synthetic");
+    rt.block_on(poll(&mut ca, false));
+    let source_floor = RuntimeDatabase::open(a.paths.database())
+        .unwrap()
+        .ftn_origin_states()
+        .unwrap();
+    drop(ca);
+    graceful(da);
+    sf_bbs::restore_board(&backup, a.config.parent().unwrap(), true).unwrap();
+    let restored = RuntimeDatabase::open(a.paths.database()).unwrap();
+    assert_eq!(restored.ftn_origin_states().unwrap(), source_floor);
+    assert!(restored
+        .ftn_queue(None)
+        .unwrap()
+        .iter()
+        .all(|q| q.state == "accepted"));
+    drop(restored);
+    author(&a, "10:100/2.9@synthetic");
+    let da = start(&a.config);
+    let mut ca = rt.block_on(connect(&a.config));
+    assert!(
+        !rt.block_on(ca.binkp_status()).unwrap().links[0]
+            .health
+            .as_ref()
+            .unwrap()
+            .active
+    );
+    rt.block_on(poll(&mut ca, false));
+    drop(ca);
+    graceful(da);
+    let count = || {
+        rusqlite::Connection::open(b.paths.database())
+            .unwrap()
+            .query_row(
+                "SELECT COUNT(*) FROM ftn_messages WHERE ingress_link='peer'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(
+        count(),
+        8,
+        "fresh mail after rollback must not collide or replay accepted work"
+    );
+    // New-root restore has no implicit source. Explicit offline transfer retires it.
+    let newroot = temp.path().join("restored");
+    let report = sf_bbs::restore_board(&backup, &newroot, false).unwrap();
+    let cold = sf_bbs::OfflineConfiguration::open(&report.config_path).unwrap();
+    assert!(cold
+        .network_page(&NetworkQuery {
+            section: NetworkSection::Recovery,
+            offset: 0
+        })
+        .unwrap()
+        .origins
+        .iter()
+        .all(|o| o.held));
+    let result = cold.recover_networks_from(&a.config).unwrap();
+    assert!(result.origins >= 2);
+    drop(cold);
+    let retired = RuntimeConfig::load(&a.config).unwrap();
+    assert!(!retired.ftn.enabled);
+    assert!(!retired.binkp.listener.unwrap().enabled);
+    let config = RuntimeConfig::load(&report.config_path).unwrap();
+    let paths = LogicalPaths::resolve(&newroot, &config.validate().unwrap()).unwrap();
+    let recovered = Board {
+        config: report.config_path,
+        paths,
+        policy: a.policy.clone(),
+        actor: a.actor,
+        other: a.other,
+        conference: a.conference,
+    };
+    author(&recovered, "10:100/2.9@synthetic");
+    let da = start(&recovered.config);
+    let mut ca = rt.block_on(connect(&recovered.config));
+    rt.block_on(poll(&mut ca, false));
+    assert_eq!(count(), 10);
+    drop(ca);
+    drop(cb);
+    graceful(da);
+    graceful(db);
+}
+
+#[test]
+#[ignore = "explicit isolated N5 terminal and independent peer acceptance"]
+fn prepare_network_operator_acceptance_board() {
+    let evidence = PathBuf::from(
+        std::env::var_os("SPITFIRE_N5_EVIDENCE").expect("explicit private evidence directory"),
+    );
+    fs::create_dir_all(&evidence).unwrap();
+    let root = tempfile::tempdir().unwrap().keep();
+    let a = board_in_domain(&root.join("board"), 1, 34555, 34554, "n5test");
+    let cold = sf_bbs::OfflineConfiguration::open(&a.config).unwrap();
+    let snapshot = cold.snapshot().unwrap();
+    let mut operators = snapshot.config.operators.clone();
+    for identity in &mut operators.local_identities {
+        let capabilities = match identity {
+            LocalOperatorIdentity::Unix { capabilities, .. }
+            | LocalOperatorIdentity::Windows { capabilities, .. } => capabilities,
+        };
+        for cap in LocalOperatorCapability::READ_ONLY {
+            if !capabilities.contains(&cap) {
+                capabilities.push(cap)
+            }
+        }
+        if !capabilities.contains(&LocalOperatorCapability::NetworkDirectoryActivate) {
+            capabilities.push(LocalOperatorCapability::NetworkDirectoryActivate)
+        }
+    }
+    assert!(matches!(
+        cold.apply(
+            &format!("{:032x}", rand::random::<u128>()),
+            &configuration::ConfigurationCandidate {
+                expected: snapshot.version,
+                edits: vec![],
+                operators: Some(operators),
+                ftn: None,
+                binkp: None
+            }
+        )
+        .unwrap(),
+        sf_bbs::ConfigurationResult::Saved { .. }
+    ));
+    drop(cold);
+    author(&a, "10:100/2.9@n5test");
+    let mut db = RuntimeDatabase::open(a.paths.database()).unwrap();
+    let store = sf_bbs::DiskArtifactStore::new(a.paths.get(LogicalPath::System)).unwrap();
+    assert!(
+        db.toss_ftn(
+            &store,
+            &a.policy,
+            "peer",
+            b"malformed synthetic packet",
+            chrono::Utc::now().timestamp()
+        )
+        .is_err()
+            || db.ftn_status().unwrap().quarantine > 0
+    );
+    fs::write(
+        evidence.join("config-path"),
+        a.config.to_string_lossy().as_bytes(),
+    )
+    .unwrap();
+    fs::write(
+        evidence.join("database-path"),
+        a.paths.database().to_string_lossy().as_bytes(),
+    )
+    .unwrap();
+    println!("Prepared isolated N5 operator acceptance board; no network contact.");
+}

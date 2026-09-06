@@ -13,6 +13,10 @@
 mod binkp;
 pub(crate) use binkp::BINKP_MIGRATION;
 pub use binkp::*;
+mod operations;
+pub use operations::*;
+mod recovery;
+pub use recovery::*;
 mod directory;
 mod mail;
 mod policy;

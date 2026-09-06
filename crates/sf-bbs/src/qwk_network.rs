@@ -20,6 +20,10 @@ pub const NETWORK_MINOR: u16 = 6;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
+    Hold {
+        queue: String,
+        expected: i64,
+    },
     Binkp {
         request: crate::binkp::Action,
     },
@@ -56,7 +60,9 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
-        if matches!(self, Self::Binkp { .. }) {
+        if matches!(self, Self::Hold { .. }) {
+            crate::OperatorFeature::Networks
+        } else if matches!(self, Self::Binkp { .. }) {
             crate::OperatorFeature::BinkpNetwork
         } else if matches!(self, Self::Ftn { .. }) {
             crate::OperatorFeature::FtnNetwork
@@ -71,7 +77,9 @@ impl NetworkAction {
             Self::Configure { .. } | Self::ConfigureMail { .. } => {
                 Capability::ChangeSensitiveConfiguration
             }
-            Self::Retry { .. } | Self::Handoff { .. } => Capability::NetworkQueue,
+            Self::Hold { .. } | Self::Retry { .. } | Self::Handoff { .. } => {
+                Capability::NetworkQueue
+            }
             _ => Capability::NetworkRun,
         }
     }
@@ -126,6 +134,7 @@ pub(crate) fn dispatch(
         NetworkAction::Ingest { .. } => "network.ingest",
         NetworkAction::Handoff { .. } => "network.handoff",
         NetworkAction::Retry { .. } => "network.retry",
+        NetworkAction::Hold { .. } => "network.hold",
     };
     let allowed = capabilities.contains(&action.capability());
     let audit = sf_core::NewOperatorControlAudit {
@@ -173,6 +182,10 @@ pub(crate) fn dispatch(
     }
     let result = (|| -> Result<NetworkResult, ApplicationError> {
         Ok(match action {
+            NetworkAction::Hold { queue, expected } => {
+                db.hold_qwk_network(principal, queue, *expected, now)?;
+                NetworkResult::Updated
+            }
             NetworkAction::Binkp { request } => NetworkResult::Binkp {
                 response: crate::binkp::dispatch(runtime, principal, request)?,
             },
@@ -255,6 +268,16 @@ pub(crate) fn dispatch(
             db.reject_operator_command(command_id, "network-rejected", now)?;
             Ok(NetworkResult::Rejected {
                 reason: match error {
+                    ApplicationError::Ftn(e) => match e {
+                        sf_core::ftn::Error::Held => "ftn-held",
+                        sf_core::ftn::Error::Conflict => "ftn-conflict",
+                        sf_core::ftn::Error::Routing => "ftn-routing",
+                        sf_core::ftn::Error::Policy => "ftn-policy",
+                        sf_core::ftn::Error::Denied => "ftn-denied",
+                        sf_core::ftn::Error::Capacity => "ftn-capacity",
+                        _ => "ftn-rejected",
+                    }
+                    .into(),
                     ApplicationError::QwkNetwork(e) => e.to_string(),
                     _ => "network host operation failed".into(),
                 },

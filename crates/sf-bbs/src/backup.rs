@@ -370,6 +370,21 @@ pub fn restore_board(
         validate_existing_restore_target(&target, &backup.manifest)?;
     }
 
+    // The newer exclusively locked board is the evidence the older snapshot lacks.
+    // Capture before publishing/deleting the rollback root; never guess a floor.
+    let recovery = if replace {
+        let config = RuntimeConfig::load(&target.join(&backup.manifest.config_name))?;
+        let paths = LogicalPaths::resolve(&target, &config.validate()?)?;
+        let db = RuntimeDatabase::open_read_only(paths.database())?;
+        if db.schema_version()? >= 24 && backup.manifest.schema_version >= 24 {
+            Some(db.ftn_recovery_evidence()?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let parent = target.parent().expect("validated restore target parent");
     let temporary = tempfile::Builder::new()
         .prefix(".spitfire-restore-")
@@ -377,6 +392,15 @@ pub fn restore_board(
         .map_err(|source| io_error("create restore staging directory", parent, source))?;
     stage_restored_board(&backup, temporary.path())?;
     validate_staged_board(temporary.path(), &backup)?;
+    if let Some(evidence) = recovery {
+        let config = RuntimeConfig::load(&temporary.path().join(&backup.manifest.config_name))?;
+        let paths = LogicalPaths::resolve(temporary.path(), &config.validate()?)?;
+        RuntimeDatabase::open(paths.database())?.reconcile_ftn_recovery(
+            &evidence,
+            "offline-restore",
+            chrono::Utc::now().timestamp(),
+        )?;
+    }
 
     let staged_path = temporary.keep();
     if !replace {

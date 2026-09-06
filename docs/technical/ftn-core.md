@@ -280,3 +280,11 @@ daemon test runs without external artifacts, and the separately recorded peer
 run proves bidirectional independent interoperability. See
 [M047](../research/m047-networking-n3-ftn-core.md) for pinned standards, peer
 version/license, exact acceptance outcomes and remaining N4 boundary.
+
+## N5 authority extension
+
+[Network operations and recovery](network-operations.md) specifies protected protocol 1.9
+projections, named configuration forms and CAS, queue actions, retained-reference
+checks and verified origin/acceptance reconciliation. Schema remains 24. Older
+restore descriptions above describe the safe held default; N5 adds verified
+recovery without inventing post-snapshot history. Wire/message authority is unchanged.

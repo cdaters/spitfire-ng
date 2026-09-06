@@ -1,6 +1,7 @@
 # SPITFIRE Message Network Architecture
 
-Status: **N1/N2/N3/N4 accepted**. The
+Status: **N1–N5 accepted**. The [Networks operator/recovery contract](technical/network-operations.md)
+adds current operability and verified restore reconciliation. The
 [FTN reference](technical/ftn-core.md) documents implemented packet/mail/directory
 semantics. [Native BinkP](technical/binkp.md) client/listener and controlled
 independent interoperability are accepted; live public FidoNet participation is
@@ -119,3 +120,18 @@ automatically. Explicit AKA/remote identity, CRAM default, M_GOT acceptance,
 bounded batches and restart/restore uncertainty holds preserve native authority.
 Minimal Poll/Test/Hold/Release and configuration/status surfaces are implemented;
 N5's full cockpit and scheduled polling remain later.
+
+## N5 — operator and recovery authority
+
+N5 operates accepted N1–N4 through a bounded sfmonitor Networks cockpit and named
+sfconfig policy/mapping forms. [The operations contract](technical/network-operations.md)
+owns projection limits, capability/CAS checks, reference validation and verified
+restore serial/queue reconciliation. Static policy, relational mappings and native
+messages keep their existing owners. No transport becomes routing authority.
+
+CircuitNET is now a **planned preservation/revival adapter**. Future format and
+behavior archaeology may recover `.CNP`/`.CND` compatibility from surviving evidence;
+it will be implemented independently over native networking authority, without
+recreating DOS PRIMER/IMPORT/EXTRACT plumbing. See [the approved research policy](09-circuitnet.md).
+N5 includes this roadmap decision only. N6 hub/AreaFix, N7 FileEcho/TIC/FREQ and
+general scheduling remain separate future work.

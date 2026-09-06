@@ -697,3 +697,14 @@ Credential files are private and write-only; receipts omit credential values
 before hashing. Only finite errors, admitted addresses and recognized safe options
 reach status/events/audit. Unknown peer text and NetMail bodies never do. The
 Technical Reference contains the explicit threat/limit matrix.
+
+## N5 networking operator privacy
+
+[Networks operations](technical/network-operations.md) expose bounded metadata,
+never private message subjects/bodies, packet dumps, secret values or private
+artifact paths. Known capabilities authorize Test/Poll/queue/directory actions;
+read-only bootstrap stays read-only. Write-only credential mutation is separate
+from ordinary forms/reviews and audit. Terminal controls in directory/config
+presentation are filtered. Source retirement and verified monotonic serial floors
+protect restore origination; missing evidence leaves a hold. Optional external
+NodelistDB is not implemented or required.

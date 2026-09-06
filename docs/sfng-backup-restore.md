@@ -350,3 +350,20 @@ unacknowledged claims become safe retry before restore holds. New daemon generat
 and listener startup are tested. Versioned queue release is explicit review under
 unchanged N3 policy; serial allocation remains held pending verified post-snapshot
 reconciliation. See [BinkP recovery](manual/binkp.md#queues-failures-and-recovery).
+
+## N5 verified FTN reconciliation — schema 24 unchanged
+
+Replacement restore now captures verified later origin floors and matching
+accepted frozen-artifact receipts from the exclusively locked target before
+replacement. A staged immediate transaction retains maxima and matching ACK
+truth; failures do not publish a partially reconciled board. New-root offline
+sfconfig recovery locks both roots, retires the surviving source and transfers
+verified evidence. Held/unknown source history cannot authorize a reset.
+
+[The exact recovery contract](technical/network-operations.md) documents 1,024
+origin / 10,000 accepted-evidence bounds, matching/failure semantics and rollback
+limitations. [The Sysop procedure](manual/network-operations.md) requires no SQL
+or manual counter editing. Directory/source priority/provenance remain snapshot
+authority; sessions never restore as active. Real replacement and new-root
+collision journeys prove fresh outbound identities and no re-send of matching
+accepted work. No speculative migration or live transport backup state was added.

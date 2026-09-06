@@ -2,7 +2,7 @@
 
 <!-- help-topic: operator.security -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 24)
 
 Schema 19 and B021-A provide the first protected control-plane slice for a
 running board. Attachment defaults remain read-only; B021-B adds explicit live
@@ -363,3 +363,11 @@ CommandId receipts, policy digest/queue CAS and audit. Credential receipt hashes
 exclude secret material; Debug only names the operation. Sessions run in daemon
 workers and return a started ID asynchronously. The read-only bootstrap gains no
 probing/mutation privilege. See [BinkP](binkp.md) and its [manual](../manual/binkp.md).
+
+## N5 authority extension
+
+[Network operations and recovery](network-operations.md) specifies protected protocol 1.9
+projections, named configuration forms and CAS, queue actions, retained-reference
+checks and verified origin/acceptance reconciliation. Schema remains 24. Older
+restore descriptions above describe the safe held default; N5 adds verified
+recovery without inventing post-snapshot history. Wire/message authority is unchanged.

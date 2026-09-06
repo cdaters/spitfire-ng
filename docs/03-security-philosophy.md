@@ -282,3 +282,14 @@ configured identity, CRAM-required default, private complete-artifact custody,
 decoded filename validation, session/resource/time bounds and unique queue claims.
 Test Link is explicitly authorized separately from polling. No peer metadata grants
 routing, configuration or caller authority.
+
+## N5 networking operator privacy
+
+[Networks operations](technical/network-operations.md) expose bounded metadata,
+never private message subjects/bodies, packet dumps, secret values or private
+artifact paths. Known capabilities authorize Test/Poll/queue/directory actions;
+read-only bootstrap stays read-only. Write-only credential mutation is separate
+from ordinary forms/reviews and audit. Terminal controls in directory/config
+presentation are filtered. Source retirement and verified monotonic serial floors
+protect restore origination; missing evidence leaves a hold. Optional external
+NodelistDB is not implemented or required.

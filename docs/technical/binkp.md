@@ -207,3 +207,11 @@ Session buffers are released after completion/failure. Canonical N3 immutable
 artifacts remain only under the accepted queue/provenance/receipt ownership and
 shared capacity policy; transport does not delete receipt-owned evidence or grow
 an unrelated packet spool. Capacity exhaustion holds custody safely for review.
+
+## N5 authority extension
+
+[Network operations and recovery](network-operations.md) specifies protected protocol 1.9
+projections, named configuration forms and CAS, queue actions, retained-reference
+checks and verified origin/acceptance reconciliation. Schema remains 24. Older
+restore descriptions above describe the safe held default; N5 adds verified
+recovery without inventing post-snapshot history. Wire/message authority is unchanged.

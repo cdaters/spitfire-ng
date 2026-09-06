@@ -1,6 +1,6 @@
 # SPITFIRE NG Technical Reference
 
-Current source: [QWK offline mail](qwk-offline.md) adds caller packet download/reply upload; N2 public/private QWK networking and native transit are implemented with controlled DOVE-compatible interoperability. Native FTN core is implemented; BinkP remains unimplemented.
+Current source implements N1–N4 networking and the N5 [operator/recovery surfaces](network-operations.md). Native messages remain canonical; no live public FidoNet participation is claimed.
 
 
 <!-- help-topic: technical.reference -->
@@ -246,3 +246,8 @@ NetMail/EchoMail, points, multiple domains/AKAs, scanner/tosser, routing, shared
 queues and directory generations. No BinkP or live public participation is claimed.
 
 - [BinkP transport](binkp.md): protocol, schema 24, custody, authentication, limits and restart/restore.
+
+## Networking operations and recovery — N5
+
+See [Networks operations](network-operations.md) for the cockpit, typed configuration,
+queue recovery and verified restore serial-floor reconciliation.

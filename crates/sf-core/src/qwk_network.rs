@@ -1063,6 +1063,25 @@ impl RuntimeDatabase {
         tx.commit()?;
         Ok(())
     }
+    pub fn hold_qwk_network(
+        &mut self,
+        principal: &str,
+        queue: &str,
+        expected: i64,
+        now: i64,
+    ) -> Result<(), Error> {
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed=tx.execute("UPDATE network_outbound_queue SET state='held',reason='operator-held',version=version+1 WHERE queue_id=?1 AND version=?2 AND state IN ('pending','ready','retry') AND queue_id IN (SELECT decision_id FROM network_routing_decisions)",params![queue,expected])?;
+        if changed != 1 {
+            return Err(Error::Conflict);
+        }
+        audit(&tx, principal, "network.hold", queue, now)?;
+        event(&tx, "held", now)?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn retry_qwk_network(
         &mut self,
         principal: &str,
@@ -1289,6 +1308,21 @@ mod tests {
             f.db.build_qwk_network(&f.store, "first", 1, NOW).unwrap(),
             Some(a.clone())
         );
+        let queued = f.db.qwk_network_status().unwrap()[0].queue.clone();
+        for q in &queued {
+            f.db.hold_qwk_network("synthetic-operator", &q.id, q.version, NOW)
+                .unwrap();
+            assert!(f
+                .db
+                .hold_qwk_network("synthetic-operator", &q.id, q.version, NOW)
+                .is_err());
+            assert!(f
+                .db
+                .retry_qwk_network("synthetic-operator", &q.id, q.version, NOW)
+                .is_err());
+            f.db.retry_qwk_network("synthetic-operator", &q.id, q.version + 1, NOW)
+                .unwrap();
+        }
         let bytes = f.store.0.lock().unwrap()[&a].clone();
         let packet = qwk::inspect(&bytes).unwrap();
         let decoded = wire::decode(&packet, Some("FIRST")).unwrap();

@@ -124,3 +124,12 @@ mail. BinkP is not implemented and live public FidoNet is not claimed.
 
 N4 BinkP recovery retains private credentials and accepted custody, clears live
 claims and holds uncertain work. See [the recovery workflow](../manual/binkp.md#queues-failures-and-recovery).
+
+## N5 operator and recovery extension
+
+[Operating networking](../manual/network-operations.md) now provides the Networks cockpit, typed
+configuration, safe queue actions, directory/quarantine visibility and verified
+restore recovery. Same-root replacement retains proven later FTN serial floors
+and matching peer acknowledgements. New-root recovery uses a stopped surviving
+source, retires its origination, and keeps uncertain work held. No live public
+FidoNet participation or N6/N7 functionality is claimed.

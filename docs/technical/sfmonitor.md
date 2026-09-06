@@ -1,6 +1,6 @@
 # sfmonitor Technical Architecture
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 19)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 24)
 
 `sfmonitor` 0.1 is a separate workspace binary and process. The `sf-monitor`
 crate owns only terminal presentation, ephemeral view state, and a bounded
@@ -179,3 +179,11 @@ N2 remains a separate minor-6 feature. Typed sfconfig policy import uses existin
 configuration CAS and sensitive authority; directory activation requires its own
 explicit capability. The monitor adds counts only. See [FTN core](ftn-core.md)
 for exact authority, privacy, command and recovery contracts.
+
+## N5 authority extension
+
+[Network operations and recovery](network-operations.md) specifies protected protocol 1.9
+projections, named configuration forms and CAS, queue actions, retained-reference
+checks and verified origin/acceptance reconciliation. Schema remains 24. Older
+restore descriptions above describe the safe held default; N5 adds verified
+recovery without inventing post-snapshot history. Wire/message authority is unchanged.

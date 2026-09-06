@@ -168,3 +168,12 @@ Windows FTN acceptance is **DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**.
 See the [Technical Reference](../technical/ftn-core.md) and
 [implementation report](../research/m047-networking-n3-ftn-core.md) for evidence,
 limits and reproducible acceptance.
+
+## N5 operator and recovery extension
+
+[Operating networking](network-operations.md) now provides the Networks cockpit, typed
+configuration, safe queue actions, directory/quarantine visibility and verified
+restore recovery. Same-root replacement retains proven later FTN serial floors
+and matching peer acknowledgements. New-root recovery uses a stopped surviving
+source, retires its origination, and keeps uncertain work held. No live public
+FidoNet participation or N6/N7 functionality is claimed.

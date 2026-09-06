@@ -1,6 +1,6 @@
 # Typed configuration authority and sfconfig
 
-> Current source; database schema 19. This document describes B021-C, not a
+> Current source; database schema 24. The base contract describes B021-C, not a
 > release/package or a generic configuration-file editor. B021-D reconciles its
 > operator recovery and lifecycle boundaries.
 
@@ -213,3 +213,11 @@ N2 remains a separate minor-6 feature. Typed sfconfig policy import uses existin
 configuration CAS and sensitive authority; directory activation requires its own
 explicit capability. The monitor adds counts only. See [FTN core](ftn-core.md)
 for exact authority, privacy, command and recovery contracts.
+
+## N5 authority extension
+
+[Network operations and recovery](network-operations.md) specifies protected protocol 1.9
+projections, named configuration forms and CAS, queue actions, retained-reference
+checks and verified origin/acceptance reconciliation. Schema remains 24. Older
+restore descriptions above describe the safe held default; N5 adds verified
+recovery without inventing post-snapshot history. Wire/message authority is unchanged.

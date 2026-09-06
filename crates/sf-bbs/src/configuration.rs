@@ -322,6 +322,28 @@ impl ConfigurationAuthority {
                 return Ok(ConfigurationResult::Invalid { issues });
             }
         };
+        if candidate.ftn.is_some()
+            && database
+                .validate_ftn_policy_references(&replacement.ftn)
+                .is_err()
+        {
+            if !database.reject_operator_command(command_id, "configuration-invalid", now())? {
+                return Err(failure());
+            }
+            self.audit(
+                principal,
+                command_id,
+                "allowed",
+                "rejected",
+                "network-reference-conflict",
+            )?;
+            return Ok(ConfigurationResult::Invalid {
+                issues: vec![ConfigurationIssue {
+                    field: None,
+                    message_key: "netconfig-retained-reference".into(),
+                }],
+            });
+        }
         replacement.revision = stored
             .revision
             .checked_add(1)
@@ -512,6 +534,89 @@ impl OfflineConfiguration {
     pub fn snapshot(&self) -> Result<ConfigurationSnapshot, ApplicationError> {
         self.authority.snapshot(&self.principal, true)
     }
+    pub fn network_page(
+        &self,
+        query: &sf_core::ftn::NetworkQuery,
+    ) -> Result<sf_core::ftn::NetworkPage, ApplicationError> {
+        Ok(RuntimeDatabase::open_read_only(&self.authority.database)?.network_page(query)?)
+    }
+    pub fn qwk_partners(&self) -> Result<Vec<sf_core::qwk_network::LinkStatus>, ApplicationError> {
+        Ok(RuntimeDatabase::open_read_only(&self.authority.database)?.qwk_network_status()?)
+    }
+    /// Only relational configuration commands are accepted by cold-board UI.
+    pub fn configure_network(&self, action: &crate::NetworkAction) -> Result<(), ApplicationError> {
+        let mut db = RuntimeDatabase::open(&self.authority.database)?;
+        match action {
+            crate::NetworkAction::Configure {
+                link,
+                mappings,
+                expected,
+            } => db.configure_qwk_link(&self.principal, link, mappings, *expected, now())?,
+            crate::NetworkAction::ConfigureMail { policy, expected } => {
+                db.configure_qwk_mail(&self.principal, policy, *expected, now())?
+            }
+            crate::NetworkAction::Ftn {
+                request: crate::ftn::Action::Mapping { mapping, expected },
+            } => {
+                db.configure_ftn_mapping(
+                    &self.authority.current()?.ftn,
+                    &self.principal,
+                    mapping,
+                    *expected,
+                    now(),
+                )?;
+            }
+            _ => return Err(failure()),
+        }
+        Ok(())
+    }
+    /// Explicit offline identity transfer. Source is held before target resumes.
+    /// Both operation locks remain owned throughout; failure leaves a safe hold.
+    pub fn recover_networks_from(
+        &self,
+        source: &Path,
+    ) -> Result<sf_core::ftn::RecoveryResult, ApplicationError> {
+        let source = OfflineConfiguration::open(source)?;
+        let mut original = RuntimeDatabase::open(&source.authority.database)?;
+        let mut restored = RuntimeDatabase::open(&self.authority.database)?;
+        if original.validate_current_snapshot()? != restored.validate_current_snapshot()? {
+            return Err(failure());
+        }
+        let evidence = original.ftn_recovery_evidence()?;
+        original.recover_binkp(now())?;
+        original.hold_restored_ftn()?;
+        original.hold_restored_qwk_network()?;
+        let snapshot = source.snapshot()?;
+        let mut ftn = snapshot.config.ftn.clone();
+        ftn.enabled = false;
+        let mut binkp = snapshot.config.binkp.clone();
+        if let Some(listener) = &mut binkp.listener {
+            listener.enabled = false;
+        }
+        for link in &mut binkp.links {
+            link.enabled = false;
+            link.inbound = false;
+            link.outbound = false;
+        }
+        let candidate = ConfigurationCandidate {
+            expected: snapshot.version,
+            edits: vec![],
+            operators: None,
+            ftn: Some(ftn),
+            binkp: Some(binkp),
+        };
+        if !matches!(
+            source.apply(&crate::operator_control::random_token(), &candidate)?,
+            ConfigurationResult::Saved { .. }
+        ) {
+            return Err(failure());
+        }
+        restored.recover_binkp(now())?;
+        restored
+            .reconcile_ftn_recovery(&evidence, &self.principal, now())
+            .map_err(Into::into)
+    }
+
     pub fn apply(
         &self,
         command_id: &str,

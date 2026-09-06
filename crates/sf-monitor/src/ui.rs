@@ -238,6 +238,7 @@ fn render_view(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel, wide: bo
         View::Statistics => render_statistics(frame, area, model),
         View::Notifications => render_notifications(frame, area, model),
         View::Maintenance => render_maintenance(frame, area, model),
+        View::Networks => crate::networks::render(frame, area, model),
         View::SystemConfiguration => render_system_configuration(frame, area),
     }
 }

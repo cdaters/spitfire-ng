@@ -40,11 +40,11 @@ Press **Enter** to edit a field, then Enter to retain the edit locally. **Esc**
 cancels that field edit. Changing sections retains all staged edits.
 
 The sections are General, Nodes / Listeners, Caller Access, Presentation,
-Security, Operators, Messages / Files, and Storage / Backup. Message conferences
+Security, Operators, Messages / Files, Storage / Backup, and Networks. Message conferences
 and file areas show real settings as read-only summaries; their existing
 stopped-board editors remain available through `spitfire config`. Board identity
-renaming and storage relocation are not online field edits. No pages are offered
-for unimplemented networks, doors, or jobs.
+renaming and storage relocation are not online field edits. Networks opens named forms for the implemented QWK/DOVE, FTN and BinkP engine.
+Doors and general jobs remain unimplemented.
 
 Press **?** or **F1** for help on the current section and the edit/save workflow.
 Page keys scroll long help and save reviews. Press Esc to close help.
@@ -168,3 +168,10 @@ The [FTN Sysop chapter](ftn-core.md) documents the implemented typed sfconfig
 policy import, protected packet/directory operations and read-only status counts.
 Cold restore holds uncertain FTN work and origin serial allocation; no manual SQL
 release is prescribed. Full Networks UI and BinkP remain later work.
+
+## N5 network configuration
+
+The [Networks manual](network-operations.md) covers typed policy/mapping forms,
+conference selection, separate static/relational CAS, write-only credentials,
+listener effects and stopped-board origin recovery. Save or cancel the general
+draft before opening Networks. No raw TOML editor or generic command entry is used.

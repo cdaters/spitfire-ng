@@ -31,6 +31,23 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    pub(crate) fn networks(
+        &self,
+        query: &sf_core::ftn::NetworkQuery,
+    ) -> Result<crate::networks::Snapshot, ApplicationError> {
+        crate::networks::snapshot(&self.runtime, query)
+    }
+    pub(crate) fn network_lookup(
+        &self,
+        endpoint: &sf_net::ftn::Endpoint,
+    ) -> Result<Option<sf_core::ftn::DirectoryLookup>, ApplicationError> {
+        let config = self.runtime.configuration.current()?;
+        Ok(
+            sf_core::RuntimeDatabase::open_read_only(self.runtime.database_path())?
+                .lookup_ftn_directory(&config.ftn, endpoint, chrono::Utc::now().timestamp())?,
+        )
+    }
+
     pub(crate) fn binkp_status(&self) -> Result<crate::binkp::Status, ApplicationError> {
         crate::binkp::status(&self.runtime)
     }
@@ -87,6 +104,13 @@ impl OperatorService {
         if self.runtime.shutdown_in_progress()? {
             return Err(crate::OperatorControlError::InvalidCommand.into());
         }
+        // Same order as network mutations: network gate, then configuration gate.
+        // Prevent a map/source mutation between reference validation and policy commit.
+        let _network = self
+            .runtime
+            .network_lock
+            .lock()
+            .map_err(|_| crate::OperatorControlError::InvalidCommand)?;
         self.runtime.configuration.apply(
             principal,
             self.runtime.daemon_generation(),

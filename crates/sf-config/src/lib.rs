@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Native typed configuration UI. Persistence and validation belong to sf-bbs/sf-core.
+mod networks;
 use crossterm::{
     cursor::Show,
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
@@ -46,7 +47,7 @@ fn issue_text(issue: &ConfigurationIssue) -> String {
 fn command_id() -> String {
     format!("{:032x}", rand::random::<u128>())
 }
-const SECTIONS: [&str; 8] = [
+const SECTIONS: [&str; 9] = [
     "general",
     "nodes",
     "callers",
@@ -55,6 +56,7 @@ const SECTIONS: [&str; 8] = [
     "operators",
     "messages-files",
     "storage",
+    "networks",
 ];
 const CAPS: [Cap; 21] = Cap::ALL;
 
@@ -101,6 +103,7 @@ enum Row {
     Field(ConfigurationField),
     Capability(usize, Cap),
     AddCurrent,
+    Networks,
     Summary(String),
 }
 #[derive(Clone, Copy, PartialEq)]
@@ -198,6 +201,7 @@ impl ConfigModel {
     fn rows(&self) -> Vec<Row> {
         let section = SECTIONS[self.section];
         match section {
+            "networks" => vec![Row::Networks],
             "operators" => {
                 let mut rows = vec![Row::AddCurrent];
                 for (index, _) in self.operators.local_identities.iter().enumerate() {
@@ -317,6 +321,7 @@ impl ConfigModel {
                 )
             }
             Row::AddCurrent => t("sfconfig-enroll-current"),
+            Row::Networks => t("netconfig-open"),
             Row::Summary(value) => value.clone(),
         }
     }
@@ -556,6 +561,13 @@ impl ConfigModel {
                 }
             }
             KeyCode::Enter => match self.rows().get(self.selected) {
+                Some(Row::Networks) => {
+                    if self.dirty() {
+                        self.status = t("netconfig-save-first");
+                    } else {
+                        return Action::Networks;
+                    }
+                }
                 Some(Row::Field(field)) => {
                     self.input = Some(
                         self.edits
@@ -615,6 +627,7 @@ impl ConfigModel {
 }
 #[derive(Debug, PartialEq)]
 enum Action {
+    Networks,
     None,
     Quit,
     Reload,
@@ -1070,6 +1083,15 @@ pub fn run_from_env() -> Result<(), String> {
                     continue;
                 }
                 match model.key(key) {
+                    Action::Networks => {
+                        if let Err(error) = networks::run(&mut terminal, &mut backend) {
+                            model.status = error;
+                        }
+                        match backend.snapshot() {
+                            Ok(snapshot) => model.reload(snapshot),
+                            Err(error) => model.online_lost(error),
+                        }
+                    }
                     Action::Quit => return Ok(()),
                     Action::None => {}
                     Action::Reload => match backend.snapshot() {

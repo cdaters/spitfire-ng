@@ -29,6 +29,12 @@ const SNAPSHOT_REFRESH: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub enum WorkerCommand {
+    Networks(sf_core::ftn::NetworkQuery),
+    NetworkAction {
+        command_id: String,
+        action: sf_bbs::NetworkAction,
+    },
+    NetworkLookup(sf_net::ftn::Endpoint),
     LiveControl {
         command_id: String,
         action: sf_bbs::LiveControlAction,
@@ -60,6 +66,8 @@ impl std::fmt::Debug for WorkerCommand {
 
 #[derive(Clone, Debug)]
 pub enum WorkerUpdate {
+    NetworkResult(sf_bbs::NetworkResult),
+    NetworkLookup(Option<sf_core::ftn::DirectoryLookup>),
     ChatSendResult(bool),
     Chat(sf_bbs::ChatServerFrame),
     ChatEnded(&'static str),
@@ -170,6 +178,7 @@ async fn worker_loop(
     dropped_updates: Arc<AtomicBool>,
 ) {
     let mut reconnect = true;
+    let mut network_query = sf_core::ftn::NetworkQuery::default();
     let mut receipts: Vec<String> = Vec::new();
     loop {
         if !reconnect {
@@ -178,7 +187,10 @@ async fn worker_loop(
                     query = new_query;
                 }
                 Ok(WorkerCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
-                Ok(WorkerCommand::AcknowledgeNotification { .. })
+                Ok(WorkerCommand::Networks(_))
+                | Ok(WorkerCommand::NetworkAction { .. })
+                | Ok(WorkerCommand::NetworkLookup(_))
+                | Ok(WorkerCommand::AcknowledgeNotification { .. })
                 | Ok(WorkerCommand::AdjustSessionTime { .. })
                 | Ok(WorkerCommand::LiveControl { .. })
                 | Ok(WorkerCommand::ChatLine(_))
@@ -226,7 +238,7 @@ async fn worker_loop(
             },
             &dropped_updates,
         );
-        match load_snapshot(&mut snapshot_client, query.clone()).await {
+        match load_snapshot(&mut snapshot_client, query.clone(), network_query.clone()).await {
             Ok(snapshot) => send_update(
                 &updates,
                 WorkerUpdate::Snapshot(Box::new(snapshot)),
@@ -251,6 +263,64 @@ async fn worker_loop(
         'connected: loop {
             loop {
                 match commands.try_recv() {
+                    Ok(WorkerCommand::Networks(q)) => {
+                        network_query = q;
+                        match load_snapshot(
+                            &mut snapshot_client,
+                            query.clone(),
+                            network_query.clone(),
+                        )
+                        .await
+                        {
+                            Ok(s) => send_update(
+                                &updates,
+                                WorkerUpdate::Snapshot(Box::new(s)),
+                                &dropped_updates,
+                            ),
+                            Err(_) => send_update(
+                                &updates,
+                                WorkerUpdate::MutationDenied,
+                                &dropped_updates,
+                            ),
+                        }
+                    }
+                    Ok(WorkerCommand::NetworkLookup(endpoint)) => {
+                        match snapshot_client.network_lookup(endpoint).await {
+                            Ok(v) => send_update(
+                                &updates,
+                                WorkerUpdate::NetworkLookup(v),
+                                &dropped_updates,
+                            ),
+                            Err(_) => send_update(
+                                &updates,
+                                WorkerUpdate::MutationDenied,
+                                &dropped_updates,
+                            ),
+                        }
+                    }
+                    Ok(WorkerCommand::NetworkAction { command_id, action }) => {
+                        match snapshot_client
+                            .qwk_network_action(command_id.clone(), action)
+                            .await
+                        {
+                            Ok(v) => send_update(
+                                &updates,
+                                WorkerUpdate::NetworkResult(v),
+                                &dropped_updates,
+                            ),
+                            Err(OperatorControlError::AuthorizationDenied) => send_update(
+                                &updates,
+                                WorkerUpdate::MutationDenied,
+                                &dropped_updates,
+                            ),
+                            Err(_) => send_update(
+                                &updates,
+                                WorkerUpdate::Uncertain(command_id),
+                                &dropped_updates,
+                            ),
+                        }
+                        last_refresh = Instant::now() - SNAPSHOT_REFRESH;
+                    }
                     Ok(WorkerCommand::LiveControl { command_id, action }) => {
                         let preflight = matches!(
                             action,
@@ -384,7 +454,13 @@ async fn worker_loop(
                     }
                     Ok(WorkerCommand::Refresh(new_query)) => {
                         query = new_query;
-                        match load_snapshot(&mut snapshot_client, query.clone()).await {
+                        match load_snapshot(
+                            &mut snapshot_client,
+                            query.clone(),
+                            network_query.clone(),
+                        )
+                        .await
+                        {
                             Ok(snapshot) => send_update(
                                 &updates,
                                 WorkerUpdate::Snapshot(Box::new(snapshot)),
@@ -568,7 +644,9 @@ async fn worker_loop(
             }
 
             if last_refresh.elapsed() >= SNAPSHOT_REFRESH {
-                match load_snapshot(&mut snapshot_client, query.clone()).await {
+                match load_snapshot(&mut snapshot_client, query.clone(), network_query.clone())
+                    .await
+                {
                     Ok(snapshot) => send_update(
                         &updates,
                         WorkerUpdate::Snapshot(Box::new(snapshot)),
@@ -607,6 +685,7 @@ async fn connect_pair(
 async fn load_snapshot(
     client: &mut OperatorClient,
     query: OperatorEventQuery,
+    network_query: sf_core::ftn::NetworkQuery,
 ) -> Result<MonitorSnapshot, OperatorControlError> {
     let authorized_capabilities =
         if client.supports_mutation(sf_bbs::OperatorFeature::MutationReceipts) {
@@ -639,7 +718,16 @@ async fn load_snapshot(
     } else {
         None
     };
+    let networks = if authorized_capabilities
+        .contains(&sf_core::LocalOperatorCapability::NetworkStatus)
+        && client.supports_mutation(sf_bbs::OperatorFeature::Networks)
+    {
+        Some(client.networks(network_query).await?)
+    } else {
+        None
+    };
     Ok(MonitorSnapshot {
+        networks,
         binkp,
         ftn,
         shutdown: if client.supports_mutation(sf_bbs::OperatorFeature::GracefulShutdown) {

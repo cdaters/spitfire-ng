@@ -193,3 +193,12 @@ Back up schema 22 before changing policy. Restore preserves mailbox aliases, nat
 private content, pending queue identities, provenance and receipts, and holds unsent
 work for explicit review. A retry with unchanged policy reuses its original identity.
 Policy-stale envelopes remain held; N2 supplies no general retargeting command.
+
+## N5 operator and recovery extension
+
+[Operating networking](network-operations.md) now provides the Networks cockpit, typed
+configuration, safe queue actions, directory/quarantine visibility and verified
+restore recovery. Same-root replacement retains proven later FTN serial floors
+and matching peer acknowledgements. New-root recovery uses a stopped surviving
+source, retires its origination, and keeps uncertain work held. No live public
+FidoNet participation or N6/N7 functionality is claimed.

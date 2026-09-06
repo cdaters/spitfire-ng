@@ -1,6 +1,36 @@
 # SPITFIRE NG Status
 
-## N4 native BinkP — COMPLETE / ACCEPTED
+## N5 networking operator and recovery — COMPLETE / ACCEPTED
+
+sfmonitor Networks provides overview, links, queues, areas, directory, quarantine
+and recovery. sfconfig provides named QWK/DOVE/FTN/BinkP policy/mapping forms,
+conference selection, CAS, write-only credentials and verified stopped-board
+recovery. Native message/routing/queue authority is canonical; BinkP is transport
+only. Schema **24 → 24**; en-US **1.22.0 / 1,217 messages**.
+
+Verified later serial floors and matching peer acknowledgements survive an older
+restore. New-root recovery retires the surviving source before resuming origin
+allocation. Hard collision, real macOS terminal/configuration/CAS/reconnect and
+independent Synchronet point NetMail/EchoMail checks pass. See [M049](docs/research/m049-networking-n5-operator-recovery.md),
+[manual](docs/manual/network-operations.md) and [Technical Reference](docs/technical/network-operations.md).
+
+N1–N4 and B-021 remain accepted; B-022 NOT STARTED. SMB remains unimplemented.
+Quarantine mutations, historical link browsing and optional NodelistDB integration
+are deferred. CircuitNET preservation/revival is planned, with no implementation
+or compatibility claim. Windows live networking remains **DEFERRED — REAL WINDOWS
+ENVIRONMENT REQUIRED**. Live public FidoNet traffic: **NONE**.
+
+No AreaFix/FileEcho/TIC/FREQ/general scheduler/doors/DDEV/production/FireComm/release
+work occurred. Private corpora and acceptance material are excluded. Stop after
+N5 publication; N6 requires a separately scoped pass. Accepted private source:
+`c79889ef793c3002999dc291f2264de145e28227`.
+
+Public N5 gates: **591 tests / 0 failed / 5 opt-in ignored**, doctests, 104 source
+headers, fmt/Clippy/diff, 117 Markdown/link documents and privacy/provenance pass.
+Published source contains eight added / 46 updated files; 24 shared files match
+private source exactly, with only private-package pruning in Cargo.lock.
+
+## Previous checkpoint: N4 native BinkP — COMPLETE / ACCEPTED
 
 Native BinkP client/listener exchange NetMail and EchoMail through the accepted
 native FTN queue and automatic tosser. Controlled independent Synchronet BinkP

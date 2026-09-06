@@ -271,3 +271,11 @@ reasons/opaque IDs, never content. Native messages and retained input artifacts 
 sensitive backup data. Restart preserves private queues and receipts. Cold restore
 holds all unsent work, including private/transit, without resuming a live session;
 recipient enrollment, envelope identity and duplicate receipts remain coherent.
+
+## N5 authority extension
+
+[Network operations and recovery](network-operations.md) specifies protected protocol 1.9
+projections, named configuration forms and CAS, queue actions, retained-reference
+checks and verified origin/acceptance reconciliation. Schema remains 24. Older
+restore descriptions above describe the safe held default; N5 adds verified
+recovery without inventing post-snapshot history. Wire/message authority is unchanged.
