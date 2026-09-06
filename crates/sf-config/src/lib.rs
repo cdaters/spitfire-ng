@@ -56,7 +56,7 @@ const SECTIONS: [&str; 8] = [
     "messages-files",
     "storage",
 ];
-const CAPS: [Cap; 20] = Cap::ALL;
+const CAPS: [Cap; 21] = Cap::ALL;
 
 fn cap_key(cap: Cap) -> &'static str {
     match cap {
@@ -77,6 +77,7 @@ fn cap_key(cap: Cap) -> &'static str {
         Cap::ChangeOnlineConfiguration => "sfconfig-cap-config",
         Cap::ChangeSensitiveConfiguration => "sfconfig-cap-sensitive",
         Cap::NetworkStatus => "network-cap-status",
+        Cap::NetworkTest => "binkp-test",
         Cap::NetworkRun => "network-cap-run",
         Cap::NetworkQueue => "network-cap-queue",
         Cap::NetworkDirectoryActivate => "ftn-cap-directory-activate",
@@ -189,6 +190,7 @@ impl ConfigModel {
             expected: self.snapshot.version.clone(),
             edits: self.edits.clone(),
             ftn: None,
+            binkp: None,
             operators: (self.operators != self.snapshot.config.operators)
                 .then(|| self.operators.clone()),
         }
@@ -880,6 +882,9 @@ pub fn run_from_env() -> Result<(), String> {
         let mut board = None;
         let mut offline = false;
         let mut ftn_file = None;
+        let mut binkp_file = None;
+        let mut credential_link = None;
+        let mut clear_credential = false;
         let mut index = 0;
         while index < args.len() {
             match args[index].to_str() {
@@ -888,6 +893,17 @@ pub fn run_from_env() -> Result<(), String> {
                     board = args.get(index).map(PathBuf::from);
                 }
                 Some("--offline") if !offline => offline = true,
+                Some("--binkp-password") | Some("--clear-binkp-password")
+                    if credential_link.is_none() =>
+                {
+                    clear_credential = args[index] == "--clear-binkp-password";
+                    index += 1;
+                    credential_link = args.get(index).and_then(|a| a.to_str()).map(str::to_owned);
+                }
+                Some("--apply-binkp") if binkp_file.is_none() => {
+                    index += 1;
+                    binkp_file = args.get(index).map(PathBuf::from);
+                }
                 Some("--apply-ftn") if ftn_file.is_none() => {
                     index += 1;
                     ftn_file = args.get(index).map(PathBuf::from);
@@ -897,8 +913,71 @@ pub fn run_from_env() -> Result<(), String> {
             index += 1;
         }
         let board = board.ok_or_else(|| t("sfconfig-usage"))?;
-        if ftn_file.is_none() && (!io::stdin().is_terminal() || !io::stdout().is_terminal()) {
+        if ftn_file.is_none()
+            && binkp_file.is_none()
+            && credential_link.is_none()
+            && (!io::stdin().is_terminal() || !io::stdout().is_terminal())
+        {
             return Err(t("sfconfig-terminal-required"));
+        }
+        if let Some(link) = credential_link {
+            if offline || ftn_file.is_some() || binkp_file.is_some() {
+                return Err(t("sfconfig-usage"));
+            }
+            let secret = if clear_credential {
+                None
+            } else {
+                Some(
+                    rpassword::prompt_password(t("binkp-password-prompt"))
+                        .map_err(|_| t("sfconfig-save-uncertain"))?,
+                )
+            };
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| t("sfconfig-connection-error"))?;
+            rt.block_on(async {
+                let mut client = OperatorClient::connect(&board)
+                    .await
+                    .map_err(|_| t("sfconfig-connection-error"))?;
+                client
+                    .describe_operator_controls()
+                    .await
+                    .map_err(|_| t("sfconfig-connection-error"))?;
+                let status = client
+                    .binkp_status()
+                    .await
+                    .map_err(|_| t("sfconfig-connection-error"))?;
+                let request = match secret {
+                    Some(secret) => sf_bbs::binkp::Action::Credential {
+                        link,
+                        expected: status.policy,
+                        secret,
+                    },
+                    None => sf_bbs::binkp::Action::ClearCredential {
+                        link,
+                        expected: status.policy,
+                    },
+                };
+                let result = client
+                    .qwk_network_action(
+                        format!("{:032x}", rand::random::<u128>()),
+                        sf_bbs::NetworkAction::Binkp { request },
+                    )
+                    .await
+                    .map_err(|_| t("sfconfig-save-uncertain"))?;
+                if !matches!(
+                    result,
+                    sf_bbs::NetworkResult::Binkp {
+                        response: sf_bbs::binkp::Result::Updated
+                    }
+                ) {
+                    return Err(t("sfconfig-save-uncertain"));
+                }
+                println!("{}", t("binkp-credential-updated"));
+                Ok(())
+            })?;
+            return Ok(());
         }
         let mut backend = if offline {
             Backend::Offline(Box::new(
@@ -917,7 +996,11 @@ pub fn run_from_env() -> Result<(), String> {
                 client: Box::new(client),
             }
         };
-        if let Some(path) = ftn_file {
+        if ftn_file.is_some() && binkp_file.is_some() {
+            return Err(t("sfconfig-usage"));
+        }
+        let applying_binkp = binkp_file.is_some();
+        if let Some(path) = ftn_file.or(binkp_file) {
             use std::io::Read;
             let mut bytes = Vec::new();
             std::fs::File::open(path)
@@ -928,15 +1011,28 @@ pub fn run_from_env() -> Result<(), String> {
             if bytes.len() > 65536 {
                 return Err(t("sfconfig-validation-ftn"));
             }
-            let ftn: sf_core::ftn::Policy =
-                serde_json::from_slice(&bytes).map_err(|_| t("sfconfig-validation-ftn"))?;
-            ftn.validate().map_err(|_| t("sfconfig-validation-ftn"))?;
             let snapshot = backend.snapshot()?;
+            let (ftn, binkp) = if applying_binkp {
+                let policy: sf_core::ftn::BinkpPolicy =
+                    serde_json::from_slice(&bytes).map_err(|_| t("sfconfig-validation-ftn"))?;
+                policy
+                    .validate(&snapshot.config.ftn)
+                    .map_err(|_| t("sfconfig-validation-ftn"))?;
+                (None, Some(policy))
+            } else {
+                let policy: sf_core::ftn::Policy =
+                    serde_json::from_slice(&bytes).map_err(|_| t("sfconfig-validation-ftn"))?;
+                policy
+                    .validate()
+                    .map_err(|_| t("sfconfig-validation-ftn"))?;
+                (Some(policy), None)
+            };
             let candidate = ConfigurationCandidate {
                 expected: snapshot.version,
                 edits: vec![],
                 operators: None,
-                ftn: Some(ftn),
+                ftn,
+                binkp,
             };
             let result = backend.save(format!("{:032x}", rand::random::<u128>()), candidate)?;
             if matches!(result, ConfigurationResult::Saved { .. }) {

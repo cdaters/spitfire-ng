@@ -20,6 +20,7 @@ sf-bbs = { path = "../sf-bbs" }
 sf-core = { path = "../sf-core" }
 tokio.workspace = true
 rand.workspace = true
+rpassword.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

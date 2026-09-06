@@ -56,3 +56,5 @@ apply.
 
 For current release scope see [Status](../../STATUS.md). For implementation
 details use the main [documentation index](../README.md).
+
+- [BinkP mailer](../manual/binkp.md): native FTN packet transport and isolated link operation.

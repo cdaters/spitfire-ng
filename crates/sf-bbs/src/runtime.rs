@@ -130,6 +130,7 @@ impl OperatorObservabilityContext {
     pub fn capabilities_for(&self, capability: sf_core::LocalOperatorCapability) -> bool {
         match capability {
             sf_core::LocalOperatorCapability::NetworkStatus
+            | sf_core::LocalOperatorCapability::NetworkTest
             | sf_core::LocalOperatorCapability::NetworkRun
             | sf_core::LocalOperatorCapability::NetworkDirectoryActivate
             | sf_core::LocalOperatorCapability::NetworkQueue
@@ -204,7 +205,7 @@ pub struct BoardRuntime {
     pub(crate) configuration: crate::configuration::ConfigurationAuthority,
     identity: BoardIdentity,
     timezone: chrono_tz::Tz,
-    paths: LogicalPaths,
+    pub(crate) paths: LogicalPaths,
     nodes: NodeManager,
     next_session: AtomicU64,
     schema_version: u32,
@@ -214,6 +215,8 @@ pub struct BoardRuntime {
     file_storage: FileStorage,
     pub(crate) network_artifacts: crate::DiskArtifactStore,
     pub(crate) network_lock: Mutex<()>,
+    pub(crate) binkp_sessions: Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) binkp_credentials_generation: AtomicU64,
     interaction: InteractionHub,
     presentation: PresentationResolver,
     language: sf_core::LanguageResolver,
@@ -349,6 +352,7 @@ impl BoardRuntime {
         let network_artifacts =
             crate::DiskArtifactStore::new(paths.get(sf_core::LogicalPath::System))?;
         network_artifacts.recover(&mut database)?;
+        database.recover_binkp(chrono::Utc::now().timestamp())?;
         if identity.name() == "SPITFIRE NG Fixture Board"
             && identity.sysop_name() == "Fixture Sysop"
         {
@@ -434,6 +438,8 @@ impl BoardRuntime {
             file_storage,
             network_artifacts,
             network_lock: Mutex::new(()),
+            binkp_sessions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            binkp_credentials_generation: AtomicU64::new(0),
             interaction: InteractionHub::new(),
             presentation,
             language,
@@ -1530,6 +1536,9 @@ fn serve_with_operator(
         info!(name = listener.name, transport = ?listener.transport, listen = %listener.address, "transport listener ready");
     }
     let mut handles = Vec::new();
+    if let Some(handle) = crate::binkp::listener(runtime.clone())? {
+        handles.push(handle);
+    }
     for network_listener in network {
         let runtime = Arc::clone(&runtime);
         let shutdown = Arc::clone(&shutdown);

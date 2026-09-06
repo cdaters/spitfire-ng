@@ -638,6 +638,17 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
     ) -> Result<TossResult, Error> {
+        self.toss_ftn_admitted(store, policy, link_id, bytes, now, None)
+    }
+    pub(super) fn toss_ftn_admitted(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        policy: &Policy,
+        link_id: &str,
+        bytes: &[u8],
+        now: i64,
+        permitted: Option<(&[String], &[Address])>,
+    ) -> Result<TossResult, Error> {
         policy.validate()?;
         let link = policy.link(link_id)?;
         let aka = policy.aka(&link.aka)?;
@@ -660,8 +671,18 @@ impl RuntimeDatabase {
         );
         let packet = match packet {
             Ok(p)
-                if p.header.origin == link.remote.address
-                    && p.header.destination == aka.endpoint.address
+                if (p.header.origin == link.remote.address
+                    || permitted.is_some_and(|(_, remote)| remote.contains(&p.header.origin)))
+                    && (p.header.destination == aka.endpoint.address
+                        || permitted.is_some_and(|(ids, _)| {
+                            ids.iter().any(|id| {
+                                policy.aka(id).is_ok_and(|a| {
+                                    a.enabled
+                                        && a.endpoint.domain == link.remote.domain
+                                        && a.endpoint.address == p.header.destination
+                                })
+                            })
+                        }))
                     && p.header.password == [0; 8] =>
             {
                 p

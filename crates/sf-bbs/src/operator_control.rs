@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 7;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 8;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -129,6 +129,7 @@ pub enum OperatorFeature {
     Configuration,
     QwkNetwork,
     FtnNetwork,
+    BinkpNetwork,
 }
 
 impl OperatorFeature {
@@ -155,6 +156,9 @@ impl OperatorFeature {
         if minor >= crate::ftn::FTN_MINOR {
             features.push(Self::FtnNetwork);
         }
+        if minor >= crate::binkp::BINKP_MINOR {
+            features.push(Self::BinkpNetwork);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -174,7 +178,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 20] = [
+    const ALL: [Self; 21] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -195,6 +199,7 @@ impl OperatorFeature {
         Self::Configuration,
         Self::QwkNetwork,
         Self::FtnNetwork,
+        Self::BinkpNetwork,
     ];
 }
 
@@ -226,6 +231,9 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             .iter()
             .copied()
             .filter(|capability| {
+                if *capability == LocalOperatorCapability::NetworkTest {
+                    return minor >= crate::binkp::BINKP_MINOR;
+                }
                 if *capability == LocalOperatorCapability::NetworkDirectoryActivate {
                     return minor >= crate::ftn::FTN_MINOR;
                 }
@@ -383,6 +391,25 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             });
         }
     }
+    if minor >= crate::binkp::BINKP_MINOR {
+        for capability in [
+            LocalOperatorCapability::NetworkRun,
+            LocalOperatorCapability::NetworkTest,
+            LocalOperatorCapability::NetworkQueue,
+            LocalOperatorCapability::ChangeSensitiveConfiguration,
+        ] {
+            result.controls.push(OperatorControlDescriptor {
+                feature: OperatorFeature::BinkpNetwork,
+                capability,
+                preflight_required: false,
+                confirmation_required: false,
+                expected_version_required: true,
+                minimum_minutes: None,
+                maximum_minutes: None,
+                zero_minutes_allowed: false,
+            });
+        }
+    }
     result
 }
 
@@ -460,6 +487,7 @@ enum MutationCommand {
 enum ReadOperation {
     QwkNetwork,
     FtnNetwork,
+    BinkpNetwork,
     FtnQueue { after: Option<String> },
     QwkNetworkQueue { link: String, after: Option<String> },
     ConfigurationSnapshot,
@@ -596,6 +624,7 @@ fn command_fingerprint(command: &MutationCommand, daemon_generation: &str) -> St
 enum ReadResult {
     QwkNetwork(Vec<sf_core::qwk_network::LinkStatus>),
     FtnNetwork(sf_core::ftn::Status),
+    BinkpNetwork(crate::binkp::Status),
     FtnQueue(Vec<sf_core::ftn::QueueItem>),
     QwkNetworkQueue(sf_core::qwk_network::QueuePage),
     ConfigurationSnapshot(Box<crate::ConfigurationSnapshot>),
@@ -913,6 +942,12 @@ impl OperatorClient {
         match self.request(ReadOperation::FtnQueue { after }).await? {
             ReadResult::FtnQueue(v) => Ok(v),
             _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+    pub async fn binkp_status(&mut self) -> Result<crate::binkp::Status, OperatorControlError> {
+        match self.request(ReadOperation::BinkpNetwork).await? {
+            ReadResult::BinkpNetwork(v) => Ok(v),
+            _ => Err(OperatorControlError::InvalidCommand),
         }
     }
     pub async fn ftn_status(&mut self) -> Result<sf_core::ftn::Status, OperatorControlError> {
@@ -1840,6 +1875,7 @@ mod server {
                     && *item != OperatorFeature::Configuration
                     && *item != OperatorFeature::QwkNetwork
                     && *item != OperatorFeature::FtnNetwork
+                    && *item != OperatorFeature::BinkpNetwork
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
                         || !OperatorFeature::LIVE.contains(item))
@@ -3105,6 +3141,7 @@ impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
             Self::QwkNetwork | Self::QwkNetworkQueue { .. } => OperatorFeature::QwkNetwork,
+            Self::BinkpNetwork => OperatorFeature::BinkpNetwork,
             Self::FtnNetwork | Self::FtnQueue { .. } => OperatorFeature::FtnNetwork,
             Self::ConfigurationSnapshot => OperatorFeature::Configuration,
             Self::ShutdownStatus => OperatorFeature::GracefulShutdown,
@@ -3133,9 +3170,9 @@ fn all_read_capabilities() -> Vec<LocalOperatorCapability> {
 
 fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability]) -> bool {
     let required = match feature {
-        OperatorFeature::QwkNetwork | OperatorFeature::FtnNetwork => {
-            LocalOperatorCapability::NetworkStatus
-        }
+        OperatorFeature::BinkpNetwork
+        | OperatorFeature::QwkNetwork
+        | OperatorFeature::FtnNetwork => LocalOperatorCapability::NetworkStatus,
         OperatorFeature::Configuration => LocalOperatorCapability::ReadConfiguration,
         OperatorFeature::PageAvailability
         | OperatorFeature::CallerPages
@@ -3191,6 +3228,7 @@ async fn dispatch(
 ) -> Result<ReadResult, crate::ApplicationError> {
     Ok(match operation {
         ReadOperation::QwkNetwork => ReadResult::QwkNetwork(service.network_status()?),
+        ReadOperation::BinkpNetwork => ReadResult::BinkpNetwork(service.binkp_status()?),
         ReadOperation::FtnNetwork => ReadResult::FtnNetwork(service.ftn_status()?),
         ReadOperation::FtnQueue { after } => {
             ReadResult::FtnQueue(service.ftn_queue(after.as_deref())?)

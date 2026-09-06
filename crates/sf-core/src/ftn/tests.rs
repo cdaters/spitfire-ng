@@ -889,3 +889,337 @@ fn netmail_reply_binding_and_missing_identity_are_conservative() {
         1
     );
 }
+
+fn binkp_policy() -> BinkpPolicy {
+    BinkpPolicy {
+        listener: Some(BinkpListener {
+            enabled: true,
+            bind: "127.0.0.1:24554".parse().unwrap(),
+            akas: vec!["node".into(), "point".into()],
+        }),
+        links: ["peer", "next"]
+            .into_iter()
+            .map(|link| BinkpLink {
+                link: link.into(),
+                enabled: true,
+                inbound: true,
+                outbound: true,
+                endpoint: Some("127.0.0.1".into()),
+                port: 24554,
+                directory: false,
+                akas: vec!["node".into(), "point".into()],
+                remote_akas: vec![],
+                auth: BinkpAuth::RequireCram,
+                allow_domainless: false,
+            })
+            .collect(),
+    }
+}
+fn queued_binkp(f: &mut Fixture) {
+    f.db.send_ftn_mail(
+        f.actor,
+        &f.policy,
+        &NewNetMail {
+            aka: "point".into(),
+            destination: "10:100/2.9@synthetic".parse().unwrap(),
+            recipient: "Remote".into(),
+            subject: "Transport boundary".into(),
+            body: "Private transport payload".into(),
+            reply_to: None,
+        },
+        NOW,
+    )
+    .unwrap();
+}
+#[test]
+fn binkp_claim_ack_and_restart_use_the_native_queue() {
+    let mut f = fixture();
+    let policy = binkp_policy();
+    queued_binkp(&mut f);
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "generation-one",
+            BinkpMode::Poll,
+            NOW,
+        )
+        .unwrap();
+    assert!(f
+        .db
+        .begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "generation-one",
+            BinkpMode::Poll,
+            NOW
+        )
+        .is_err());
+    let work =
+        f.db.claim_binkp(&f.policy, &policy, &f.store, &session, NOW)
+            .unwrap();
+    assert_eq!(work.len(), 1);
+    assert!(f.db.accepted_binkp(&session, &work[0].queue, NOW).is_err());
+    f.db.offered_binkp(&session, &work[0].queue).unwrap();
+    assert_ne!(f.db.ftn_queue(None).unwrap()[0].state, "accepted");
+    f.db.recover_binkp(NOW + 1).unwrap();
+    assert_eq!(f.db.ftn_queue(None).unwrap()[0].state, "retry");
+    assert!(!f.db.binkp_health().unwrap()[0].active);
+    assert!(f
+        .db
+        .begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "generation-two",
+            BinkpMode::Poll,
+            NOW + 2
+        )
+        .is_err());
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "generation-two",
+            BinkpMode::Poll,
+            NOW + 1000,
+        )
+        .unwrap();
+    let retry =
+        f.db.claim_binkp(&f.policy, &policy, &f.store, &session, NOW + 1000)
+            .unwrap();
+    assert_eq!(retry[0].artifact, work[0].artifact);
+    f.db.offered_binkp(&session, &retry[0].queue).unwrap();
+    f.db.accepted_binkp(&session, &retry[0].queue, NOW + 1000)
+        .unwrap();
+    assert!(f
+        .db
+        .accepted_binkp(&session, &retry[0].queue, NOW + 1000)
+        .is_err());
+    f.db.finish_binkp(&session, None, NOW + 1000).unwrap();
+    f.db.recover_binkp(NOW + 1001).unwrap();
+    assert_eq!(f.db.ftn_queue(None).unwrap()[0].state, "accepted");
+    assert_eq!(
+        f.db.connection
+            .query_row("SELECT COUNT(*) FROM network_delivery_attempts", [], |r| {
+                r.get::<_, u32>(0)
+            })
+            .unwrap(),
+        2
+    );
+}
+#[test]
+fn binkp_restore_holds_work_and_preserves_receipts_and_identity() {
+    let mut f = fixture();
+    let policy = binkp_policy();
+    queued_binkp(&mut f);
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "before-restore",
+            BinkpMode::Poll,
+            NOW,
+        )
+        .unwrap();
+    let work =
+        f.db.claim_binkp(&f.policy, &policy, &f.store, &session, NOW)
+            .unwrap();
+    f.db.recover_binkp(NOW + 1).unwrap();
+    f.db.hold_restored_ftn().unwrap();
+    assert_eq!(f.db.ftn_queue(None).unwrap()[0].state, "held");
+    let queue = f.db.ftn_queue(None).unwrap().remove(0);
+    assert!(f
+        .db
+        .release_binkp(&f.policy, "operator", &queue.id, queue.version - 1, NOW + 2)
+        .is_err());
+    f.db.release_binkp(&f.policy, "operator", &queue.id, queue.version, NOW + 2)
+        .unwrap();
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "after-restore",
+            BinkpMode::Poll,
+            NOW + 3,
+        )
+        .unwrap();
+    assert_eq!(
+        f.db.claim_binkp(&f.policy, &policy, &f.store, &session, NOW + 3)
+            .unwrap()[0]
+            .artifact,
+        work[0].artifact
+    );
+    assert_eq!(
+        f.db.connection
+            .query_row("SELECT MIN(restored_hold) FROM ftn_serials", [], |r| r
+                .get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+}
+#[test]
+fn binkp_configuration_domain_limits_and_safe_observations() {
+    let mut f = fixture();
+    let mut policy = binkp_policy();
+    policy.validate(&f.policy).unwrap();
+    policy.links[0].akas.push("other".into());
+    assert!(policy.validate(&f.policy).is_err());
+    policy.links[0].akas.pop();
+    policy.links[0].endpoint = Some("host/path".into());
+    assert!(policy.validate(&f.policy).is_err());
+    policy.links[0].endpoint = Some("127.0.0.1".into());
+    let endpoint = f.db.resolve_binkp(&f.policy, &policy, "peer", NOW).unwrap();
+    assert_eq!(endpoint.source, "override");
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "safe-generation",
+            BinkpMode::Test,
+            NOW,
+        )
+        .unwrap();
+    f.db.observe_binkp(
+        &session,
+        &[f.policy.links[0].remote.clone()],
+        &["CRAM-MD5".into()],
+        42,
+        NOW,
+    )
+    .unwrap();
+    f.db.finish_binkp(&session, Some(sf_net::binkp::Error::Authentication), NOW)
+        .unwrap();
+    let health = f.db.binkp_health().unwrap();
+    assert!(health[0].held);
+    assert_eq!(health[0].last_error.as_deref(), Some("authentication"));
+    assert_eq!(health[0].latency_ms, Some(42));
+    assert!(f
+        .db
+        .begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "safe-generation",
+            BinkpMode::Test,
+            NOW + 1
+        )
+        .is_err());
+    let json = serde_json::to_string(&health).unwrap();
+    assert!(!json.contains("Private transport payload"));
+}
+
+#[test]
+fn binkp_two_links_share_capacity_and_held_work_requires_review() {
+    let mut f = fixture();
+    let policy = binkp_policy();
+    queued_binkp(&mut f);
+    let q = f.db.ftn_queue(None).unwrap().remove(0);
+    f.db.hold_binkp(&f.policy, "operator", &q.id, q.version, NOW)
+        .unwrap();
+    let a =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "generation",
+            BinkpMode::Poll,
+            NOW,
+        )
+        .unwrap();
+    let b =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "next",
+            "generation",
+            BinkpMode::Poll,
+            NOW,
+        )
+        .unwrap();
+    assert!(f
+        .db
+        .begin_binkp(&f.policy, &policy, "peer", "other", BinkpMode::Poll, NOW)
+        .is_err());
+    assert_eq!(
+        f.db.binkp_health()
+            .unwrap()
+            .iter()
+            .filter(|h| h.active)
+            .count(),
+        2
+    );
+    assert!(f
+        .db
+        .claim_binkp(&f.policy, &policy, &f.store, &a, NOW)
+        .unwrap()
+        .is_empty());
+    f.db.finish_binkp(&a, None, NOW).unwrap();
+    f.db.finish_binkp(&b, None, NOW).unwrap();
+    let q = f.db.ftn_queue(None).unwrap().remove(0);
+    f.db.release_binkp(&f.policy, "operator", &q.id, q.version, NOW + 1)
+        .unwrap();
+    let a =
+        f.db.begin_binkp(
+            &f.policy,
+            &policy,
+            "peer",
+            "generation",
+            BinkpMode::Poll,
+            NOW + 2,
+        )
+        .unwrap();
+    let work =
+        f.db.claim_binkp(&f.policy, &policy, &f.store, &a, NOW + 2)
+            .unwrap();
+    assert_eq!(work.len(), 1);
+    let q = f.db.ftn_queue(None).unwrap().remove(0);
+    assert!(f
+        .db
+        .hold_binkp(&f.policy, "operator", &q.id, q.version, NOW + 2)
+        .is_err());
+    assert!(f
+        .db
+        .release_binkp(&f.policy, "operator", &q.id, q.version, NOW + 2)
+        .is_err());
+    f.db.finish_binkp(&a, Some(sf_net::binkp::Error::Interrupted), NOW + 3)
+        .unwrap();
+    assert_eq!(f.db.ftn_queue(None).unwrap()[0].state, "retry");
+}
+#[test]
+fn binkp_directory_service_resolution_preserves_override_and_generation() {
+    let mut f = fixture();
+    let mut policy = binkp_policy();
+    f.policy.links[0].remote = "10:100/2.9@synthetic".parse().unwrap();
+    let bytes=b";A Synthetic\r\nBoss,10:100/2\r\n,9,Point,Here,Person,-Unpublished-,300,INA:localhost,IBN:24555\r\n";
+    let generation =
+        f.db.ingest_ftn_directory(
+            &f.store,
+            &f.policy,
+            "points",
+            chrono::NaiveDate::from_ymd_opt(2026, 9, 5).unwrap(),
+            bytes,
+            NOW,
+        )
+        .unwrap();
+    f.db.activate_ftn_directory(&f.policy, "operator", &generation.id, 0, NOW)
+        .unwrap();
+    let direct = f.db.resolve_binkp(&f.policy, &policy, "peer", NOW).unwrap();
+    assert_eq!(direct.host, "127.0.0.1");
+    policy.links[0].endpoint = None;
+    policy.links[0].directory = true;
+    let resolved = f.db.resolve_binkp(&f.policy, &policy, "peer", NOW).unwrap();
+    assert_eq!(resolved.host, "localhost");
+    assert_eq!(resolved.port, 24555);
+    assert_eq!(resolved.generation, Some(generation.id));
+    assert!(f
+        .db
+        .resolve_binkp(&f.policy, &policy, "peer", NOW + 400 * 86400)
+        .is_err());
+}

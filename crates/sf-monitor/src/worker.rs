@@ -631,7 +631,16 @@ async fn load_snapshot(
     } else {
         None
     };
+    let binkp = if authorized_capabilities
+        .contains(&sf_core::LocalOperatorCapability::NetworkStatus)
+        && client.supports_mutation(sf_bbs::OperatorFeature::BinkpNetwork)
+    {
+        Some(client.binkp_status().await?)
+    } else {
+        None
+    };
     Ok(MonitorSnapshot {
+        binkp,
         ftn,
         shutdown: if client.supports_mutation(sf_bbs::OperatorFeature::GracefulShutdown) {
             Some(client.shutdown_status().await?)

@@ -69,6 +69,25 @@ impl DiskArtifactStore {
         }
         .validate(database)
     }
+    pub(crate) fn read_binkp(&self, id: &str) -> Result<Vec<u8>, NetworkError> {
+        if id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(NetworkError::Unavailable);
+        }
+        let path = self.root.join(id);
+        let meta = fs::symlink_metadata(&path)?;
+        if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > qwk::MAX_ARCHIVE as u64
+        {
+            return Err(NetworkError::Unavailable);
+        }
+        let mut bytes = Vec::new();
+        fs::File::open(path)?
+            .take(qwk::MAX_ARCHIVE as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if qwk::digest(&bytes) != id {
+            return Err(NetworkError::Unavailable);
+        }
+        Ok(bytes)
+    }
     pub fn validate(&self, database: &sf_core::RuntimeDatabase) -> Result<(), NetworkError> {
         self.usage()?;
         for (id, size, complete) in database.network_artifact_inventory()? {

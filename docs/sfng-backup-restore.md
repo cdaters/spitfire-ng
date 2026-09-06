@@ -91,7 +91,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite and require current schema 23, exact migration names,
+3. open SQLite and require current schema 24, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -114,7 +114,7 @@ the operating-system lock, not file existence, determines ownership.
 Restore validates the entire backup before it creates or renames any board
 target. This build accepts exact schema-10 through schema-23 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 23. Validation rejects
+applies the transactional migrations through schema 24. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -338,3 +338,15 @@ no later peer receipt is inferred from a restored snapshot. The real macOS daemo
 journey verifies policy, directory and queue survival. Schema-22 migration tests
 preserve populated QWK retries and roll back failed queue re-parenting atomically.
 See [N3 recovery and limits](technical/ftn-core.md).
+
+## M048 / schema 24 transport reconciliation
+
+Cold backup includes BinkP static policy, private credentials, link health, claims
+and receipts alongside N3 directory/message/queue authority. Credential copies and
+restores use private directory/file permissions. Restore clears active session
+claims/generations before N3 unsent-work/origin holds; sockets, handshakes and
+in-memory partial bytes never resume. Accepted receipts remain accepted; stale
+unacknowledged claims become safe retry before restore holds. New daemon generation
+and listener startup are tested. Versioned queue release is explicit review under
+unchanged N3 policy; serial allocation remains held pending verified post-snapshot
+reconciliation. See [BinkP recovery](manual/binkp.md#queues-failures-and-recovery).

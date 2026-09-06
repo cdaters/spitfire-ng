@@ -11,3 +11,5 @@ chrono = { workspace = true, features = ["serde"] }
 sha2.workspace = true
 thiserror.workspace = true
 zip.workspace = true
+md-5 = "0.10.6"
+hmac = "0.12.1"

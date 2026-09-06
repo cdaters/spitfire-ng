@@ -168,3 +168,5 @@ from it rather than maintained as separate copies.
 ## QWK network partners
 
 [Sysop manual](../manual/qwk-networking.md) and [Technical Reference](../technical/qwk-networking.md) cover implemented public/private and transit exchange, controlled DOVE interoperability, typed partner configuration, queues, replay/loop prevention and recovery. M046 records the controlled interoperability evidence and limits.
+
+- [BinkP mailer](binkp.md): configured links, credentials, listener, Poll/Test, queues and recovery.

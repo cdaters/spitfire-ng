@@ -2,9 +2,9 @@
 
 SPITFIRE NG can now scan native messages into FTN packets and toss FTN packets
 into native messages. FTN is the family of addressed store-and-forward message
-networks that includes FidoNet. **BinkP is not implemented. Live public FidoNet
-participation is not claimed or enabled by this procedure.** Use a disposable
-board and an isolated peer. N4 will add delivery transport.
+networks that includes FidoNet. [N4 BinkP](binkp.md) now provides native delivery
+transport around this core. **Live public FidoNet participation is not claimed
+or enabled by this procedure.** Use a disposable board and an isolated peer.
 
 ## Addresses, identities and messages
 

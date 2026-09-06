@@ -10,6 +10,9 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Native FTN message, directory and queue authority. Transport remains N4.
+mod binkp;
+pub(crate) use binkp::BINKP_MIGRATION;
+pub use binkp::*;
 mod directory;
 mod mail;
 mod policy;

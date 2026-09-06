@@ -131,7 +131,8 @@ impl ConfigurationAuthority {
         ConfigurationField::fields(stored).iter().any(|field| {
             field.effect() == ConfigurationEffect::RestartRequired
                 && field.value(stored) != field.value(&self.active)
-        }) || cfg!(windows) && stored.operators != self.active.operators
+        }) || stored.binkp.listener != self.active.binkp.listener
+            || cfg!(windows) && stored.operators != self.active.operators
     }
     pub(crate) fn current(&self) -> Result<RuntimeConfig, ApplicationError> {
         Ok(self.gate.lock().map_err(|_| failure())?.clone())
@@ -234,7 +235,8 @@ impl ConfigurationAuthority {
         let stored = RuntimeConfig::load(&self.path)?;
         let current = configuration_version(&stored)?;
         let grants = capabilities(&stored, principal);
-        let sensitive = candidate.ftn.is_some()
+        let sensitive = candidate.binkp.is_some()
+            || candidate.ftn.is_some()
             || candidate.operators.is_some()
             || candidate.edits.iter().any(|edit| edit.field.sensitive());
         if !offline
@@ -340,6 +342,12 @@ impl ConfigurationAuthority {
                 effects.push(ConfigurationEffect::RestartRequired);
             }
         }
+        if candidate.binkp.is_some() && stored.binkp != replacement.binkp {
+            effects.push(ConfigurationEffect::Live);
+            if stored.binkp.listener != replacement.binkp.listener {
+                effects.push(ConfigurationEffect::RestartRequired);
+            }
+        }
         if candidate.ftn.is_some() && stored.ftn != replacement.ftn {
             effects.push(ConfigurationEffect::Live);
         }
@@ -378,6 +386,15 @@ impl ConfigurationAuthority {
                 "allowed",
                 "succeeded",
                 "operator-profiles-requested",
+            )?;
+        }
+        if candidate.binkp.is_some() {
+            self.audit(
+                principal,
+                command_id,
+                "allowed",
+                "succeeded",
+                "binkp-policy-requested",
             )?;
         }
         if candidate.ftn.is_some() {
@@ -557,6 +574,7 @@ mod tests {
                 value: value.into(),
             }],
             ftn: None,
+            binkp: None,
             operators: None,
         }
     }
@@ -673,6 +691,7 @@ mod tests {
             expected: configuration_version(&config).unwrap(),
             edits: vec![],
             ftn: None,
+            binkp: None,
             operators: Some(config.operators.clone()),
         };
         assert!(matches!(
@@ -699,6 +718,7 @@ mod tests {
             expected: snapshot.version,
             edits: vec![],
             ftn: None,
+            binkp: None,
             operators: Some(operators),
         };
         assert!(matches!(
@@ -751,6 +771,7 @@ mod tests {
                         expected: initial.version,
                         edits: vec![],
                         ftn: None,
+                        binkp: None,
                         operators: Some(operators)
                     }
                 )
@@ -775,6 +796,7 @@ mod tests {
                         expected: snapshot.version,
                         edits: vec![],
                         ftn: None,
+                        binkp: None,
                         operators: Some(initial.config.operators),
                     }
                 )
@@ -982,6 +1004,7 @@ mod protocol_tests {
                         value: "7".into(),
                     }],
                     ftn: None,
+                    binkp: None,
                     operators: None,
                 };
                 let id = "a7".repeat(16);
@@ -1025,6 +1048,7 @@ mod protocol_tests {
                     expected: fresh.version,
                     edits: vec![],
                     ftn: None,
+                    binkp: None,
                     operators: Some(operators),
                 };
                 assert!(matches!(
@@ -1041,6 +1065,7 @@ mod protocol_tests {
                         value: "9".into(),
                     }],
                     ftn: None,
+                    binkp: None,
                     operators: None,
                 };
                 assert!(matches!(
@@ -1075,6 +1100,7 @@ mod protocol_tests {
                 value: "7".into(),
             }],
             ftn: None,
+            binkp: None,
             operators: None,
         };
         let db = rusqlite::Connection::open(&board.database_path).unwrap();
@@ -1173,6 +1199,7 @@ mod secret_tests {
                 value: "7".into(),
             }],
             ftn: None,
+            binkp: None,
             operators: None,
         };
         offline.apply(&"91".repeat(16), &candidate).unwrap();

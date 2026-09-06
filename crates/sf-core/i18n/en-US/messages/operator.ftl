@@ -13,6 +13,11 @@ operator-usage = Usage:
     spitfire [--locale <BCP47>] shell <CONFIG-FILE>
     spitfire [--locale <BCP47>] console <CONFIG-FILE>
     spitfire [--locale <BCP47>] run <CONFIG-FILE> [--max-sessions <COUNT>]
+    spitfire binkp-status <CONFIG-FILE>
+    spitfire binkp-poll <CONFIG-FILE> <LINK>
+    spitfire binkp-test <CONFIG-FILE> <LINK>
+    spitfire binkp-hold <CONFIG-FILE> <QUEUE> <VERSION>
+    spitfire binkp-release <CONFIG-FILE> <QUEUE> <VERSION>
 operator-version = SPITFIRE NG Bulletin Board System { $version }
 operator-language-valid = Language package { $locale } { $version } is valid and was not installed.
 operator-language-installed = Installed language package { $locale } { $version }. Select it with `spitfire config { $config }`.
@@ -552,7 +557,7 @@ sfmonitor-help-operator-shutdown = Dashboard Actions offers Shutdown SPITFIRE NG
 
 ## sfconfig typed configuration (configuration.* help topics)
 
-sfconfig-usage = Usage: sfconfig --board <board/spitfire.toml> [--offline] [--apply-ftn <policy.json>]
+sfconfig-usage = Usage: sfconfig --board <board/spitfire.toml> [--offline] [--apply-ftn <policy.json> | --apply-binkp <transport.json>] [--binkp-password <link> | --clear-binkp-password <link>]
 sfconfig-online = ONLINE — attached to daemon
 sfconfig-offline = OFFLINE — exclusive board ownership
 sfconfig-version = Revision
@@ -742,3 +747,26 @@ sfconfig-validation-ftn = Invalid FTN identities, links, routes, or directory so
 ftn-monitor-status = FTN queued / quarantine / active directories
 
 sfconfig-ftn-saved = FTN configuration saved.
+
+
+# Implemented N4 transport/operator surfaces; protocol identifiers stay literal.
+binkp-networks = Networks — BinkP
+binkp-password-prompt = BinkP password (write-only):
+binkp-credential-updated = BinkP credential state updated.
+binkp-link = Link
+binkp-listener = Listener
+binkp-poll = Poll Link
+binkp-test = Test Link
+binkp-connecting = Connecting
+binkp-authenticating = Authenticating
+binkp-remote-address = Remote address
+binkp-capabilities = Capabilities
+binkp-last-contact = Last contact
+binkp-queued = Queued
+binkp-retry = Retry
+binkp-held = Held
+binkp-authentication = Authentication failed
+binkp-address = Address mismatch
+binkp-interrupted = Transfer interrupted
+binkp-unavailable = Link unavailable
+binkp-complete = Session complete

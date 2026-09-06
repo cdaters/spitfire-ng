@@ -318,3 +318,12 @@ implementation slice is separately scoped N2 QWK partners/DOVE profile, not part
 of N1. FTN/BinkP, directories, Networks operator views, scheduler and doors are not
 implemented. Windows live networking acceptance remains deferred to a real Windows
 environment. No release, DDEV or production change is part of this source update.
+
+## N4 native BinkP — COMPLETE / ACCEPTED
+
+Native client/listener, CRAM, point/AKA negotiation, N3 queue/tosser custody,
+retry/hold/release and restart/restore are implemented on schema 24. Independent
+Synchronet exchange passed both directions. Small typed Poll/Test/configuration
+and status surfaces are implemented. See [M048](docs/research/m048-networking-n4-binkp.md).
+Next separately scoped action: N5 operator surfaces and recovery ergonomics.
+No live public FTN, AreaFix/FileEcho, scheduler, B-022, doors or release work.

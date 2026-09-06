@@ -1,6 +1,32 @@
 # SPITFIRE NG Status
 
-## N3 native FTN core — COMPLETE / ACCEPTED
+## N4 native BinkP — COMPLETE / ACCEPTED
+
+Native BinkP client/listener exchange NetMail and EchoMail through the accepted
+native FTN queue and automatic tosser. Controlled independent Synchronet BinkP
+interoperability passed both connection roles, including a point AKA and multiple
+AKAs. CRAM-required authentication/address checks fail closed; M_GOT owns peer
+custody, partial transfer never imports, and durable queues survive restart/restore.
+Schema **24**; en-US **1.21.0 / 1,071 messages**. Small sfconfig policy/credential,
+Poll/Test/Hold/Release and sfmonitor status surfaces are implemented.
+
+[Manual](docs/manual/binkp.md), [Technical Reference](docs/technical/binkp.md) and
+[M048 report](docs/research/m048-networking-n4-binkp.md) record exact evidence and
+limits. TLS and persistent partial resume are deferred. Live public FidoNet traffic:
+**NONE**; participation/membership is not claimed. Windows live BinkP remains
+**DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**. QWK N1/N2 and FTN N3 remain
+accepted; native messages are canonical; SMB remains unimplemented.
+
+B-021 VERIFIED; B-022 NOT STARTED. No AreaFix/FileEcho/TIC/FREQ, scheduler, doors,
+production/DDEV/FireComm or release work. The existing preview binary is unchanged.
+Public N4 gates: **578 passed / 0 failed / 4 ignored**, doctests, **99 headers**,
+fmt/Clippy/diff and **114 Markdown/link checks** pass. Privacy/provenance scans
+exclude private corpus, peer credentials/artifacts and private history.
+
+Exact next separately scoped action: N5 operator surfaces/recovery ergonomics;
+stop this pass after N4 publication. Private source checkpoint: `d95b853a17dc73cc358c49ec7c794b9a6882d27f`.
+
+## Previous checkpoint: N3 native FTN core — COMPLETE / ACCEPTED
 
 Current source implements the **native FTN/FidoNet core** on schema **23**:
 NetMail, transit, EchoMail, points, multiple domains/AKAs, scanner/tosser,
@@ -10,12 +36,13 @@ including points and a forwarded return loop. SPITFIRE messages remain canonical
 QWK N1/N2 remain accepted. [FTN Sysop procedure](docs/manual/ftn-core.md),
 [Technical Reference](docs/technical/ftn-core.md) and
 [M047 report](docs/research/m047-networking-n3-ftn-core.md) state exact scope.
-**BinkP is NOT implemented; live public FidoNet participation is NOT claimed.**
+At that N3 checkpoint BinkP was not implemented; N4 above supersedes that boundary.
+Live public FidoNet participation is not claimed.
 SMB remains unimplemented. B-021 VERIFIED; B-022 NOT STARTED. en-US 1.20.0 /
 1,051 messages. The 0.1.0 preview binary remains unchanged; no new release or tag.
 Windows live FTN acceptance remains deferred to a real Windows environment.
 
-Exact next separately scoped action: N4 BinkP over accepted FTN queues/artifacts,
+At the N3 checkpoint, the next separately scoped action was N4 BinkP over accepted FTN queues/artifacts,
 controlled leaf/point exchange and restore reconciliation. No public traffic
 is authorized by this handoff.
 
@@ -325,7 +352,7 @@ offline recovery preparation; sfmonitor is the live cockpit; sfconfig is the
 separate typed online/offline configuration environment. Maintenance adds shared
 owner guidance, not execute buttons. No B-018 pack/purge or B-022 output is imported.
 
-Current en-US is 1.16.0 / 988 messages. The supported [recovery journey](docs/manual/operator-recovery.md)
+At the B-021 closure, en-US was 1.16.0 / 988 messages. The supported [recovery journey](docs/manual/operator-recovery.md)
 covers deliberate local reenrollment, invalid configuration, exclusive offline
 authority, known-good cold restore, conflicts and loss of online authority.
 B-022 remains NOT STARTED. No networking, doors, scheduler or release work began.
@@ -333,6 +360,8 @@ B-022 remains NOT STARTED. No networking, doors, scheduler or release work began
 Public closure gates pass 481 tests / 2 existing ignored, doctests, 71 source
 headers, fmt, Clippy with warnings denied, diff hygiene, documentation links,
 localization and publication privacy/provenance scans. cargo-audit is unavailable.
+
+## Previous publication accounting — N3
 
 Public publication scope: 16 added files and 48 updated files, including schema 23,
 FTN codecs/native services/directory authority, synthetic tests, operator surfaces

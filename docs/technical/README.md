@@ -244,3 +244,5 @@ records final owner boundaries, regression/native evidence, and Windows deferral
 [M047 acceptance](../research/m047-networking-n3-ftn-core.md) cover implemented
 NetMail/EchoMail, points, multiple domains/AKAs, scanner/tosser, routing, shared
 queues and directory generations. No BinkP or live public participation is claimed.
+
+- [BinkP transport](binkp.md): protocol, schema 24, custody, authentication, limits and restart/restore.

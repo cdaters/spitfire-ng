@@ -4,7 +4,8 @@ N3 implements native FTN message semantics before transport. This specification 
 [M044 networking contract](../research/m044-networking-foundation-gate.md).
 Native messages remain the only message authority. Packet files are immutable
 interchange evidence. BinkP, public network participation, FileEcho and AreaFix
-are outside N3.
+are outside N3. [N4 BinkP](binkp.md) now implements transport around these
+accepted message/queue contracts; public participation remains unclaimed.
 
 ## Interfaces and ownership
 

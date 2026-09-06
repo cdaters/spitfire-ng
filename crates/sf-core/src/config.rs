@@ -65,6 +65,8 @@ pub struct RuntimeConfig {
     pub operators: OperatorConfig,
     #[serde(default)]
     pub ftn: crate::ftn::Policy,
+    #[serde(default)]
+    pub binkp: crate::ftn::BinkpPolicy,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -116,6 +118,7 @@ pub enum LocalOperatorCapability {
     ChangeSensitiveConfiguration,
     NetworkStatus,
     NetworkRun,
+    NetworkTest,
     NetworkQueue,
     NetworkDirectoryActivate,
 }
@@ -126,7 +129,7 @@ pub const MAX_LOCAL_OPERATOR_CAPABILITIES: usize = 32;
 
 impl LocalOperatorCapability {
     /// Complete implemented vocabulary for explicit enrollment, never a preset.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::BoardStatistics,
         Self::NodeStatus,
         Self::OperationalEvents,
@@ -145,6 +148,7 @@ impl LocalOperatorCapability {
         Self::ChangeSensitiveConfiguration,
         Self::NetworkStatus,
         Self::NetworkRun,
+        Self::NetworkTest,
         Self::NetworkQueue,
         Self::NetworkDirectoryActivate,
     ];
@@ -661,6 +665,18 @@ impl RuntimeConfig {
     }
 
     pub fn validate(&self) -> Result<ValidatedConfig, ConfigError> {
+        self.binkp
+            .validate(&self.ftn)
+            .map_err(|_| ConfigError::InvalidFtnConfiguration)?;
+        if let Some(listener) = self.binkp.listener.as_ref().filter(|l| l.enabled) {
+            if self
+                .transports
+                .iter()
+                .any(|t| t.enabled && t.network_listener() == Some(listener.bind))
+            {
+                return Err(ConfigError::DuplicateListener(listener.bind));
+            }
+        }
         self.ftn
             .validate()
             .map_err(|_| ConfigError::InvalidFtnConfiguration)?;
@@ -782,6 +798,7 @@ impl RuntimeConfig {
             ],
             operators: OperatorConfig::default(),
             ftn: crate::ftn::Policy::default(),
+            binkp: crate::ftn::BinkpPolicy::default(),
         }
     }
 }

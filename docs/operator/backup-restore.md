@@ -121,3 +121,6 @@ See the [FTN Sysop procedure](../manual/ftn-core.md) for isolated operation and
 [Technical Reference](../technical/ftn-core.md) for authority/privacy/recovery.
 Native messages remain canonical; private FTN mail is separate from QWK private
 mail. BinkP is not implemented and live public FidoNet is not claimed.
+
+N4 BinkP recovery retains private credentials and accepted custody, clears live
+claims and holds uncertain work. See [the recovery workflow](../manual/binkp.md#queues-failures-and-recovery).

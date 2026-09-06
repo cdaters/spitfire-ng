@@ -573,6 +573,13 @@ fn stage_restored_board(
             })?;
     }
 
+    if restored_database.schema_version()? >= 24 {
+        restored_database
+            .recover_binkp(chrono::Utc::now().timestamp())
+            .map_err(|_| {
+                BoardBackupError::ResourceValidation("BinkP restore reconciliation failed".into())
+            })?;
+    }
     if restored_database.schema_version()? >= 23 {
         restored_database.hold_restored_ftn().map_err(|_| {
             BoardBackupError::ResourceValidation("FTN restore state could not be held".into())
@@ -808,9 +815,21 @@ fn copy_entry_to_path(
 }
 
 fn copy_reader(input: &mut File, destination: &Path) -> Result<(u64, String), BoardBackupError> {
-    let mut output = OpenOptions::new()
-        .write(true)
-        .create_new(true)
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if destination
+        .components()
+        .any(|c| c.as_os_str() == "binkp-credentials")
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        if let Some(parent) = destination.parent() {
+            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
+                .map_err(|source| io_error("protect credential directory", parent, source))?;
+        }
+    }
+    let mut output = options
         .open(destination)
         .map_err(|source| io_error("create snapshot file", destination, source))?;
     let mut hasher = Sha256::new();
@@ -1347,7 +1366,7 @@ mod tests {
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
         // This fixture deliberately removes later authorities before constructing an old schema.
         let later: Vec<(String, String)> = connection
-            .prepare("SELECT type,name FROM sqlite_schema WHERE (name LIKE 'ftn_%' OR name='qwk_queue_work' OR name='network_queue_work') AND type IN ('table','trigger') ORDER BY type DESC")
+            .prepare("SELECT type,name FROM sqlite_schema WHERE (name LIKE 'binkp_%' OR name LIKE 'ftn_%' OR name='qwk_queue_work' OR name='network_queue_work') AND type IN ('table','trigger') ORDER BY type DESC")
             .unwrap().query_map([], |r| Ok((r.get(0)?,r.get(1)?))).unwrap()
             .collect::<Result<_,_>>().unwrap();
         connection
@@ -1359,7 +1378,7 @@ mod tests {
                 .unwrap();
         }
         connection
-            .execute("DELETE FROM schema_migrations WHERE version=23", [])
+            .execute("DELETE FROM schema_migrations WHERE version>=23", [])
             .unwrap();
         if connection
             .query_row(

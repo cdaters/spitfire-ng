@@ -210,6 +210,7 @@ impl EventFilter {
 #[derive(Clone, Debug, Default)]
 pub struct MonitorSnapshot {
     pub ftn: Option<sf_core::ftn::Status>,
+    pub binkp: Option<sf_bbs::binkp::Status>,
     pub shutdown: Option<sf_bbs::ShutdownImpact>,
     pub interactions: Option<sf_bbs::InteractionSnapshot>,
     pub authorized_capabilities: Vec<LocalOperatorCapability>,

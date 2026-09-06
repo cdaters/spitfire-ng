@@ -38,7 +38,7 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.20.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.21.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
 copy. It contains 1,014 semantic messages in the complete schema-20 caller and
 operator catalog, including
@@ -267,3 +267,11 @@ The sfconfig usage text includes typed FTN policy import. Machine protocol/actio
 identifiers remain stable tokens. No BinkP or unimplemented Networks cockpit
 strings are added. Presentation packages and terminal behavior are unchanged.
 See the [N3 Sysop manual](manual/ftn-core.md).
+
+## N4 / en-US 1.21.0
+
+N4 advances en-US to **1.21.0 / 1,071 messages** with twenty implemented BinkP/link/listener/Poll/Test,
+queue/retry/held/authentication/address/interruption/health labels and the hidden
+credential prompt/update result. sfmonitor's minimal Networks summary localizes
+finite status categories. sfconfig reuses the Test Link label for explicit
+network-test capability enrollment. No future AreaFix/FileEcho/TLS UI is advertised.

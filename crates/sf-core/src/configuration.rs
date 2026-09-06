@@ -79,6 +79,8 @@ pub struct ConfigurationCandidate {
     pub operators: Option<OperatorConfig>,
     #[serde(default)]
     pub ftn: Option<crate::ftn::Policy>,
+    #[serde(default)]
+    pub binkp: Option<crate::ftn::BinkpPolicy>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -439,6 +441,9 @@ impl ConfigurationCandidate {
                 issues.push(issue);
             }
         }
+        if let Some(binkp) = &self.binkp {
+            candidate.binkp = binkp.clone();
+        }
         if let Some(ftn) = &self.ftn {
             candidate.ftn = ftn.clone();
         }
@@ -520,6 +525,7 @@ mod tests {
             },
             edits,
             ftn: None,
+            binkp: None,
             operators: None,
         }
     }

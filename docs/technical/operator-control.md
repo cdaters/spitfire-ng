@@ -352,3 +352,14 @@ N2 remains a separate minor-6 feature. Typed sfconfig policy import uses existin
 configuration CAS and sensitive authority; directory activation requires its own
 explicit capability. The monitor adds counts only. See [FTN core](ftn-core.md)
 for exact authority, privacy, command and recovery contracts.
+
+## N4 / protocol minor 8 BinkP controls
+
+BinkpNetwork extends feature discovery without changing QWK/FTN minor 6/7. Status
+requires network-status, Poll requires network-run, Test the new explicit
+network-test capability, Hold/Release network-queue, and credentials/configuration
+change-sensitive-configuration. Typed requests use current authentication,
+CommandId receipts, policy digest/queue CAS and audit. Credential receipt hashes
+exclude secret material; Debug only names the operation. Sessions run in daemon
+workers and return a started ID asynchronously. The read-only bootstrap gains no
+probing/mutation privilege. See [BinkP](binkp.md) and its [manual](../manual/binkp.md).

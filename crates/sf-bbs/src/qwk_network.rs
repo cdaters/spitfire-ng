@@ -20,6 +20,9 @@ pub const NETWORK_MINOR: u16 = 6;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
+    Binkp {
+        request: crate::binkp::Action,
+    },
     Ftn {
         request: crate::ftn::Action,
     },
@@ -53,7 +56,9 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
-        if matches!(self, Self::Ftn { .. }) {
+        if matches!(self, Self::Binkp { .. }) {
+            crate::OperatorFeature::BinkpNetwork
+        } else if matches!(self, Self::Ftn { .. }) {
             crate::OperatorFeature::FtnNetwork
         } else {
             crate::OperatorFeature::QwkNetwork
@@ -61,6 +66,7 @@ impl NetworkAction {
     }
     pub fn capability(&self) -> Capability {
         match self {
+            Self::Binkp { request } => request.capability(),
             Self::Ftn { request } => request.capability(),
             Self::Configure { .. } | Self::ConfigureMail { .. } => {
                 Capability::ChangeSensitiveConfiguration
@@ -73,6 +79,7 @@ impl NetworkAction {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "network-result", rename_all = "kebab-case")]
 pub enum NetworkResult {
+    Binkp { response: crate::binkp::Result },
     Ftn { response: crate::ftn::Result },
     Configured,
     Built { artifact: Option<String> },
@@ -85,7 +92,7 @@ pub(crate) fn status(runtime: &BoardRuntime) -> Result<Vec<LinkStatus>, Applicat
     Ok(RuntimeDatabase::open_read_only(runtime.database_path())?.qwk_network_status()?)
 }
 pub(crate) fn dispatch(
-    runtime: &BoardRuntime,
+    runtime: &std::sync::Arc<BoardRuntime>,
     principal: &str,
     capabilities: &[Capability],
     command_id: &str,
@@ -111,6 +118,7 @@ pub(crate) fn dispatch(
     let now = chrono::Utc::now().timestamp();
     let mut db = RuntimeDatabase::open(runtime.database_path())?;
     let operation = match action {
+        NetworkAction::Binkp { request } => request.operation(),
         NetworkAction::Ftn { request } => request.operation(),
         NetworkAction::Configure { .. } => "network.configure",
         NetworkAction::ConfigureMail { .. } => "network.mail-policy",
@@ -138,7 +146,11 @@ pub(crate) fn dispatch(
         return Err(OperatorControlError::AuthorizationDenied.into());
     }
     let fingerprint = sf_net::qwk::digest(
-        &serde_json::to_vec(action).map_err(|_| OperatorControlError::InvalidCommand)?,
+        &match action {
+            NetworkAction::Binkp { request } => request.fingerprint(),
+            _ => serde_json::to_vec(action),
+        }
+        .map_err(|_| OperatorControlError::InvalidCommand)?,
     );
     let receipt = sf_core::NewOperatorCommandReceipt {
         command_id: command_id.into(),
@@ -161,6 +173,9 @@ pub(crate) fn dispatch(
     }
     let result = (|| -> Result<NetworkResult, ApplicationError> {
         Ok(match action {
+            NetworkAction::Binkp { request } => NetworkResult::Binkp {
+                response: crate::binkp::dispatch(runtime, principal, request)?,
+            },
             NetworkAction::Ftn { request } => NetworkResult::Ftn {
                 response: crate::ftn::dispatch(runtime, &mut db, principal, request, now)?,
             },
@@ -255,7 +270,7 @@ mod tests {
     fn explicit_network_capability_is_required_and_denial_is_audited() {
         let temp = tempfile::tempdir().unwrap();
         let board = crate::initialize_fixture_board(&temp.path().join("board")).unwrap();
-        let runtime = BoardRuntime::load(&board.config_path).unwrap();
+        let runtime = std::sync::Arc::new(BoardRuntime::load(&board.config_path).unwrap());
         let principal = crate::current_operator_identity().unwrap();
         let action = NetworkAction::Build {
             link: "unconfigured".into(),
@@ -281,7 +296,7 @@ mod tests {
     fn audit_failure_prevents_network_action_admission() {
         let temp = tempfile::tempdir().unwrap();
         let board = crate::initialize_fixture_board(&temp.path().join("board")).unwrap();
-        let runtime = BoardRuntime::load(&board.config_path).unwrap();
+        let runtime = std::sync::Arc::new(BoardRuntime::load(&board.config_path).unwrap());
         let principal = crate::current_operator_identity().unwrap();
         let connection = rusqlite::Connection::open(runtime.database_path()).unwrap();
         connection.execute_batch("CREATE TRIGGER test_network_audit_failure BEFORE INSERT ON operator_control_audit BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();

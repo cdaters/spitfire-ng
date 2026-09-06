@@ -274,3 +274,11 @@ macOS acceptance pass; no live public FidoNet traffic was sent. The
 limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
 explains isolated configuration and manual artifacts. Earlier milestone sections
 retain their dated scope. Windows live FTN acceptance remains deferred.
+
+## M048 / bounded BinkP admission
+
+The [BinkP threat review](technical/binkp.md#bounds-and-security-review) applies
+configured identity, CRAM-required default, private complete-artifact custody,
+decoded filename validation, session/resource/time bounds and unique queue claims.
+Test Link is explicitly authorized separately from polling. No peer metadata grants
+routing, configuration or caller authority.

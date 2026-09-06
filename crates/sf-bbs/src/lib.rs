@@ -161,7 +161,9 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
         }
         [command, config] if command == "config" => interactive_config(&PathBuf::from(config)),
         [command, config] if command == "status" => board_status(&PathBuf::from(config)),
-        [command, config] if command == "ftn-status" || command == "ftn-queue" => {
+        [command, config]
+            if command == "ftn-status" || command == "ftn-queue" || command == "binkp-status" =>
+        {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -169,12 +171,81 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
             runtime.block_on(async {
                 let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
                 client.describe_operator_controls().await?;
-                let result = if command == "ftn-status" {
+                let result = if command == "binkp-status" {
+                    serde_json::to_string_pretty(&client.binkp_status().await?)
+                } else if command == "ftn-status" {
                     serde_json::to_string_pretty(&client.ftn_status().await?)
                 } else {
                     serde_json::to_string_pretty(&client.ftn_queue(None).await?)
                 };
                 result.map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
+            })
+        }
+        [command, config, queue, version]
+            if command == "binkp-hold" || command == "binkp-release" =>
+        {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))?;
+            rt.block_on(async {
+                let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
+                client.describe_operator_controls().await?;
+                let queue = queue
+                    .to_str()
+                    .ok_or(OperatorControlError::InvalidCommand)?
+                    .to_owned();
+                let expected = version
+                    .to_str()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .ok_or(OperatorControlError::InvalidCommand)?;
+                let request = if command == "binkp-hold" {
+                    binkp::Action::Hold { queue, expected }
+                } else {
+                    binkp::Action::Release { queue, expected }
+                };
+                let result = client
+                    .qwk_network_action(
+                        format!("{:032x}", rand::random::<u128>()),
+                        NetworkAction::Binkp { request },
+                    )
+                    .await?;
+                serde_json::to_string_pretty(&result)
+                    .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
+            })
+        }
+        [command, config, link] if command == "binkp-poll" || command == "binkp-test" => {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))?;
+            rt.block_on(async {
+                let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
+                client.describe_operator_controls().await?;
+                let status = client.binkp_status().await?;
+                let link = link
+                    .to_str()
+                    .ok_or(OperatorControlError::InvalidCommand)?
+                    .to_owned();
+                let request = if command == "binkp-poll" {
+                    binkp::Action::Poll {
+                        link,
+                        expected: status.policy,
+                    }
+                } else {
+                    binkp::Action::Test {
+                        link,
+                        expected: status.policy,
+                    }
+                };
+                let result = client
+                    .qwk_network_action(
+                        format!("{:032x}", rand::random::<u128>()),
+                        NetworkAction::Binkp { request },
+                    )
+                    .await?;
+                serde_json::to_string_pretty(&result)
+                    .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
             })
         }
         [command, config] if command == "network-status" => {
@@ -663,4 +734,5 @@ mod tests {
     }
 }
 
+pub mod binkp;
 pub mod ftn;

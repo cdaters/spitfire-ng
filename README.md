@@ -1,24 +1,18 @@
 <p align="center">
 
-Current source implements the **native FTN/FidoNet core** on schema **23**:
-NetMail, transit, EchoMail, points, multiple domains/AKAs, scanner/tosser,
-explicit routing, durable shared queues and nodelist/pointlist directory authority.
-Independent Synchronet/SBBSecho packet interoperability passed in both directions,
-including points and a forwarded return loop. SPITFIRE messages remain canonical;
-QWK N1/N2 remain accepted. [FTN Sysop procedure](docs/manual/ftn-core.md),
-[Technical Reference](docs/technical/ftn-core.md) and
-[M047 report](docs/research/m047-networking-n3-ftn-core.md) state exact scope.
-**BinkP is NOT implemented; live public FidoNet participation is NOT claimed.**
-SMB remains unimplemented. B-021 VERIFIED; B-022 NOT STARTED. en-US 1.20.0 /
-1,051 messages. The 0.1.0 preview binary remains unchanged; no new release or tag.
-Windows live FTN acceptance remains deferred to a real Windows environment.
-
   <img src="docs/assets/branding/spitfire-ng-banner.png"
        alt="SPITFIRE NG — Next Generation BBS Software"
        width="1200">
 </p>
 
 # SPITFIRE NG
+
+Native BinkP client/listener and controlled independent NetMail/EchoMail exchange
+are implemented on schema 24, including point/AKA identity and safe queue recovery.
+QWK N1/N2 and FTN N3 remain accepted. en-US is 1.21.0 / 1,071 messages; B-021
+VERIFIED, B-022 NOT STARTED. The published preview binary and tags are unchanged.
+See [N4 acceptance](docs/research/m048-networking-n4-binkp.md) and the
+[Sysop guide](docs/manual/binkp.md). Live public FidoNet participation is not claimed.
 
 SPITFIRE NG is a modern, cross-platform reimplementation of the SPITFIRE
 Bulletin Board System. It preserves the caller experience and operating model
@@ -56,7 +50,7 @@ schema-15 safe file inspection, private file requests and review, staged file
 maintenance, schema-16 batch transfer policy and logical storage, and the
 schema-17 zero-byte file invariant. Schema 18 adds privacy-safe operational
 events, daily statistics, retention, notifications, and board/node/maintenance
-projections. Current source schema 19 adds protected read-only operator
+projections. Schema 19 adds protected read-only operator
 attachment on Unix/macOS and Windows plus the reusable `OperatorClient` and
 `spitfire operator` CLI. Current source also includes the read-only-by-default
 `sfmonitor` 0.1 local operator application over that same client. The completed
@@ -76,7 +70,7 @@ B021-A/B/C remain accepted and B021-D is COMPLETE / ACCEPTED. The typed
 `sfconfig` environment and `sfmonitor` handoff now join coherent setup, permissions,
 maintenance guidance and cold recovery. See the [closure evidence](docs/research/m039-tranche-7-b021d-operator-closure.md)
 and [operator recovery](docs/manual/operator-recovery.md). Schema remains 19;
-en-US is 1.16.0. Windows live integrated operator acceptance remains
+Current en-US is 1.21.0. Windows live integrated operator acceptance remains
 DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED. This source update creates no release.
 
 Available today:
@@ -252,7 +246,7 @@ The Development Preview does not include RIP graphics, caller-selectable
 presentation profiles, production non-English translations, the remaining
 advanced Category-B command set, exact original LAKOTA compatibility, FidoNet/CircuitNet,
 web administration, SFDraw, SFDATE, or SFREG. The 0.1.0 downloadable binary
-also predates QWK offline mail, SSH, schemas 13–22, public-information additions, Tranche 5 file
+also predates QWK offline mail, SSH, schemas 13–24, public-information additions, Tranche 5 file
 inspection/request/maintenance, Tranche 6 transfer/storage source, B-017
 observability, B021-A protected operator attachment, `sfmonitor`, and B021-B
 live controls and B021-C configuration / `sfconfig`. Current source includes

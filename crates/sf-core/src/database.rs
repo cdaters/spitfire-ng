@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 23;
+pub const SCHEMA_VERSION: u32 = 24;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 23] = [
+const MIGRATIONS: [Migration; 24] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1506,6 +1506,11 @@ const MIGRATIONS: [Migration; 23] = [
         version: 23,
         name: "native_ftn_authority",
         sql: crate::ftn::MIGRATION,
+    },
+    Migration {
+        version: 24,
+        name: "binkp_transport_authority",
+        sql: crate::ftn::BINKP_MIGRATION,
     },
 ];
 
@@ -5970,6 +5975,55 @@ mod qwk_migration_tests {
             0
         );
         assert_eq!(c.query_row("SELECT (SELECT COUNT(*) FROM qwk_private_policy)+(SELECT COUNT(*) FROM network_private_envelopes)",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+    #[test]
+    fn schema_twenty_four_transactional_and_no_fabricated_transport_history() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(23) {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        c.execute_batch("INSERT INTO ftn_addresses(domain,zone,net,node,point) VALUES('retained',10,100,1,3); CREATE TABLE binkp_queue_claims(sentinel TEXT); INSERT INTO binkp_queue_claims VALUES('preserved');").unwrap();
+        assert!(apply_migration(&mut c, &MIGRATIONS[23]).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 23);
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name='binkp_link_health'",
+                [],
+                |r| r.get::<_, u32>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT sentinel FROM binkp_queue_claims", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "preserved"
+        );
+        c.execute_batch("DROP TABLE binkp_queue_claims").unwrap();
+        apply_migration(&mut c, &MIGRATIONS[23]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 24);
+        assert_eq!(
+            c.query_row("SELECT domain FROM ftn_addresses", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "retained"
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM binkp_link_health", [], |r| r
+                .get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, u32>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
     }
     #[test]
     fn schema_twenty_three_failure_rolls_back_queue_reparenting() {

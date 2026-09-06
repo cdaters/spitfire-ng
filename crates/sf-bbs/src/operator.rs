@@ -31,6 +31,9 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    pub(crate) fn binkp_status(&self) -> Result<crate::binkp::Status, ApplicationError> {
+        crate::binkp::status(&self.runtime)
+    }
     pub(crate) fn ftn_queue(
         &self,
         after: Option<&str>,

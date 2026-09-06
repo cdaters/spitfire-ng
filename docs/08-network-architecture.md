@@ -1,11 +1,13 @@
 # SPITFIRE Message Network Architecture
 
-Status: **N1/N2 accepted; N3 native FTN core accepted**. The
+Status: **N1/N2/N3/N4 accepted**. The
 [FTN reference](technical/ftn-core.md) documents implemented packet/mail/directory
-semantics. BinkP is not implemented; live public FidoNet participation is not claimed.
+semantics. [Native BinkP](technical/binkp.md) client/listener and controlled
+independent interoperability are accepted; live public FidoNet participation is
+not claimed.
 See the [N1 Technical Reference](technical/qwk-offline.md) for implemented authority;
 the future design below retains M044 scope.
-Current schema is 23. The canonical implementation-ready design, evidence, contracts,
+Current schema is 24. The canonical implementation-ready design, evidence, contracts,
 limits and N1–N7 acceptance sequence are in the
 [M044 networking foundation gate](research/m044-networking-foundation-gate.md).
 
@@ -107,3 +109,13 @@ macOS acceptance pass; no live public FidoNet traffic was sent. The
 limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
 explains isolated configuration and manual artifacts. Earlier milestone sections
 retain their dated scope. Windows live FTN acceptance remains deferred.
+
+## M048 / schema 24 BinkP transport
+
+The [BinkP Technical Reference](technical/binkp.md) and [manual](manual/binkp.md)
+define implemented daemon caller/answerer roles around N3. Queue claims, health and
+custody receipts extend the existing queue; complete inbound artifacts toss
+automatically. Explicit AKA/remote identity, CRAM default, M_GOT acceptance,
+bounded batches and restart/restore uncertainty holds preserve native authority.
+Minimal Poll/Test/Hold/Release and configuration/status surfaces are implemented;
+N5's full cockpit and scheduled polling remain later.

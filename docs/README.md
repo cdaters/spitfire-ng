@@ -212,3 +212,9 @@ independently tested. BinkP and live public FidoNet participation are not claime
 - [FTN Sysop manual](manual/ftn-core.md)
 - [FTN Technical Reference](technical/ftn-core.md)
 - [M047 implementation and isolated acceptance](research/m047-networking-n3-ftn-core.md)
+
+## Native BinkP transport / N4
+
+- [Sysop workflow](manual/binkp.md)
+- [Technical Reference](technical/binkp.md)
+- [M048 implementation and isolated acceptance](research/m048-networking-n4-binkp.md)

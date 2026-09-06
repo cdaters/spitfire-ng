@@ -271,6 +271,43 @@ fn render_dashboard(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
         metric_number("sfmonitor-storage-warnings", board.storage_warnings),
         metric_number("sfmonitor-recent-errors", board.recent_errors),
     ];
+    if let Some(binkp) = &model.snapshot.binkp {
+        lines.push(section_line("binkp-networks"));
+        for link in binkp.links.iter().take(4) {
+            let h = link.health.as_ref();
+            let state = if h.is_some_and(|h| h.active) {
+                "binkp-connecting"
+            } else if h.is_some_and(|h| h.held) {
+                "binkp-held"
+            } else {
+                match h.and_then(|h| h.last_error.as_deref()) {
+                    Some("authentication") => "binkp-authentication",
+                    Some("address") => "binkp-address",
+                    Some("interrupted" | "cancelled") => "binkp-interrupted",
+                    Some(_) => "binkp-unavailable",
+                    None if h.is_some_and(|h| h.last_success.is_some()) => "binkp-complete",
+                    None => "binkp-link",
+                }
+            };
+            lines.push(Line::raw(format!(
+                "{}  {}: {}  {}",
+                link.link,
+                text("binkp-queued", &LocalizationArgs::new()),
+                h.map(|h| h.queued).unwrap_or(0),
+                text(state, &LocalizationArgs::new())
+            )));
+            if let Some(at) = h
+                .and_then(|h| h.last_success)
+                .and_then(|at| DateTime::<Utc>::from_timestamp(at, 0))
+            {
+                lines.push(Line::raw(format!(
+                    "  {}: {}",
+                    text("binkp-last-contact", &LocalizationArgs::new()),
+                    at.format("%Y-%m-%d %H:%M UTC")
+                )));
+            }
+        }
+    }
     if let Some(ftn) = &model.snapshot.ftn {
         lines.push(metric_line(
             "ftn-monitor-status",

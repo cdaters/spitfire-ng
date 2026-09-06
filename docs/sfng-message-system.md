@@ -482,3 +482,11 @@ macOS acceptance pass; no live public FidoNet traffic was sent. The
 limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
 explains isolated configuration and manual artifacts. Earlier milestone sections
 retain their dated scope. Windows live FTN acceptance remains deferred.
+
+## M048 / transport boundary
+
+[BinkP](technical/binkp.md) moves N3 artifacts around this native message authority.
+It neither rewrites final destinations nor stores an alternate mail base. Complete
+inbound custody invokes the accepted tosser; partial transfer never reaches native
+message mutation. Private NetMail and public EchoMail retain N3 permissions and
+provenance independently of transport acknowledgement.

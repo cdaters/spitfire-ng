@@ -686,3 +686,14 @@ macOS acceptance pass; no live public FidoNet traffic was sent. The
 limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
 explains isolated configuration and manual artifacts. Earlier milestone sections
 retain their dated scope. Windows live FTN acceptance remains deferred.
+
+## M048 / BinkP privacy and credentials
+
+[BinkP](technical/binkp.md) requires configured remote address/domain/point and
+CRAM by default. It is transport, not caller or routing authority. CRAM does not
+encrypt mail or provide mutual authentication; plain compatibility is explicit
+and TLS is deferred. Complete private packet custody precedes N3 toss and GOT.
+Credential files are private and write-only; receipts omit credential values
+before hashing. Only finite errors, admitted addresses and recognized safe options
+reach status/events/audit. Unknown peer text and NetMail bodies never do. The
+Technical Reference contains the explicit threat/limit matrix.

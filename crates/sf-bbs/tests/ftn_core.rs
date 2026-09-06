@@ -196,6 +196,7 @@ fn native_ftn_real_daemon_journey() {
                 edits: vec![],
                 operators: None,
                 ftn: Some(policy.clone()),
+                binkp: None,
             },
         ))
         .unwrap();
