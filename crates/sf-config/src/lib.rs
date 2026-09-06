@@ -56,7 +56,7 @@ const SECTIONS: [&str; 8] = [
     "messages-files",
     "storage",
 ];
-const CAPS: [Cap; 19] = Cap::ALL;
+const CAPS: [Cap; 20] = Cap::ALL;
 
 fn cap_key(cap: Cap) -> &'static str {
     match cap {
@@ -79,6 +79,7 @@ fn cap_key(cap: Cap) -> &'static str {
         Cap::NetworkStatus => "network-cap-status",
         Cap::NetworkRun => "network-cap-run",
         Cap::NetworkQueue => "network-cap-queue",
+        Cap::NetworkDirectoryActivate => "ftn-cap-directory-activate",
     }
 }
 fn identity_name(identity: &LocalOperatorIdentity) -> String {
@@ -187,6 +188,7 @@ impl ConfigModel {
         ConfigurationCandidate {
             expected: self.snapshot.version.clone(),
             edits: self.edits.clone(),
+            ftn: None,
             operators: (self.operators != self.snapshot.config.operators)
                 .then(|| self.operators.clone()),
         }
@@ -877,6 +879,7 @@ pub fn run_from_env() -> Result<(), String> {
         }
         let mut board = None;
         let mut offline = false;
+        let mut ftn_file = None;
         let mut index = 0;
         while index < args.len() {
             match args[index].to_str() {
@@ -885,12 +888,16 @@ pub fn run_from_env() -> Result<(), String> {
                     board = args.get(index).map(PathBuf::from);
                 }
                 Some("--offline") if !offline => offline = true,
+                Some("--apply-ftn") if ftn_file.is_none() => {
+                    index += 1;
+                    ftn_file = args.get(index).map(PathBuf::from);
+                }
                 _ => return Err(t("sfconfig-usage")),
             }
             index += 1;
         }
         let board = board.ok_or_else(|| t("sfconfig-usage"))?;
-        if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        if ftn_file.is_none() && (!io::stdin().is_terminal() || !io::stdout().is_terminal()) {
             return Err(t("sfconfig-terminal-required"));
         }
         let mut backend = if offline {
@@ -910,6 +917,34 @@ pub fn run_from_env() -> Result<(), String> {
                 client: Box::new(client),
             }
         };
+        if let Some(path) = ftn_file {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            std::fs::File::open(path)
+                .map_err(|_| t("sfconfig-validation-ftn"))?
+                .take(65537)
+                .read_to_end(&mut bytes)
+                .map_err(|_| t("sfconfig-validation-ftn"))?;
+            if bytes.len() > 65536 {
+                return Err(t("sfconfig-validation-ftn"));
+            }
+            let ftn: sf_core::ftn::Policy =
+                serde_json::from_slice(&bytes).map_err(|_| t("sfconfig-validation-ftn"))?;
+            ftn.validate().map_err(|_| t("sfconfig-validation-ftn"))?;
+            let snapshot = backend.snapshot()?;
+            let candidate = ConfigurationCandidate {
+                expected: snapshot.version,
+                edits: vec![],
+                operators: None,
+                ftn: Some(ftn),
+            };
+            let result = backend.save(format!("{:032x}", rand::random::<u128>()), candidate)?;
+            if matches!(result, ConfigurationResult::Saved { .. }) {
+                println!("{}", t("sfconfig-ftn-saved"));
+                return Ok(());
+            }
+            return Err(t("sfconfig-save-uncertain"));
+        }
         let mut model = ConfigModel::new(backend.snapshot()?, offline);
         enable_raw_mode().map_err(|e| e.to_string())?;
         let _restore = Restore;

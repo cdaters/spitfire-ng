@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 22;
+pub const SCHEMA_VERSION: u32 = 23;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 22] = [
+const MIGRATIONS: [Migration; 23] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1501,6 +1501,11 @@ const MIGRATIONS: [Migration; 22] = [
         version: 22,
         name: "qwk_private_native_containers",
         sql: crate::qwk_network::PRIVATE_MIGRATION,
+    },
+    Migration {
+        version: 23,
+        name: "native_ftn_authority",
+        sql: crate::ftn::MIGRATION,
     },
 ];
 
@@ -2990,7 +2995,7 @@ fn apply_migration(
     connection: &mut Connection,
     migration: &Migration,
 ) -> Result<(), DatabaseError> {
-    let rebuilds_referenced_file_table = matches!(migration.version, 17 | 22);
+    let rebuilds_referenced_file_table = matches!(migration.version, 17 | 22 | 23);
     if rebuilds_referenced_file_table {
         connection
             .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;")
@@ -3019,7 +3024,7 @@ fn run_migration(
     transaction
         .execute_batch(migration.sql)
         .map_err(DatabaseError::Sqlite)?;
-    if migration.version == 22 {
+    if matches!(migration.version, 22 | 23) {
         let invalid: bool = transaction
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
@@ -5965,5 +5970,116 @@ mod qwk_migration_tests {
             0
         );
         assert_eq!(c.query_row("SELECT (SELECT COUNT(*) FROM qwk_private_policy)+(SELECT COUNT(*) FROM network_private_envelopes)",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+    #[test]
+    fn schema_twenty_three_failure_rolls_back_queue_reparenting() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for m in MIGRATIONS.iter().take(22) {
+            apply_migration(&mut c, m).unwrap();
+        }
+        c.execute_batch("CREATE TABLE ftn_messages(sentinel TEXT); INSERT INTO ftn_messages VALUES('retained');").unwrap();
+        assert!(apply_migration(&mut c, &MIGRATIONS[22]).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 22);
+        assert_eq!(
+            c.query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            c.query_row("SELECT sentinel FROM ftn_messages", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "retained"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name='network_queue_work'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        c.execute_batch("DROP TABLE ftn_messages;").unwrap();
+        apply_migration(&mut c, &MIGRATIONS[22]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 23);
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM ftn_messages", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    #[test]
+    fn schema_twenty_three_preserves_populated_qwk_queue() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for m in MIGRATIONS.iter().take(22) {
+            apply_migration(&mut c, m).unwrap();
+        }
+        let mut db = RuntimeDatabase {
+            connection: c,
+            path: PathBuf::from("synthetic.db"),
+        };
+        let conference = db
+            .ensure_conference(&crate::ConferenceDefinition {
+                number: 1,
+                name: "Synthetic".into(),
+                description: "Migration test".into(),
+                access_mode: crate::ConferenceAccessMode::AtLeast,
+                read_security: crate::SecurityLevel::new(1).unwrap(),
+                post_security: crate::SecurityLevel::new(1).unwrap(),
+                public_only: true,
+                caller_deletion_enabled: true,
+                maximum_lines: 99,
+                privileged_security_levels: vec![],
+            })
+            .unwrap();
+        db.connection.execute("INSERT INTO message_payloads(subject,body,content_kind,encoding) VALUES(?1,?2,'standard','utf8')",params![b"Subject".as_slice(),b"Body".as_slice()]).unwrap();
+        db.connection
+            .execute_batch(
+                "INSERT INTO message_fanouts(fanout_id,payload_id,created_at) VALUES(1,1,0);",
+            )
+            .unwrap();
+        db.connection.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_name,created_at,placed_at,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind) VALUES(1,1,?1,1,'External',0,0,'all-callers','public','active','single',0,'external-network','conference')",[conference.id.get()]).unwrap();
+        db.connection.execute_batch("INSERT INTO qwk_links VALUES('peer','synthetic','LOCAL','PEER','Synthetic','qwk-headers','node',1,1,1,1); INSERT INTO network_publications(publication_id,message_id,network,area,wire_id,origin,created_at) VALUES('publication',1,'synthetic','test','wire-id','PEER',0); INSERT INTO network_routing_decisions VALUES('queue','publication','peer','PEER',1,1,1,1,'digest',0); INSERT INTO network_outbound_queue(queue_id,state,version,attempts,next_attempt,reason,created_at,reserved_bytes) VALUES('queue','retry',7,2,400,'retry',10,2048);").unwrap();
+        apply_migration(&mut db.connection, &MIGRATIONS[22]).unwrap();
+        let row:(String,i64,i64,i64,i64)=db.connection.query_row("SELECT state,version,attempts,next_attempt,reserved_bytes FROM network_outbound_queue WHERE queue_id='queue'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).unwrap();
+        assert_eq!(row, ("retry".into(), 7, 2, 400, 2048));
+        assert_eq!(
+            db.connection
+                .query_row(
+                    "SELECT adapter FROM network_queue_work WHERE queue_id='queue'",
+                    [],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "qwk"
+        );
+        assert_eq!(
+            db.connection
+                .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.connection
+                .query_row("SELECT COUNT(*) FROM ftn_messages", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 }

@@ -13,6 +13,7 @@ name = "sfconfig"
 path = "src/main.rs"
 
 [dependencies]
+serde_json.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 sf-bbs = { path = "../sf-bbs" }
@@ -22,4 +23,3 @@ rand.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
-serde_json.workspace = true

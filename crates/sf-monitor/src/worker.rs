@@ -624,7 +624,15 @@ async fn load_snapshot(
     let statistics = client.statistics().await?;
     let callers = client.recent_callers(RECENT_CALLER_LIMIT).await?;
     let maintenance = client.maintenance_status().await?;
+    let ftn = if authorized_capabilities.contains(&sf_core::LocalOperatorCapability::NetworkStatus)
+        && client.supports_mutation(sf_bbs::OperatorFeature::FtnNetwork)
+    {
+        Some(client.ftn_status().await?)
+    } else {
+        None
+    };
     Ok(MonitorSnapshot {
+        ftn,
         shutdown: if client.supports_mutation(sf_bbs::OperatorFeature::GracefulShutdown) {
             Some(client.shutdown_status().await?)
         } else {

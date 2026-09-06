@@ -133,3 +133,10 @@ Message/file-area editing retains the stopped-board
 [domain editor](../operator/configuration.md). Do not start either beside a
 running owner. Pack/purge, B-022 screen/export/print, networks, doors, scheduler
 runtime, service deployment, and release packaging are outside these controls.
+
+## N3 FTN minimum
+
+The [FTN Sysop chapter](ftn-core.md) documents the implemented typed sfconfig
+policy import, protected packet/directory operations and read-only status counts.
+Cold restore holds uncertain FTN work and origin serial allocation; no manual SQL
+release is prescribed. Full Networks UI and BinkP remain later work.

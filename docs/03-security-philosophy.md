@@ -259,3 +259,18 @@ It is:
 
 N2 network ingress uses authenticated operator context, configured partner identity and exact packet checks. Public conference eligibility, explicit private mailbox/transit policy, native external attribution, durable duplicate/path receipts, confined artifact custody and bounded quarantine prevent packet fields from acquiring local caller authority. No public network traffic or credentials are configured by the manual profile.
 See [QWK networking](technical/qwk-networking.md) for the implemented scope and interoperability limits.
+
+## M047 / schema 23 native FTN core
+
+N3 implements NetMail and EchoMail around the canonical native message authority,
+with full points, domain-separated identities, multiple AKAs, explicit routing,
+scanner/tosser and durable shared queue work. FTN controls/provenance remain
+separate from QWK envelopes and visible bodies. EchoMail maps only to enrolled
+native conferences; private NetMail requires an explicit active caller alias and
+transit has no caller-readable container. No SMB, external message store or
+BinkP implementation exists. Independent packet interoperability and native
+macOS acceptance pass; no live public FidoNet traffic was sent. The
+[N3 Technical Reference](technical/ftn-core.md) owns schema, interfaces, resource
+limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
+explains isolated configuration and manual artifacts. Earlier milestone sections
+retain their dated scope. Windows live FTN acceptance remains deferred.

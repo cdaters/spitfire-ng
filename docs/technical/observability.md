@@ -211,3 +211,13 @@ The [QWK offline Technical Reference](qwk-offline.md) defines the implemented ad
 
 N2 uses content-free message.qwk-network events and existing operator audit/command journals for configured links, packet build/receive, import, duplicate/loop suppression, quarantine, retries, acceptance and failed exchange. Typed network-status/network-queue are bounded read-only projections; no full Networks cockpit is added.
 See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.
+
+## N3 FTN events and read-only status
+
+Body-free `message.ftn.*` events cover packet ingestion/rejection, local NetMail,
+transit, EchoMail, duplicate/loop suppression, scanning/building, directory
+activation/failure, routing failure and quarantine. Queue status contains typed
+protocol/routing facts; no message body or packet password is exposed. Operator
+policy/mapping/alias/directory actions use existing audit/command receipts.
+The minimum sfmonitor projection shows queued work, quarantine and directory
+counts. See [FTN core](ftn-core.md); the full Networks cockpit remains N5.

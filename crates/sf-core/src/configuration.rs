@@ -77,6 +77,8 @@ pub struct ConfigurationCandidate {
     pub edits: Vec<ConfigurationEdit>,
     /// Whole-list replacement is explicit, versioned, and never merged.
     pub operators: Option<OperatorConfig>,
+    #[serde(default)]
+    pub ftn: Option<crate::ftn::Policy>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -437,12 +439,16 @@ impl ConfigurationCandidate {
                 issues.push(issue);
             }
         }
+        if let Some(ftn) = &self.ftn {
+            candidate.ftn = ftn.clone();
+        }
         if let Some(operators) = &self.operators {
             candidate.operators = operators.clone();
         }
         if let Err(error) = candidate.validate() {
             use ConfigurationField::*;
             let (field, key) = match error {
+                ConfigError::InvalidFtnConfiguration => (None, "sfconfig-validation-ftn"),
                 ConfigError::InvalidInactivityLimit => {
                     (Some(InactivityMinutes), "sfconfig-validation-minutes")
                 }
@@ -513,6 +519,7 @@ mod tests {
                 digest: "0".repeat(64),
             },
             edits,
+            ftn: None,
             operators: None,
         }
     }

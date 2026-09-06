@@ -31,6 +31,18 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    pub(crate) fn ftn_queue(
+        &self,
+        after: Option<&str>,
+    ) -> Result<Vec<sf_core::ftn::QueueItem>, ApplicationError> {
+        Ok(
+            sf_core::RuntimeDatabase::open_read_only(self.runtime.database_path())?
+                .ftn_queue(after)?,
+        )
+    }
+    pub(crate) fn ftn_status(&self) -> Result<sf_core::ftn::Status, ApplicationError> {
+        Ok(sf_core::RuntimeDatabase::open_read_only(self.runtime.database_path())?.ftn_status()?)
+    }
     pub(crate) fn network_status(
         &self,
     ) -> Result<Vec<sf_core::qwk_network::LinkStatus>, ApplicationError> {

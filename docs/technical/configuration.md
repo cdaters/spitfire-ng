@@ -205,3 +205,11 @@ No repair, shell, key editor, schema change, or extra durable authority is added
 
 QWK partner/mapping policy and private mailbox/routes are typed relational schema-21/22 configuration with expected versions. sfconfig enrolls explicit network capabilities; the minimal partner editor is the protected typed CLI, documented in the Sysop manual. Full Networks TUI remains later scope.
 See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.
+
+## N3 FTN operator boundary
+
+Protocol minor 7 adds negotiated `FtnNetwork` status, queue and manual operations.
+N2 remains a separate minor-6 feature. Typed sfconfig policy import uses existing
+configuration CAS and sensitive authority; directory activation requires its own
+explicit capability. The monitor adds counts only. See [FTN core](ftn-core.md)
+for exact authority, privacy, command and recovery contracts.

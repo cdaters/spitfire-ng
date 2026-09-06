@@ -10,5 +10,6 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Bounded interchange codecs. No database, authentication, or transport authority.
+pub mod ftn;
 pub mod qwk;
 pub mod qwk_network;

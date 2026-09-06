@@ -1,22 +1,42 @@
 # SPITFIRE NG Roadmap
 
-## N2 QWK networking — COMPLETE / ACCEPTED
+## N3 native FTN core — COMPLETE / ACCEPTED
 
-Current source schema **22** implements typed multi-partner QWK networking,
+Current source implements the **native FTN/FidoNet core** on schema **23**:
+NetMail, transit, EchoMail, points, multiple domains/AKAs, scanner/tosser,
+explicit routing, durable shared queues and nodelist/pointlist directory authority.
+Independent Synchronet/SBBSecho packet interoperability passed in both directions,
+including points and a forwarded return loop. SPITFIRE messages remain canonical;
+QWK N1/N2 remain accepted. [FTN Sysop procedure](docs/manual/ftn-core.md),
+[Technical Reference](docs/technical/ftn-core.md) and
+[M047 report](docs/research/m047-networking-n3-ftn-core.md) state exact scope.
+**BinkP is NOT implemented; live public FidoNet participation is NOT claimed.**
+SMB remains unimplemented. B-021 VERIFIED; B-022 NOT STARTED. en-US 1.20.0 /
+1,051 messages. The 0.1.0 preview binary remains unchanged; no new release or tag.
+Windows live FTN acceptance remains deferred to a real Windows environment.
+
+Exact next separately scoped action: N4 BinkP over accepted FTN queues/artifacts,
+controlled leaf/point exchange and restore reconciliation. No public traffic
+is authorized by this handoff.
+
+## Previous checkpoint: N2 QWK networking — COMPLETE / ACCEPTED
+
+The accepted N2 checkpoint at schema **22** implemented typed multi-partner QWK networking,
 conference mapping, native private mailbox/transit, durable queues, receipts,
 provenance, duplicate/loop prevention and explicit manual artifact exchange.
 Controlled Synchronet 3.19c imported public/private NG packets and generated
 public/private replies plus transit packets imported by the same macOS daemon.
 DOVE-compatible behavior uses the shared QWK architecture. No public DOVE-Net
 traffic or membership is claimed. N1 remains accepted; native messages are canonical;
-SMB, FTN/FidoNet and BinkP remain unimplemented. B-021 VERIFIED; B-022 NOT STARTED.
+At that N2 checkpoint FTN and BinkP were unimplemented; N3 above supersedes
+that FTN boundary. SMB remains unimplemented. B-021 VERIFIED; B-022 NOT STARTED.
 en-US **1.19.0 / 1,047 messages**. No release/tag/package is created. Real Windows
 networking acceptance remains deferred to a real Windows environment.
 See [M046](docs/research/m046-networking-n2-qwk-dove.md) for evidence and limitations.
 
 
-> Current source checkpoint: **M045 / N1 caller QWK offline COMPLETE / ACCEPTED**.
-> Schema 22; N1/N2 are accepted. FTN/FidoNet/BinkP remain unimplemented.
+> Current source checkpoint: **M047 / N3 native FTN core COMPLETE / ACCEPTED**.
+> Schema 23; N1/N2/N3 are accepted. BinkP remains unimplemented.
 
 
 SPITFIRE NG is moving from historical research and stock-core implementation

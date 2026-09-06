@@ -91,7 +91,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite and require current schema 22, exact migration names,
+3. open SQLite and require current schema 23, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -112,9 +112,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-21 snapshots.
+target. This build accepts exact schema-10 through schema-23 snapshots.
 An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 22. Validation rejects
+applies the transactional migrations through schema 23. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -326,3 +326,15 @@ restored unsent work is held. No private bodies enter operator diagnostics, and 
 SMB compatibility or separate QWK store exists. See the canonical
 [QWK networking reference](technical/qwk-networking.md) and
 [Sysop procedure](manual/qwk-networking.md) for interfaces, policy and limits.
+
+## M047 / schema 23 FTN recovery
+
+Cold backup retains static FTN policy and relational native provenance, aliases,
+area mappings, serial high-water state, duplicate/import/export identity, queued
+routing decisions, directory generations/active pointers/issues, quarantine and
+immutable artifacts. `ftn-handoff` candidates are excluded alongside `qwk-handoff`.
+Restore holds unsent FTN work and serial allocation for explicit reconciliation;
+no later peer receipt is inferred from a restored snapshot. The real macOS daemon
+journey verifies policy, directory and queue survival. Schema-22 migration tests
+preserve populated QWK retries and roll back failed queue re-parenting atomically.
+See [N3 recovery and limits](technical/ftn-core.md).

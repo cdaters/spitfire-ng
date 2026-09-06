@@ -38,7 +38,7 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.17.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.20.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
 copy. It contains 1,014 semantic messages in the complete schema-20 caller and
 operator catalog, including
@@ -258,3 +258,12 @@ network capability enrollment, partner/mapping/queue vocabulary, action/error la
 and explicit external-network author display, plus private mailbox/transit policy,
 alias, destination and unresolved-recipient terminology. Protocol JSON keys remain stable wire
 identifiers. Modern/Minimal 1.6.0 and Classic 1.7.0 remain unchanged.
+
+## N3 / en-US 1.20.0
+
+N3 advances en-US to **1.20.0 / 1,051 messages** for the implemented FTN policy
+validation/save, directory-activation capability and minimum monitor status.
+The sfconfig usage text includes typed FTN policy import. Machine protocol/action
+identifiers remain stable tokens. No BinkP or unimplemented Networks cockpit
+strings are added. Presentation packages and terminal behavior are unchanged.
+See the [N3 Sysop manual](manual/ftn-core.md).

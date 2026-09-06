@@ -114,3 +114,10 @@ enrollment, follow [Operator Startup and Recovery](../manual/operator-recovery.m
 
 Schema-21/22 network queues, private envelopes, receipts and provenance participate in cold backup. Restored unsent work is held for operator review; manual inbox candidates and live sessions do not resume.
 See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.
+
+## N3 FTN integration
+
+See the [FTN Sysop procedure](../manual/ftn-core.md) for isolated operation and
+[Technical Reference](../technical/ftn-core.md) for authority/privacy/recovery.
+Native messages remain canonical; private FTN mail is separate from QWK private
+mail. BinkP is not implemented and live public FidoNet is not claimed.

@@ -271,6 +271,21 @@ fn render_dashboard(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
         metric_number("sfmonitor-storage-warnings", board.storage_warnings),
         metric_number("sfmonitor-recent-errors", board.recent_errors),
     ];
+    if let Some(ftn) = &model.snapshot.ftn {
+        lines.push(metric_line(
+            "ftn-monitor-status",
+            &format!(
+                "{} / {} / {}",
+                ftn.queue
+                    .iter()
+                    .filter(|(s, _)| !matches!(s.as_str(), "accepted" | "cancelled"))
+                    .map(|(_, n)| n)
+                    .sum::<i64>(),
+                ftn.quarantine,
+                ftn.active_generations
+            ),
+        ));
+    }
     if let Some(stats) = stats {
         lines.extend([
             Line::raw(""),

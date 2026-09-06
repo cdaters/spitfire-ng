@@ -1,11 +1,11 @@
 # SPITFIRE NG Technical Reference
 
-Current source: [QWK offline mail](qwk-offline.md) adds caller packet download/reply upload; N2 public/private QWK networking and native transit are implemented with controlled DOVE-compatible interoperability. FidoNet/BinkP remain unimplemented.
+Current source: [QWK offline mail](qwk-offline.md) adds caller packet download/reply upload; N2 public/private QWK networking and native transit are implemented with controlled DOVE-compatible interoperability. Native FTN core is implemented; BinkP remains unimplemented.
 
 
 <!-- help-topic: technical.reference -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 22)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 23)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -237,3 +237,10 @@ records final owner boundaries, regression/native evidence, and Windows deferral
 ## QWK networking (N2)
 
 [QWK network reference](qwk-networking.md) documents typed partners, public/private exchange, native mailbox/transit, durable queues, provenance and recovery. [Sysop procedure](../manual/qwk-networking.md) provides the operator path. Controlled Synchronet interoperability is tested; no public DOVE membership is claimed.
+
+## Native FTN core
+
+[FTN reference](ftn-core.md), [Sysop manual](../manual/ftn-core.md) and
+[M047 acceptance](../research/m047-networking-n3-ftn-core.md) cover implemented
+NetMail/EchoMail, points, multiple domains/AKAs, scanner/tosser, routing, shared
+queues and directory generations. No BinkP or live public participation is claimed.

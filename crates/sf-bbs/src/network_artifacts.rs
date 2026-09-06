@@ -177,6 +177,12 @@ impl NetworkArtifactStore for DiskArtifactStore {
 impl DiskArtifactStore {
     /// A fixed link-scoped operator handoff slot. No wire-provided path is used.
     pub(crate) fn prepare_handoff(&self, link: &str) -> Result<PathBuf, NetworkError> {
+        self.prepare_protocol_handoff("qwk-handoff", link)
+    }
+    pub(crate) fn prepare_ftn_handoff(&self, link: &str) -> Result<PathBuf, NetworkError> {
+        self.prepare_protocol_handoff("ftn-handoff", link)
+    }
+    fn prepare_protocol_handoff(&self, family: &str, link: &str) -> Result<PathBuf, NetworkError> {
         if link.is_empty()
             || link.len() > 32
             || !link.bytes().all(|b| {
@@ -188,7 +194,7 @@ impl DiskArtifactStore {
         }
         let system = self.root.parent().ok_or(NetworkError::Unavailable)?;
         let mut path = system.to_path_buf();
-        for component in ["qwk-handoff", link] {
+        for component in [family, link] {
             path.push(component);
             if !path.exists() {
                 let mut builder = fs::DirBuilder::new();
@@ -214,7 +220,13 @@ impl DiskArtifactStore {
         Ok(path)
     }
     pub(crate) fn read_handoff(&self, link: &str) -> Result<Vec<u8>, NetworkError> {
-        let path = self.prepare_handoff(link)?.join("inbound.packet");
+        self.read_protocol_handoff(self.prepare_handoff(link)?)
+    }
+    pub(crate) fn read_ftn_handoff(&self, link: &str) -> Result<Vec<u8>, NetworkError> {
+        self.read_protocol_handoff(self.prepare_ftn_handoff(link)?)
+    }
+    fn read_protocol_handoff(&self, directory: PathBuf) -> Result<Vec<u8>, NetworkError> {
+        let path = directory.join("inbound.packet");
         let meta = fs::symlink_metadata(&path)?;
         if !meta.is_file() || meta.file_type().is_symlink() || meta.len() > qwk::MAX_ARCHIVE as u64
         {

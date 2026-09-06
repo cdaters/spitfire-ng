@@ -82,6 +82,7 @@ impl SetupPlan {
             caller,
             transports: default_network_transports(),
             operators: OperatorConfig::default(),
+            ftn: sf_core::ftn::Policy::default(),
         };
         let read = SecurityLevel::new(5).expect("stock setup security is valid");
         let post = SecurityLevel::new(5).expect("stock setup security is valid");

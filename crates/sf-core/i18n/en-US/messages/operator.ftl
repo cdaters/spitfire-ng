@@ -552,7 +552,7 @@ sfmonitor-help-operator-shutdown = Dashboard Actions offers Shutdown SPITFIRE NG
 
 ## sfconfig typed configuration (configuration.* help topics)
 
-sfconfig-usage = Usage: sfconfig --board <board/spitfire.toml> [--offline]
+sfconfig-usage = Usage: sfconfig --board <board/spitfire.toml> [--offline] [--apply-ftn <policy.json>]
 sfconfig-online = ONLINE — attached to daemon
 sfconfig-offline = OFFLINE — exclusive board ownership
 sfconfig-version = Revision
@@ -736,3 +736,9 @@ network-destination = Destination system
 network-next-hop = Next partner
 network-private-policy = Private mail policy
 network-recipient-unresolved = Private recipient could not be resolved.
+
+ftn-cap-directory-activate = Activate FTN directory generations
+sfconfig-validation-ftn = Invalid FTN identities, links, routes, or directory sources.
+ftn-monitor-status = FTN queued / quarantine / active directories
+
+sfconfig-ftn-saved = FTN configuration saved.

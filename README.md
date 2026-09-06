@@ -1,13 +1,17 @@
 <p align="center">
 
-Current source implements **QWK networking**, including public conferences, native
-private mailboxes and configured private transit on schema **22**. Controlled
-Synchronet public/private interoperability demonstrates the shared DOVE-compatible
-profile. [Sysop instructions](docs/manual/qwk-networking.md) and the
-[N2 report](docs/research/m046-networking-n2-qwk-dove.md) state the tested level.
-Native messages remain canonical; N1 offline QWK remains accepted. No SMB, FTN or
-BinkP implementation and no public DOVE-Net membership are claimed. B-021 remains
-VERIFIED; B-022 NOT STARTED. The downloadable 0.1.0 preview is unchanged.
+Current source implements the **native FTN/FidoNet core** on schema **23**:
+NetMail, transit, EchoMail, points, multiple domains/AKAs, scanner/tosser,
+explicit routing, durable shared queues and nodelist/pointlist directory authority.
+Independent Synchronet/SBBSecho packet interoperability passed in both directions,
+including points and a forwarded return loop. SPITFIRE messages remain canonical;
+QWK N1/N2 remain accepted. [FTN Sysop procedure](docs/manual/ftn-core.md),
+[Technical Reference](docs/technical/ftn-core.md) and
+[M047 report](docs/research/m047-networking-n3-ftn-core.md) state exact scope.
+**BinkP is NOT implemented; live public FidoNet participation is NOT claimed.**
+SMB remains unimplemented. B-021 VERIFIED; B-022 NOT STARTED. en-US 1.20.0 /
+1,051 messages. The 0.1.0 preview binary remains unchanged; no new release or tag.
+Windows live FTN acceptance remains deferred to a real Windows environment.
 
   <img src="docs/assets/branding/spitfire-ng-banner.png"
        alt="SPITFIRE NG — Next Generation BBS Software"

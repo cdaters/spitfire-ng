@@ -573,6 +573,11 @@ fn stage_restored_board(
             })?;
     }
 
+    if restored_database.schema_version()? >= 23 {
+        restored_database.hold_restored_ftn().map_err(|_| {
+            BoardBackupError::ResourceValidation("FTN restore state could not be held".into())
+        })?;
+    }
     if restored_database.schema_version()? >= 21 {
         restored_database.hold_restored_qwk_network().map_err(|_| {
             BoardBackupError::ResourceValidation("network restore state could not be held".into())
@@ -720,7 +725,9 @@ fn copy_resource_tree(
     for (relative, source) in collect_regular_files(source_root)? {
         // Completed network artifacts have separate durable custody. A manual
         // inbox candidate is temporary and must never replay automatically on restore.
-        if kind == BackupEntryKind::SystemResource && relative.starts_with("qwk-handoff/") {
+        if kind == BackupEntryKind::SystemResource
+            && (relative.starts_with("qwk-handoff/") || relative.starts_with("ftn-handoff/"))
+        {
             continue;
         }
         let path = format!("{prefix}/{relative}");
@@ -1338,6 +1345,22 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
+        // This fixture deliberately removes later authorities before constructing an old schema.
+        let later: Vec<(String, String)> = connection
+            .prepare("SELECT type,name FROM sqlite_schema WHERE (name LIKE 'ftn_%' OR name='qwk_queue_work' OR name='network_queue_work') AND type IN ('table','trigger') ORDER BY type DESC")
+            .unwrap().query_map([], |r| Ok((r.get(0)?,r.get(1)?))).unwrap()
+            .collect::<Result<_,_>>().unwrap();
+        connection
+            .execute_batch("PRAGMA foreign_keys=OFF;")
+            .unwrap();
+        for (kind, name) in later {
+            connection
+                .execute_batch(&format!("DROP {kind} IF EXISTS \"{name}\";"))
+                .unwrap();
+        }
+        connection
+            .execute("DELETE FROM schema_migrations WHERE version=23", [])
+            .unwrap();
         if connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=22)",

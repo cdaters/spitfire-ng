@@ -67,3 +67,10 @@ en-US 1.19.0 has 1,047 unique semantic messages. Added strings cover implemented
 network capability enrollment, partner/mapping/queue vocabulary, action/error labels
 and explicit external-network author display plus private mailbox/transit policy terminology. Protocol JSON keys remain stable wire
 identifiers. Modern/Minimal 1.6.0 and Classic 1.7.0 remain unchanged.
+
+## N3 FTN integration
+
+See the [FTN Sysop procedure](../manual/ftn-core.md) for isolated operation and
+[Technical Reference](../technical/ftn-core.md) for authority/privacy/recovery.
+Native messages remain canonical; private FTN mail is separate from QWK private
+mail. BinkP is not implemented and live public FidoNet is not claimed.

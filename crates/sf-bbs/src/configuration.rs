@@ -234,7 +234,8 @@ impl ConfigurationAuthority {
         let stored = RuntimeConfig::load(&self.path)?;
         let current = configuration_version(&stored)?;
         let grants = capabilities(&stored, principal);
-        let sensitive = candidate.operators.is_some()
+        let sensitive = candidate.ftn.is_some()
+            || candidate.operators.is_some()
             || candidate.edits.iter().any(|edit| edit.field.sensitive());
         if !offline
             && (!grants.contains(&LocalOperatorCapability::ChangeOnlineConfiguration)
@@ -339,6 +340,9 @@ impl ConfigurationAuthority {
                 effects.push(ConfigurationEffect::RestartRequired);
             }
         }
+        if candidate.ftn.is_some() && stored.ftn != replacement.ftn {
+            effects.push(ConfigurationEffect::Live);
+        }
         let version = configuration_version(&replacement)?;
         let restart_required = !offline && self.restart_required(&replacement);
         let result_class = if restart_required {
@@ -374,6 +378,15 @@ impl ConfigurationAuthority {
                 "allowed",
                 "succeeded",
                 "operator-profiles-requested",
+            )?;
+        }
+        if candidate.ftn.is_some() {
+            self.audit(
+                principal,
+                command_id,
+                "allowed",
+                "succeeded",
+                "ftn-policy-requested",
             )?;
         }
         stored.save_atomic(&self.path.with_extension("toml.previous"))?;
@@ -543,6 +556,7 @@ mod tests {
                 field,
                 value: value.into(),
             }],
+            ftn: None,
             operators: None,
         }
     }
@@ -658,6 +672,7 @@ mod tests {
         let candidate = ConfigurationCandidate {
             expected: configuration_version(&config).unwrap(),
             edits: vec![],
+            ftn: None,
             operators: Some(config.operators.clone()),
         };
         assert!(matches!(
@@ -683,6 +698,7 @@ mod tests {
         let enrollment = ConfigurationCandidate {
             expected: snapshot.version,
             edits: vec![],
+            ftn: None,
             operators: Some(operators),
         };
         assert!(matches!(
@@ -734,6 +750,7 @@ mod tests {
                     &ConfigurationCandidate {
                         expected: initial.version,
                         edits: vec![],
+                        ftn: None,
                         operators: Some(operators)
                     }
                 )
@@ -757,6 +774,7 @@ mod tests {
                     &ConfigurationCandidate {
                         expected: snapshot.version,
                         edits: vec![],
+                        ftn: None,
                         operators: Some(initial.config.operators),
                     }
                 )
@@ -963,6 +981,7 @@ mod protocol_tests {
                         field: ConfigurationField::InactivityMinutes,
                         value: "7".into(),
                     }],
+                    ftn: None,
                     operators: None,
                 };
                 let id = "a7".repeat(16);
@@ -1005,6 +1024,7 @@ mod protocol_tests {
                 let revoke = ConfigurationCandidate {
                     expected: fresh.version,
                     edits: vec![],
+                    ftn: None,
                     operators: Some(operators),
                 };
                 assert!(matches!(
@@ -1020,6 +1040,7 @@ mod protocol_tests {
                         field: ConfigurationField::InactivityMinutes,
                         value: "9".into(),
                     }],
+                    ftn: None,
                     operators: None,
                 };
                 assert!(matches!(
@@ -1053,6 +1074,7 @@ mod protocol_tests {
                 field: ConfigurationField::InactivityMinutes,
                 value: "7".into(),
             }],
+            ftn: None,
             operators: None,
         };
         let db = rusqlite::Connection::open(&board.database_path).unwrap();
@@ -1150,6 +1172,7 @@ mod secret_tests {
                 field: ConfigurationField::InactivityMinutes,
                 value: "7".into(),
             }],
+            ftn: None,
             operators: None,
         };
         offline.apply(&"91".repeat(16), &candidate).unwrap();

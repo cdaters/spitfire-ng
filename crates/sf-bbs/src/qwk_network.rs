@@ -20,6 +20,9 @@ pub const NETWORK_MINOR: u16 = 6;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
+    Ftn {
+        request: crate::ftn::Action,
+    },
     Configure {
         link: Link,
         mappings: Vec<Mapping>,
@@ -49,8 +52,16 @@ pub enum NetworkAction {
     },
 }
 impl NetworkAction {
+    pub fn feature(&self) -> crate::OperatorFeature {
+        if matches!(self, Self::Ftn { .. }) {
+            crate::OperatorFeature::FtnNetwork
+        } else {
+            crate::OperatorFeature::QwkNetwork
+        }
+    }
     pub fn capability(&self) -> Capability {
         match self {
+            Self::Ftn { request } => request.capability(),
             Self::Configure { .. } | Self::ConfigureMail { .. } => {
                 Capability::ChangeSensitiveConfiguration
             }
@@ -62,6 +73,7 @@ impl NetworkAction {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "network-result", rename_all = "kebab-case")]
 pub enum NetworkResult {
+    Ftn { response: crate::ftn::Result },
     Configured,
     Built { artifact: Option<String> },
     Imported { summary: ImportResult },
@@ -99,6 +111,7 @@ pub(crate) fn dispatch(
     let now = chrono::Utc::now().timestamp();
     let mut db = RuntimeDatabase::open(runtime.database_path())?;
     let operation = match action {
+        NetworkAction::Ftn { request } => request.operation(),
         NetworkAction::Configure { .. } => "network.configure",
         NetworkAction::ConfigureMail { .. } => "network.mail-policy",
         NetworkAction::Build { .. } => "network.build",
@@ -113,7 +126,7 @@ pub(crate) fn dispatch(
         operator_id: Some(principal.into()),
         operation: operation.into(),
         authorization_result: if allowed { "allowed" } else { "denied" }.into(),
-        target_kind: Some("qwk-network".into()),
+        target_kind: Some("message-network".into()),
         target_id: None,
         command_id: Some(command_id.into()),
         correlation_id: None,
@@ -131,7 +144,7 @@ pub(crate) fn dispatch(
         command_id: command_id.into(),
         daemon_generation: runtime.daemon_generation().into(),
         operator_id: principal.into(),
-        command_family: "qwk-network".into(),
+        command_family: "message-network".into(),
         command_type: "network-action".into(),
         request_fingerprint: fingerprint,
         target_kind: None,
@@ -148,6 +161,9 @@ pub(crate) fn dispatch(
     }
     let result = (|| -> Result<NetworkResult, ApplicationError> {
         Ok(match action {
+            NetworkAction::Ftn { request } => NetworkResult::Ftn {
+                response: crate::ftn::dispatch(runtime, &mut db, principal, request, now)?,
+            },
             NetworkAction::Configure {
                 link,
                 mappings,
@@ -209,7 +225,11 @@ pub(crate) fn dispatch(
                 now,
                 sf_core::EventCategory::Message,
                 sf_core::EventSeverity::Warning,
-                "message.qwk-network.exchange-failed",
+                if matches!(action, NetworkAction::Ftn { .. }) {
+                    "message.ftn.operation-failed"
+                } else {
+                    "message.qwk-network.exchange-failed"
+                },
                 sf_core::EventOutcome::Failed,
             ))?;
             db.record_operator_control_audit(&sf_core::NewOperatorControlAudit {

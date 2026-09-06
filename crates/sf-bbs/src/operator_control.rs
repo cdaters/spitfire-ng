@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 6;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 7;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -128,6 +128,7 @@ pub enum OperatorFeature {
     GracefulShutdown,
     Configuration,
     QwkNetwork,
+    FtnNetwork,
 }
 
 impl OperatorFeature {
@@ -151,6 +152,9 @@ impl OperatorFeature {
         if minor >= crate::qwk_network::NETWORK_MINOR {
             features.push(Self::QwkNetwork);
         }
+        if minor >= crate::ftn::FTN_MINOR {
+            features.push(Self::FtnNetwork);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -170,7 +174,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 19] = [
+    const ALL: [Self; 20] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -190,6 +194,7 @@ impl OperatorFeature {
         Self::GracefulShutdown,
         Self::Configuration,
         Self::QwkNetwork,
+        Self::FtnNetwork,
     ];
 }
 
@@ -221,6 +226,9 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             .iter()
             .copied()
             .filter(|capability| {
+                if *capability == LocalOperatorCapability::NetworkDirectoryActivate {
+                    return minor >= crate::ftn::FTN_MINOR;
+                }
                 if matches!(
                     capability,
                     LocalOperatorCapability::ReadConfiguration
@@ -357,6 +365,24 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
             });
         }
     }
+    if minor >= crate::ftn::FTN_MINOR {
+        for capability in [
+            LocalOperatorCapability::NetworkRun,
+            LocalOperatorCapability::NetworkDirectoryActivate,
+            LocalOperatorCapability::ChangeSensitiveConfiguration,
+        ] {
+            result.controls.push(OperatorControlDescriptor {
+                feature: OperatorFeature::FtnNetwork,
+                capability,
+                preflight_required: false,
+                confirmation_required: false,
+                expected_version_required: true,
+                minimum_minutes: None,
+                maximum_minutes: None,
+                zero_minutes_allowed: false,
+            });
+        }
+    }
     result
 }
 
@@ -433,6 +459,8 @@ enum MutationCommand {
 #[serde(tag = "operation", rename_all = "kebab-case")]
 enum ReadOperation {
     QwkNetwork,
+    FtnNetwork,
+    FtnQueue { after: Option<String> },
     QwkNetworkQueue { link: String, after: Option<String> },
     ConfigurationSnapshot,
     ShutdownStatus,
@@ -567,6 +595,8 @@ fn command_fingerprint(command: &MutationCommand, daemon_generation: &str) -> St
 #[serde(tag = "result", content = "value", rename_all = "kebab-case")]
 enum ReadResult {
     QwkNetwork(Vec<sf_core::qwk_network::LinkStatus>),
+    FtnNetwork(sf_core::ftn::Status),
+    FtnQueue(Vec<sf_core::ftn::QueueItem>),
     QwkNetworkQueue(sf_core::qwk_network::QueuePage),
     ConfigurationSnapshot(Box<crate::ConfigurationSnapshot>),
     ShutdownStatus(crate::ShutdownImpact),
@@ -876,6 +906,21 @@ impl OperatorClient {
             _ => Err(OperatorControlError::MalformedFrame),
         }
     }
+    pub async fn ftn_queue(
+        &mut self,
+        after: Option<String>,
+    ) -> Result<Vec<sf_core::ftn::QueueItem>, OperatorControlError> {
+        match self.request(ReadOperation::FtnQueue { after }).await? {
+            ReadResult::FtnQueue(v) => Ok(v),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+    pub async fn ftn_status(&mut self) -> Result<sf_core::ftn::Status, OperatorControlError> {
+        match self.request(ReadOperation::FtnNetwork).await? {
+            ReadResult::FtnNetwork(v) => Ok(v),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
     pub async fn qwk_network_queue(
         &mut self,
         link: String,
@@ -1079,7 +1124,7 @@ impl OperatorClient {
         command: MutationCommand,
     ) -> Result<MutationResult, OperatorControlError> {
         let feature = match &command {
-            MutationCommand::QwkNetwork { .. } => OperatorFeature::QwkNetwork,
+            MutationCommand::QwkNetwork { action, .. } => action.feature(),
             MutationCommand::ApplyConfiguration { .. } => OperatorFeature::Configuration,
             MutationCommand::LiveControl { action, .. } => action.feature(),
             MutationCommand::AcknowledgeNotification { .. } => {
@@ -1794,6 +1839,7 @@ mod server {
                     && *item != OperatorFeature::GracefulShutdown
                     && *item != OperatorFeature::Configuration
                     && *item != OperatorFeature::QwkNetwork
+                    && *item != OperatorFeature::FtnNetwork
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
                         || !OperatorFeature::LIVE.contains(item))
@@ -2032,7 +2078,7 @@ mod server {
             }
             if mutation.as_ref().is_some_and(|command| {
                 let feature = match command {
-                    MutationCommand::QwkNetwork { .. } => OperatorFeature::QwkNetwork,
+                    MutationCommand::QwkNetwork { action, .. } => action.feature(),
                     MutationCommand::ApplyConfiguration { .. } => OperatorFeature::Configuration,
                     MutationCommand::LiveControl { action, .. } => action.feature(),
                     MutationCommand::AcknowledgeNotification { .. } => {
@@ -3059,6 +3105,7 @@ impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
             Self::QwkNetwork | Self::QwkNetworkQueue { .. } => OperatorFeature::QwkNetwork,
+            Self::FtnNetwork | Self::FtnQueue { .. } => OperatorFeature::FtnNetwork,
             Self::ConfigurationSnapshot => OperatorFeature::Configuration,
             Self::ShutdownStatus => OperatorFeature::GracefulShutdown,
             Self::LiveInteractions => OperatorFeature::CallerPages,
@@ -3086,7 +3133,9 @@ fn all_read_capabilities() -> Vec<LocalOperatorCapability> {
 
 fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability]) -> bool {
     let required = match feature {
-        OperatorFeature::QwkNetwork => LocalOperatorCapability::NetworkStatus,
+        OperatorFeature::QwkNetwork | OperatorFeature::FtnNetwork => {
+            LocalOperatorCapability::NetworkStatus
+        }
         OperatorFeature::Configuration => LocalOperatorCapability::ReadConfiguration,
         OperatorFeature::PageAvailability
         | OperatorFeature::CallerPages
@@ -3142,6 +3191,10 @@ async fn dispatch(
 ) -> Result<ReadResult, crate::ApplicationError> {
     Ok(match operation {
         ReadOperation::QwkNetwork => ReadResult::QwkNetwork(service.network_status()?),
+        ReadOperation::FtnNetwork => ReadResult::FtnNetwork(service.ftn_status()?),
+        ReadOperation::FtnQueue { after } => {
+            ReadResult::FtnQueue(service.ftn_queue(after.as_deref())?)
+        }
         ReadOperation::QwkNetworkQueue { link, after } => {
             ReadResult::QwkNetworkQueue(service.network_queue(&link, after.as_deref())?)
         }

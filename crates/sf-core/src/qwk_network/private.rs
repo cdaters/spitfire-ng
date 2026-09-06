@@ -372,7 +372,7 @@ impl RuntimeDatabase {
             .caller_by_id(actor.caller_id())?
             .filter(|c| c.state == crate::CallerState::Active)
             .ok_or(Error::Rejected)?;
-        let allowed:bool=self.connection.query_row("SELECT EXISTS(SELECT 1 FROM messages m LEFT JOIN message_delivery_recipients r USING(message_id) WHERE m.message_id=?1 AND m.container_kind='local-network-mailbox' AND m.lifecycle_state='active' AND (m.author_caller_id=?2 OR r.caller_id=?2))",params![id.get(),caller.id.get()],|r|r.get(0))?;
+        let allowed:bool=self.connection.query_row("SELECT EXISTS(SELECT 1 FROM messages m LEFT JOIN message_delivery_recipients r USING(message_id) WHERE EXISTS(SELECT 1 FROM network_private_envelopes e WHERE e.message_id=m.message_id) AND m.message_id=?1 AND m.container_kind='local-network-mailbox' AND m.lifecycle_state='active' AND (m.author_caller_id=?2 OR r.caller_id=?2))",params![id.get(),caller.id.get()],|r|r.get(0))?;
         if !allowed {
             return Err(Error::Rejected);
         }
@@ -387,7 +387,7 @@ impl RuntimeDatabase {
             .caller_by_id(actor.caller_id())?
             .filter(|c| c.state == crate::CallerState::Active)
             .ok_or(Error::Rejected)?;
-        let ids=self.connection.prepare("SELECT m.message_id FROM messages m LEFT JOIN message_delivery_recipients r USING(message_id) WHERE m.container_kind='local-network-mailbox' AND m.lifecycle_state='active' AND (m.author_caller_id=?1 OR r.caller_id=?1) AND m.message_id>?2 ORDER BY m.message_id LIMIT 20")?.query_map(params![caller.id.get(),after.map_or(0,|m|m.get())],|r|r.get::<_,i64>(0))?.collect::<Result<Vec<_>,_>>()?;
+        let ids=self.connection.prepare("SELECT m.message_id FROM messages m LEFT JOIN message_delivery_recipients r USING(message_id) WHERE EXISTS(SELECT 1 FROM network_private_envelopes e WHERE e.message_id=m.message_id) AND m.container_kind='local-network-mailbox' AND m.lifecycle_state='active' AND (m.author_caller_id=?1 OR r.caller_id=?1) AND m.message_id>?2 ORDER BY m.message_id LIMIT 20")?.query_map(params![caller.id.get(),after.map_or(0,|m|m.get())],|r|r.get::<_,i64>(0))?.collect::<Result<Vec<_>,_>>()?;
         ids.into_iter()
             .map(|v| crate::MessageId::new(v).map_err(Error::Message))
             .collect()

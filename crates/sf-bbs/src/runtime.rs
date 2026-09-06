@@ -131,6 +131,7 @@ impl OperatorObservabilityContext {
         match capability {
             sf_core::LocalOperatorCapability::NetworkStatus
             | sf_core::LocalOperatorCapability::NetworkRun
+            | sf_core::LocalOperatorCapability::NetworkDirectoryActivate
             | sf_core::LocalOperatorCapability::NetworkQueue
             | sf_core::LocalOperatorCapability::ReadConfiguration
             | sf_core::LocalOperatorCapability::ChangeOnlineConfiguration

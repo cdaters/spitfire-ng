@@ -554,14 +554,14 @@ stock-core operation.
 | ID | Capability | Manual evidence | Status | Planned treatment |
 |---|---|---|---|---|
 | C-001 | LAKOTA QWK download/upload and pointer management | SF37 §10.2, §19.3, §24.4 | PARTIAL | [M045/N1](research/m045-networking-n1-qwk-offline.md) implements caller download/reply import, native pointers, permissions and durable replay receipts. Exact original LAKOTA LMR interoperability remains evidence-qualified; this is not full C-001 verification or QWK networking. |
-| C-002 | Net-mail, front-end mailers, and UTI drivers | SF37 §4.0, §10, §19 | DEFERRED | Network adapters; FidoNet and other targets remain separately specified. |
+| C-002 | Net-mail, front-end mailers, and UTI drivers | SF37 §4.0, §10, §19 | PARTIAL | [M047/N3](research/m047-networking-n3-ftn-core.md) implements native FTN NetMail/EchoMail, points/domains/AKAs, routing, scanner/tosser, packets and directories. BinkP transport and historical UTI compatibility remain outside accepted N3. |
 | C-003 | Doors and `SFDOORS.DAT`/industry drop files | SF37 §15, §24.2 | DEFERRED | Isolated legacy runtime; never execute DOS doors inside the core process. |
 | C-004 | Main/Message/File/Sysop menu extensions and batch hooks | SF37 §9–12 | DEFERRED | Controlled extension interface after stock commands are complete. |
 | C-005 | External transfer-protocol drivers | SF37 §16 | DEFERRED | Adapter boundary after safe native transfer capability. |
 | C-006 | `DAILYLMT`, `SFSENDIT`, `SFPCKUSR`, `SFPCKMSG` companions | SF37 §24 | DEFERRED | Reproduce required outcomes natively or add format/runtime compatibility as justified. |
 | C-007 | Fax-call handling | SF37 §22 | DEFERRED | Not a stock-core network transport; any future integration uses modern external services. |
 | C-008 | CircuitNet | Separate preserved corpus | DEFERRED | Historical/ecosystem phase; see [CircuitNet](09-circuitnet.md). |
-| C-009 | FidoNet, SMB, DOVE-Net, SSH, web terminal/admin | Project roadmap | PARTIAL | Modern SSH caller transport is implemented through the common session engine. FidoNet, SMB, DOVE-Net, and web terminal/admin remain deferred; none is a stock 3.7 claim. |
+| C-009 | FidoNet, SMB, DOVE-Net, SSH, web terminal/admin | Project roadmap | PARTIAL | Modern SSH caller transport is implemented by M042.5 through the common session engine. [N2](research/m046-networking-n2-qwk-dove.md) implements controlled DOVE-compatible QWK exchange; [N3](research/m047-networking-n3-ftn-core.md) implements native FTN message core and independent packet interoperability. BinkP and live public participation are not claimed; SMB is unimplemented and not a dependency. Web terminal/admin and optional SMB interchange remain deferred; none is a stock 3.7 claim. |
 | C-010 | Optional GUI administration and registration-manager integration | Project roadmap | DEFERRED | Later clients over shared Rust APIs; not part of stock board parity. |
 
 ## D — Historical Implementation Details to Modernize

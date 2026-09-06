@@ -16,6 +16,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ApplicationError {
     #[error(transparent)]
+    Ftn(#[from] sf_core::ftn::Error),
+    #[error(transparent)]
     QwkNetwork(#[from] sf_core::qwk_network::Error),
     #[error(transparent)]
     Network(#[from] sf_core::network::NetworkError),

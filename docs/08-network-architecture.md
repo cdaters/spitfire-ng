@@ -1,9 +1,11 @@
 # SPITFIRE Message Network Architecture
 
-Status: **N1 and N2 accepted: public/private QWK networking and native transit implemented**.
+Status: **N1/N2 accepted; N3 native FTN core accepted**. The
+[FTN reference](technical/ftn-core.md) documents implemented packet/mail/directory
+semantics. BinkP is not implemented; live public FidoNet participation is not claimed.
 See the [N1 Technical Reference](technical/qwk-offline.md) for implemented authority;
 the future design below retains M044 scope.
-Current schema is 22. The canonical implementation-ready design, evidence, contracts,
+Current schema is 23. The canonical implementation-ready design, evidence, contracts,
 limits and N1–N7 acceptance sequence are in the
 [M044 networking foundation gate](research/m044-networking-foundation-gate.md).
 
@@ -90,3 +92,18 @@ The [QWK offline Technical Reference](technical/qwk-offline.md) defines the impl
 ## N2 implemented authority
 
 The [QWK network reference](technical/qwk-networking.md) owns schema 21/22 partner/maps, native private mailbox/transit, receipts, immutable queue decisions and manual exchange. M044 remains binding. Native messages remain canonical; no SMB store/codec or FTN/BinkP implementation exists.
+
+## M047 / schema 23 native FTN core
+
+N3 implements NetMail and EchoMail around the canonical native message authority,
+with full points, domain-separated identities, multiple AKAs, explicit routing,
+scanner/tosser and durable shared queue work. FTN controls/provenance remain
+separate from QWK envelopes and visible bodies. EchoMail maps only to enrolled
+native conferences; private NetMail requires an explicit active caller alias and
+transit has no caller-readable container. No SMB, external message store or
+BinkP implementation exists. Independent packet interoperability and native
+macOS acceptance pass; no live public FidoNet traffic was sent. The
+[N3 Technical Reference](technical/ftn-core.md) owns schema, interfaces, resource
+limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
+explains isolated configuration and manual artifacts. Earlier milestone sections
+retain their dated scope. Windows live FTN acceptance remains deferred.

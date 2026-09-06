@@ -110,3 +110,10 @@ source-retaining Copy/Forward are implemented and verified. Physical
 packing/retention, QWK/LAKOTA, network mail, and broader maintenance/audit
 viewing are later scopes. See [Native SPITFIRE NG Message
 System](../sfng-message-system.md).
+
+## N3 FTN integration
+
+See the [FTN Sysop procedure](../manual/ftn-core.md) for isolated operation and
+[Technical Reference](../technical/ftn-core.md) for authority/privacy/recovery.
+Native messages remain canonical; private FTN mail is separate from QWK private
+mail. BinkP is not implemented and live public FidoNet is not claimed.

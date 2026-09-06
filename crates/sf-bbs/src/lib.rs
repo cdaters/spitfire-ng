@@ -161,6 +161,22 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
         }
         [command, config] if command == "config" => interactive_config(&PathBuf::from(config)),
         [command, config] if command == "status" => board_status(&PathBuf::from(config)),
+        [command, config] if command == "ftn-status" || command == "ftn-queue" => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))?;
+            runtime.block_on(async {
+                let mut client = OperatorClient::connect(&PathBuf::from(config)).await?;
+                client.describe_operator_controls().await?;
+                let result = if command == "ftn-status" {
+                    serde_json::to_string_pretty(&client.ftn_status().await?)
+                } else {
+                    serde_json::to_string_pretty(&client.ftn_queue(None).await?)
+                };
+                result.map_err(|_| ApplicationError::Usage(op("operator-network-unavailable")))
+            })
+        }
         [command, config] if command == "network-status" => {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -646,3 +662,5 @@ mod tests {
         assert!(rerun.contains("Times On: 2"));
     }
 }
+
+pub mod ftn;

@@ -63,6 +63,8 @@ pub struct RuntimeConfig {
     /// bootstrap rule so existing boards remain locally manageable.
     #[serde(default)]
     pub operators: OperatorConfig,
+    #[serde(default)]
+    pub ftn: crate::ftn::Policy,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -115,6 +117,7 @@ pub enum LocalOperatorCapability {
     NetworkStatus,
     NetworkRun,
     NetworkQueue,
+    NetworkDirectoryActivate,
 }
 
 /// Matches the existing bounded operator discovery capability-list capacity.
@@ -123,7 +126,7 @@ pub const MAX_LOCAL_OPERATOR_CAPABILITIES: usize = 32;
 
 impl LocalOperatorCapability {
     /// Complete implemented vocabulary for explicit enrollment, never a preset.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::BoardStatistics,
         Self::NodeStatus,
         Self::OperationalEvents,
@@ -143,6 +146,7 @@ impl LocalOperatorCapability {
         Self::NetworkStatus,
         Self::NetworkRun,
         Self::NetworkQueue,
+        Self::NetworkDirectoryActivate,
     ];
     /// Explicitly enumerate the B021-A bootstrap boundary. New controls must
     /// never enter this list merely because they are added to the enum.
@@ -657,6 +661,9 @@ impl RuntimeConfig {
     }
 
     pub fn validate(&self) -> Result<ValidatedConfig, ConfigError> {
+        self.ftn
+            .validate()
+            .map_err(|_| ConfigError::InvalidFtnConfiguration)?;
         if !matches!(
             self.format_version,
             LEGACY_CONFIG_FORMAT_VERSION | CONFIG_FORMAT_VERSION
@@ -774,6 +781,7 @@ impl RuntimeConfig {
                 },
             ],
             operators: OperatorConfig::default(),
+            ftn: crate::ftn::Policy::default(),
         }
     }
 }
@@ -1218,6 +1226,8 @@ fn validate_ssh_host_key(path: &Path) -> Result<(), ConfigError> {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("invalid FTN configuration")]
+    InvalidFtnConfiguration,
     #[error("QWK board ID must be 1..8 uppercase ASCII letters/digits and a safe DOS basename")]
     InvalidQwkBoardId,
     #[error("local operator configuration is invalid or exceeds its bounds")]

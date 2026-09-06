@@ -518,3 +518,18 @@ Modern message capabilities should expand what SPITFIRE can do without requiring
 The desired result is:
 
 > Original SPITFIRE messages, SMB messages, DOVE-Net, FidoNet, QWK and CircuitNet should all feel like they belong in the same SPITFIRE Message Section.
+
+## M047 / schema 23 native FTN core
+
+N3 implements NetMail and EchoMail around the canonical native message authority,
+with full points, domain-separated identities, multiple AKAs, explicit routing,
+scanner/tosser and durable shared queue work. FTN controls/provenance remain
+separate from QWK envelopes and visible bodies. EchoMail maps only to enrolled
+native conferences; private NetMail requires an explicit active caller alias and
+transit has no caller-readable container. No SMB, external message store or
+BinkP implementation exists. Independent packet interoperability and native
+macOS acceptance pass; no live public FidoNet traffic was sent. The
+[N3 Technical Reference](technical/ftn-core.md) owns schema, interfaces, resource
+limits, duplicate/loop rules and recovery; the [Sysop procedure](manual/ftn-core.md)
+explains isolated configuration and manual artifacts. Earlier milestone sections
+retain their dated scope. Windows live FTN acceptance remains deferred.

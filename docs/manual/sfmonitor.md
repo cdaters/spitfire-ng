@@ -265,3 +265,10 @@ cold-backup journey, see [Operator Startup and Recovery](operator-recovery.md).
 
 QWK network events appear through existing Activity/Errors. Use the typed network-status/network-queue CLI for bounded partner and queue detail; no full Networks cockpit is added.
 See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.
+
+## N3 FTN minimum
+
+The [FTN Sysop chapter](ftn-core.md) documents the implemented typed sfconfig
+policy import, protected packet/directory operations and read-only status counts.
+Cold restore holds uncertain FTN work and origin serial allocation; no manual SQL
+release is prescribed. Full Networks UI and BinkP remain later work.
