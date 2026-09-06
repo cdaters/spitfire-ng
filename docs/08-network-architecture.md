@@ -135,3 +135,12 @@ it will be implemented independently over native networking authority, without
 recreating DOS PRIMER/IMPORT/EXTRACT plumbing. See [the approved research policy](09-circuitnet.md).
 N5 includes this roadmap decision only. N6 hub/AreaFix, N7 FileEcho/TIC/FREQ and
 general scheduling remain separate future work.
+
+## N6 — hub service authority
+
+Native messages remain canonical. Separate durable downstream subscriptions select
+normal EchoMail fanout; one native publication produces independent queue work.
+Authenticated AreaFix and bounded rescan operate through the same transactional
+native authority. Explicit points retain 4-D identity and existing BinkP links.
+See [hub contract](technical/ftn-hub.md). Schema 25 adds only N6 authority; N7 file
+networking remains unimplemented.

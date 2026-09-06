@@ -1,6 +1,17 @@
 # SPITFIRE NG Roadmap
 
-## N5 operator cockpit and recovery — COMPLETE / ACCEPTED
+## N6 FTN hub and operator semantics — M050
+
+Implemented routing-node, per-link EchoMail subscriptions/fanout, authenticated
+AreaFix/AreaMgr, bounded native-history rescan and explicit point-boss relationships.
+Schema 25 keeps messages canonical and reuses existing FTN/BinkP delivery custody.
+See the [N6 report](docs/research/m050-networking-n6-ftn-hub.md),
+[operator workflows](docs/manual/ftn-hub.md) and [service contract](docs/technical/ftn-hub.md).
+N1–N5 remain accepted. N7 FileEcho/TIC/FREQ/hatching, public onboarding, general
+scheduler, B-022/doors and release work remain outside this pass. Stop after N6
+acceptance and sanitized source synchronization; subsequent work requires its own scope.
+
+## Previous checkpoint: N5 operator cockpit and recovery — COMPLETE / ACCEPTED
 
 sfmonitor Networks and named sfconfig forms operate the accepted QWK/DOVE, FTN
 and BinkP engine. Queue actions, directory/point lookup, safe diagnostics and

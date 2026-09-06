@@ -17,6 +17,22 @@ pub const FTN_MINOR: u16 = 7;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Action {
+    Downstream {
+        downstream: ftn::Downstream,
+        expected: i64,
+    },
+    Subscription {
+        subscription: ftn::Subscription,
+        expected: i64,
+    },
+    AreaAccess {
+        access: ftn::AreaAccess,
+        expected: i64,
+    },
+    Rescan {
+        link: String,
+        areas: Vec<ftn::RescanArea>,
+    },
     Mapping {
         mapping: ftn::Mapping,
         expected: i64,
@@ -50,13 +66,21 @@ pub enum Action {
 impl Action {
     pub fn capability(&self) -> Capability {
         match self {
-            Self::Mapping { .. } | Self::Alias { .. } => Capability::ChangeSensitiveConfiguration,
+            Self::Mapping { .. }
+            | Self::Alias { .. }
+            | Self::Downstream { .. }
+            | Self::Subscription { .. }
+            | Self::AreaAccess { .. } => Capability::ChangeSensitiveConfiguration,
             Self::DirectoryActivate { .. } => Capability::NetworkDirectoryActivate,
             _ => Capability::NetworkRun,
         }
     }
     pub fn operation(&self) -> &'static str {
         match self {
+            Self::Downstream { .. } => "ftn.downstream",
+            Self::Subscription { .. } => "ftn.subscription",
+            Self::AreaAccess { .. } => "ftn.area-access",
+            Self::Rescan { .. } => "ftn.rescan",
             Self::Mapping { .. } => "ftn.mapping",
             Self::Alias { .. } => "ftn.alias",
             Self::Prepare { .. } => "ftn.prepare",
@@ -87,6 +111,33 @@ pub(crate) fn dispatch(
 ) -> std::result::Result<Result, ApplicationError> {
     let policy = runtime.configuration.current()?.ftn;
     Ok(match action {
+        Action::Downstream {
+            downstream,
+            expected,
+        } => {
+            runtime
+                .configuration
+                .current()?
+                .binkp
+                .link(&downstream.link)?;
+            db.configure_ftn_downstream(&policy, principal, downstream, *expected, now)?;
+            Result::Updated
+        }
+        Action::Subscription {
+            subscription,
+            expected,
+        } => {
+            db.configure_ftn_subscription(&policy, principal, subscription, *expected, now)?;
+            Result::Updated
+        }
+        Action::AreaAccess { access, expected } => {
+            db.configure_ftn_area_access(&policy, principal, access, *expected, now)?;
+            Result::Updated
+        }
+        Action::Rescan { link, areas } => {
+            db.rescan_ftn(&policy, principal, link, areas, now)?;
+            Result::Updated
+        }
         Action::Mapping { mapping, expected } => {
             db.configure_ftn_mapping(&policy, principal, mapping, *expected, now)?;
             Result::Updated

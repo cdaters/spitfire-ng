@@ -215,3 +215,7 @@ projections, named configuration forms and CAS, queue actions, retained-referenc
 checks and verified origin/acceptance reconciliation. Schema remains 24. Older
 restore descriptions above describe the safe held default; N5 adds verified
 recovery without inventing post-snapshot history. Wire/message authority is unchanged.
+
+## N6 hub extension
+
+The [FTN hub contract](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.

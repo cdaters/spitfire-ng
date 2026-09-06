@@ -126,6 +126,15 @@ pub enum Action {
         expected: String,
         secret: String,
     },
+    AreaFixCredential {
+        link: String,
+        expected: String,
+        secret: String,
+    },
+    ClearAreaFixCredential {
+        link: String,
+        expected: String,
+    },
     ClearCredential {
         link: String,
         expected: String,
@@ -147,6 +156,8 @@ impl std::fmt::Debug for Action {
 impl Action {
     pub fn operation(&self) -> &'static str {
         match self {
+            Self::AreaFixCredential { .. } => "ftn.areafix-credential",
+            Self::ClearAreaFixCredential { .. } => "ftn.areafix-clear-credential",
             Self::Poll { .. } => "binkp.poll",
             Self::Test { .. } => "binkp.test",
             Self::Credential { .. } => "binkp.credential",
@@ -158,9 +169,10 @@ impl Action {
     pub fn capability(&self) -> sf_core::LocalOperatorCapability {
         use sf_core::LocalOperatorCapability as C;
         match self {
-            Self::Credential { .. } | Self::ClearCredential { .. } => {
-                C::ChangeSensitiveConfiguration
-            }
+            Self::Credential { .. }
+            | Self::ClearCredential { .. }
+            | Self::AreaFixCredential { .. }
+            | Self::ClearAreaFixCredential { .. } => C::ChangeSensitiveConfiguration,
             Self::Release { .. } | Self::Hold { .. } => C::NetworkQueue,
             Self::Test { .. } => C::NetworkTest,
             _ => C::NetworkRun,
@@ -169,7 +181,7 @@ impl Action {
     /// Credential command receipts identify the operation, not a password verifier.
     pub(crate) fn fingerprint(&self) -> std::result::Result<Vec<u8>, serde_json::Error> {
         let mut a = self.clone();
-        if let Self::Credential { secret, .. } = &mut a {
+        if let Self::Credential { secret, .. } | Self::AreaFixCredential { secret, .. } = &mut a {
             *secret = "write-only-update".into();
         }
         serde_json::to_vec(&a)
@@ -191,6 +203,7 @@ pub struct Status {
 pub struct LinkStatus {
     pub link: String,
     pub credential: SecretStatus,
+    pub areafix_credential: SecretStatus,
     pub health: Option<ftn::BinkpHealth>,
 }
 fn now() -> i64 {
@@ -199,11 +212,8 @@ fn now() -> i64 {
 fn custody<T>(r: std::result::Result<T, impl std::fmt::Display>) -> std::result::Result<T, Error> {
     r.map_err(|_| Error::Custody)
 }
-fn secret_root(runtime: &BoardRuntime) -> std::result::Result<PathBuf, Error> {
-    let root = runtime
-        .paths
-        .get(LogicalPath::System)
-        .join("binkp-credentials");
+fn credential_root(runtime: &BoardRuntime, directory: &str) -> std::result::Result<PathBuf, Error> {
+    let root = runtime.paths.get(LogicalPath::System).join(directory);
     if !root.exists() {
         let mut b = fs::DirBuilder::new();
         #[cfg(unix)]
@@ -241,7 +251,14 @@ fn valid_secret(secret: &[u8]) -> bool {
         && secret.iter().all(|b| (33..=126).contains(b))
 }
 fn read_secret(runtime: &BoardRuntime, link: &str) -> std::result::Result<Vec<u8>, Error> {
-    let path = secret_root(runtime)?.join(link);
+    read_credential(runtime, link, "binkp-credentials")
+}
+fn read_credential(
+    runtime: &BoardRuntime,
+    link: &str,
+    directory: &str,
+) -> std::result::Result<Vec<u8>, Error> {
+    let path = credential_root(runtime, directory)?.join(link);
     private(&path, false)?;
     let mut secret = Vec::new();
     custody(
@@ -255,15 +272,18 @@ fn read_secret(runtime: &BoardRuntime, link: &str) -> std::result::Result<Vec<u8
     Ok(secret)
 }
 fn secret_status(runtime: &BoardRuntime, link: &str) -> SecretStatus {
+    credential_status(runtime, link, "binkp-credentials")
+}
+fn credential_status(runtime: &BoardRuntime, link: &str, directory: &str) -> SecretStatus {
     let path = runtime
         .paths
         .get(LogicalPath::System)
-        .join("binkp-credentials")
+        .join(directory)
         .join(link);
     match fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => SecretStatus::Missing,
         _ => {
-            if read_secret(runtime, link).is_ok() {
+            if read_credential(runtime, link, directory).is_ok() {
                 SecretStatus::Configured
             } else {
                 SecretStatus::Invalid
@@ -284,6 +304,7 @@ pub(crate) fn status(runtime: &BoardRuntime) -> std::result::Result<Status, Appl
             .map(|l| LinkStatus {
                 link: l.link.clone(),
                 credential: secret_status(runtime, &l.link),
+                areafix_credential: credential_status(runtime, &l.link, "areafix-credentials"),
                 health: health.iter().find(|h| h.link == l.link).cloned(),
             })
             .collect(),
@@ -319,7 +340,9 @@ pub(crate) fn dispatch(
         Action::Poll { link, expected }
         | Action::Test { link, expected }
         | Action::Credential { link, expected, .. }
-        | Action::ClearCredential { link, expected } => (link, expected),
+        | Action::ClearCredential { link, expected }
+        | Action::AreaFixCredential { link, expected, .. }
+        | Action::ClearAreaFixCredential { link, expected } => (link, expected),
         _ => unreachable!(),
     };
     if &c.binkp.digest(&c.ftn)? != expected {
@@ -327,12 +350,29 @@ pub(crate) fn dispatch(
     }
     c.ftn.link(link)?;
     c.binkp.link(link)?;
+    let area_secret = matches!(
+        action,
+        Action::AreaFixCredential { .. } | Action::ClearAreaFixCredential { .. }
+    );
+    if area_secret
+        && !RuntimeDatabase::open_read_only(runtime.database_path())?
+            .ftn_downstreams()?
+            .iter()
+            .any(|d| d.link == *link)
+    {
+        return Err(ftn::Error::Denied.into());
+    }
+    let directory = if area_secret {
+        "areafix-credentials"
+    } else {
+        "binkp-credentials"
+    };
     match action {
-        Action::Credential { secret, .. } => {
-            if !valid_secret(secret.as_bytes()) {
+        Action::Credential { secret, .. } | Action::AreaFixCredential { secret, .. } => {
+            if !valid_secret(secret.as_bytes()) || (area_secret && secret.len() > 71) {
                 return Err(ftn::Error::Policy.into());
             }
-            let root = secret_root(runtime).map_err(|_| ftn::Error::Denied)?;
+            let root = credential_root(runtime, directory).map_err(|_| ftn::Error::Denied)?;
             let mut file =
                 tempfile::NamedTempFile::new_in(&root).map_err(|_| ftn::Error::Denied)?;
             file.write_all(secret.as_bytes())
@@ -345,8 +385,8 @@ pub(crate) fn dispatch(
                 .fetch_add(1, Ordering::AcqRel);
             Ok(Result::Updated)
         }
-        Action::ClearCredential { .. } => {
-            let root = secret_root(runtime).map_err(|_| ftn::Error::Denied)?;
+        Action::ClearCredential { .. } | Action::ClearAreaFixCredential { .. } => {
+            let root = credential_root(runtime, directory).map_err(|_| ftn::Error::Denied)?;
             match fs::remove_file(root.join(link)) {
                 Ok(()) => (),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
@@ -607,13 +647,22 @@ impl session::Backend for NativeBackend {
         if self.mode == BinkpMode::Test {
             return Err(Error::Custody);
         }
-        custody(self.db()?.receive_binkp(
+        custody(self.db()?.receive_binkp_with_areafix(
             &self.runtime.network_artifacts,
             &self.ftn,
             &self.policy,
             self.session()?,
             bytes,
             now(),
+            Some(&|link, supplied| {
+                read_credential(&self.runtime, link, "areafix-credentials").is_ok_and(|stored| {
+                    // HMAC verification avoids a password-dependent early-exit comparison.
+                    let response =
+                        wire::cram(supplied.as_bytes(), b"SPITFIRE AreaFix credential check");
+                    wire::verify_cram(&stored, b"SPITFIRE AreaFix credential check", &response)
+                        .is_ok()
+                })
+            }),
         ))?;
         Ok(())
     }
@@ -734,6 +783,19 @@ mod tests {
             }
             .capability(),
             sf_core::LocalOperatorCapability::NetworkTest
+        );
+        let area = Action::AreaFixCredential {
+            link: "peer".into(),
+            expected: "policy".into(),
+            secret: "synthetic-area-secret".into(),
+        };
+        assert!(!format!("{area:?}").contains("synthetic-area-secret"));
+        assert!(!String::from_utf8(area.fingerprint().unwrap())
+            .unwrap()
+            .contains("synthetic-area-secret"));
+        assert_eq!(
+            area.capability(),
+            sf_core::LocalOperatorCapability::ChangeSensitiveConfiguration
         );
         for secret in [
             b"".as_slice(),

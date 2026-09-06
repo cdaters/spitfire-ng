@@ -165,3 +165,7 @@ networking are separate milestones. CircuitNET is a planned preservation/revival
 adapter under the [independent research policy](../09-circuitnet.md), not an N5
 implementation. Windows live networking/UI/restore acceptance remains deferred to
 a real Windows environment.
+
+## N6 hub extension
+
+The [FTN hub contract](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.

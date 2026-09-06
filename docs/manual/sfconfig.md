@@ -175,3 +175,7 @@ The [Networks manual](network-operations.md) covers typed policy/mapping forms,
 conference selection, separate static/relational CAS, write-only credentials,
 listener effects and stopped-board origin recovery. Save or cancel the general
 draft before opening Networks. No raw TOML editor or generic command entry is used.
+
+## N6 hub extension
+
+The [FTN hub manual](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.

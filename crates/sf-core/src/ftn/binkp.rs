@@ -267,6 +267,9 @@ impl RuntimeDatabase {
         {
             return Err(Error::Denied);
         }
+        if hub::downstream(&self.connection, link)?.is_some_and(|d| !d.enabled || d.held) {
+            return Err(Error::Held);
+        }
         let digest = policy.digest(ftn)?;
         let tx = self
             .connection
@@ -292,7 +295,7 @@ impl RuntimeDatabase {
             return Err(Error::Held);
         }
         let session = id();
-        tx.execute("UPDATE binkp_link_health SET session_id=?2,daemon_generation=?3,last_attempt=?4,policy_digest=?5,last_test=CASE WHEN ?6 THEN ?4 ELSE last_test END,held=CASE WHEN policy_digest<>?5 THEN 0 ELSE held END,next_attempt=CASE WHEN policy_digest<>?5 THEN NULL ELSE next_attempt END WHERE link_id=?1",params![link,session,generation,now,digest,mode==BinkpMode::Test])?;
+        tx.execute("UPDATE binkp_link_health SET authenticated=0,session_id=?2,daemon_generation=?3,last_attempt=?4,policy_digest=?5,last_test=CASE WHEN ?6 THEN ?4 ELSE last_test END,held=CASE WHEN policy_digest<>?5 THEN 0 ELSE held END,next_attempt=CASE WHEN policy_digest<>?5 THEN NULL ELSE next_attempt END WHERE link_id=?1",params![link,session,generation,now,digest,mode==BinkpMode::Test])?;
         event(&tx, "binkp-session-started", now)?;
         tx.commit()?;
         Ok(session)
@@ -423,7 +426,7 @@ impl RuntimeDatabase {
             )?;
         }
         tx.execute(
-            "UPDATE binkp_link_health SET latency_ms=?2 WHERE session_id=?1",
+            "UPDATE binkp_link_health SET authenticated=1,latency_ms=?2 WHERE session_id=?1",
             params![session, latency.min(600000) as u32],
         )?;
         event(&tx, "binkp-authenticated-address-matched", now)?;
@@ -439,6 +442,25 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
     ) -> Result<TossResult, Error> {
+        self.receive_binkp_with_areafix(store, ftn, policy, session, bytes, now, None)
+    }
+    /// The credential verifier is supplied only by protected runtime credential custody.
+    #[allow(clippy::too_many_arguments)]
+    pub fn receive_binkp_with_areafix(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        ftn: &Policy,
+        policy: &BinkpPolicy,
+        session: &str,
+        bytes: &[u8],
+        now: i64,
+        verifier: Option<&AreaFixVerifier<'_>>,
+    ) -> Result<TossResult, Error> {
+        let authenticated: bool = self.connection.query_row(
+            "SELECT authenticated FROM binkp_link_health WHERE session_id=?1",
+            [session],
+            |r| r.get(0),
+        )?;
         let link: String = self.connection.query_row(
             "SELECT link_id FROM binkp_link_health WHERE session_id=?1",
             [session],
@@ -453,8 +475,15 @@ impl RuntimeDatabase {
                 remote.push(alias.address);
             }
         }
-        let result =
-            self.toss_ftn_admitted(store, ftn, &link, bytes, now, Some((permitted, &remote)))?;
+        let result = self.toss_ftn_admitted(
+            store,
+            ftn,
+            &link,
+            bytes,
+            now,
+            Some((permitted, &remote)),
+            if authenticated { verifier } else { None },
+        )?;
         let digest = sf_net::qwk::digest(bytes);
         let tx = self.connection.transaction()?;
         tx.execute(
@@ -553,7 +582,13 @@ impl RuntimeDatabase {
             [queue],
             |r| r.get(0),
         )?;
-        if active || digest != stored || !matches!(state.as_str(), "held" | "retry" | "failed") {
+        if active
+            || digest != stored
+            || !matches!(
+                state.as_str(),
+                "pending" | "ready" | "held" | "retry" | "failed"
+            )
+        {
             return Err(Error::Held);
         }
         // Exhausted histories cannot reuse attempt ordinals. A new corrective decision is required.
@@ -570,6 +605,13 @@ fn finish(
     failure: Option<protocol::Error>,
     now: i64,
 ) -> Result<(), Error> {
+    let has_auth:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('binkp_link_health') WHERE name='authenticated')",[],|r|r.get(0))?;
+    if has_auth {
+        tx.execute(
+            "UPDATE binkp_link_health SET authenticated=0 WHERE session_id=?1",
+            [session],
+        )?;
+    }
     let (link, failures): (String, u32) = tx.query_row(
         "SELECT link_id,failures FROM binkp_link_health WHERE session_id=?1",
         [session],

@@ -844,7 +844,7 @@ fn copy_reader(input: &mut File, destination: &Path) -> Result<(u64, String), Bo
     #[cfg(unix)]
     if destination
         .components()
-        .any(|c| c.as_os_str() == "binkp-credentials")
+        .any(|c| c.as_os_str() == "binkp-credentials" || c.as_os_str() == "areafix-credentials")
     {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         options.mode(0o600);

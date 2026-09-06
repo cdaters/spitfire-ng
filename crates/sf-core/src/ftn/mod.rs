@@ -18,7 +18,10 @@ pub use operations::*;
 mod recovery;
 pub use recovery::*;
 mod directory;
+mod hub;
 mod mail;
+pub use hub::*;
+pub(crate) const HUB_MIGRATION: &str = include_str!("hub.sql");
 mod policy;
 use crate::{network::NetworkArtifactStore, RuntimeDatabase};
 pub use directory::*;
@@ -231,6 +234,11 @@ impl RuntimeDatabase {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         bind(&tx, policy)?;
+        for link in &m.links {
+            if hub::downstream(&tx, link)?.is_some() {
+                return Err(Error::Policy);
+            }
+        }
         let active: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM message_conferences WHERE conference_id=?1 AND active=1)",
             [m.conference_id],

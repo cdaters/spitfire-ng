@@ -11,6 +11,8 @@
 
 //! Native NetMail/EchoMail transactions and immutable per-target work.
 use super::*;
+#[path = "mail_hub.rs"]
+mod hub_service;
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TossResult {
     pub imported: u32,
@@ -297,7 +299,9 @@ fn queue(
     ingress: Option<&str>,
     now: i64,
 ) -> Result<(), Error> {
-    let digest = policy.digest()?;
+    if e.text.area.is_some() && hub_service::rescan_marker(&e.text)?.is_some() {
+        return Ok(());
+    }
     let mut targets = vec![];
     if let Some(area) = &e.text.area {
         let m = mapping(tx, &e.source.domain, area)?;
@@ -308,13 +312,14 @@ fn queue(
         if !aka.enabled {
             return Err(Error::Policy);
         }
-        for lid in &m.links {
+        for lid in &hub::echo_links(tx, &m)? {
             let l = policy.link(lid)?;
             let a = l.remote.address;
             if !l.enabled
                 || !l.outbound
                 || Some(lid.as_str()) == ingress
-                || (a.point() == 0 && e.text.seen_by.contains(&a.two_d()))
+                || (a.point() == 0
+                    && (e.text.seen_by.contains(&a.two_d()) || e.text.path.contains(&a.two_d())))
                 || l.remote == e.source
             {
                 continue;
@@ -327,7 +332,7 @@ fn queue(
                     final_destination: l.remote.clone(),
                     next_hop: l.remote.clone(),
                     link: l.id.clone(),
-                    aka: m.aka.clone(),
+                    aka: l.aka.clone(),
                     reason: "echo-subscription".into(),
                 },
                 m.version,
@@ -341,49 +346,66 @@ fn queue(
         targets.push((d, 0));
     }
     for (d, mv) in targets {
-        let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM ftn_routing_decisions WHERE publication_id=?1 AND link_id=?2)",params![pid,d.link],|r|r.get(0))?;
-        if exists {
-            continue;
-        }
-        let(count,bytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(reserved_bytes),0) FROM network_outbound_queue WHERE state NOT IN('accepted','cancelled')",[],|r|Ok((r.get(0)?,r.get(1)?)))?;
-        let(lcount,lbytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(q.reserved_bytes),0) FROM network_outbound_queue q JOIN ftn_routing_decisions d USING(queue_id) WHERE d.link_id=?1 AND q.state NOT IN('accepted','cancelled')",[&d.link],|r|Ok((r.get(0)?,r.get(1)?)))?;
-        let reserve = (e.text.body.len() + 32768) as i64;
-        if count >= 10000
-            || bytes + reserve > 256 * 1024 * 1024
-            || lcount >= 1000
-            || lbytes + reserve > 64 * 1024 * 1024
-        {
-            return Err(Error::Capacity);
-        }
-        let q = id();
-        let local = address_id(tx, &policy.aka(&d.aka)?.endpoint)?;
-        let next = address_id(tx, &d.next_hop)?;
-        let final_address = address_id(tx, &d.final_destination)?;
-        let version: i64 = tx.query_row(
-            "SELECT state_version FROM messages WHERE message_id=?1",
-            [mid],
-            |r| r.get(0),
-        )?;
-        tx.execute("INSERT INTO network_queue_work VALUES(?1,'ftn')", [&q])?;
-        tx.execute(
-            "INSERT INTO ftn_routing_decisions VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-            params![
-                q,
-                pid,
-                d.link,
-                final_address,
-                next,
-                local,
-                d.aka,
-                digest,
-                mv,
-                version,
-                d.reason,
-                now
-            ],
-        )?;
-        tx.execute("INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES(?1,'pending',?2,?3)",params![q,now,reserve])?;
+        queue_target(tx, policy, pid, e, mid, &d, mv, "normal", now)?;
     }
+    Ok(())
+}
+#[allow(clippy::too_many_arguments)]
+fn queue_target(
+    tx: &Transaction<'_>,
+    policy: &Policy,
+    pid: &str,
+    e: &Envelope,
+    mid: i64,
+    d: &RouteDecision,
+    mv: i64,
+    delivery_key: &str,
+    now: i64,
+) -> Result<(), Error> {
+    let digest = policy.digest()?;
+    let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM ftn_routing_decisions WHERE publication_id=?1 AND link_id=?2 AND delivery_key=?3)",params![pid,d.link,delivery_key],|r|r.get(0))?;
+    if exists {
+        return Ok(());
+    }
+    let(count,bytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(reserved_bytes),0) FROM network_outbound_queue WHERE state NOT IN('accepted','cancelled')",[],|r|Ok((r.get(0)?,r.get(1)?)))?;
+    let(lcount,lbytes):(i64,i64)=tx.query_row("SELECT COUNT(*),COALESCE(SUM(q.reserved_bytes),0) FROM network_outbound_queue q JOIN ftn_routing_decisions d USING(queue_id) WHERE d.link_id=?1 AND q.state NOT IN('accepted','cancelled')",[&d.link],|r|Ok((r.get(0)?,r.get(1)?)))?;
+    let reserve = (e.text.body.len() + 32768) as i64;
+    if count >= 10000
+        || bytes + reserve > 256 * 1024 * 1024
+        || lcount >= 1000
+        || lbytes + reserve > 64 * 1024 * 1024
+    {
+        return Err(Error::Capacity);
+    }
+    let q = id();
+    let local = address_id(tx, &policy.aka(&d.aka)?.endpoint)?;
+    let next = address_id(tx, &d.next_hop)?;
+    let final_address = address_id(tx, &d.final_destination)?;
+    let version: i64 = tx.query_row(
+        "SELECT state_version FROM messages WHERE message_id=?1",
+        [mid],
+        |r| r.get(0),
+    )?;
+    tx.execute("INSERT INTO network_queue_work VALUES(?1,'ftn')", [&q])?;
+    tx.execute(
+        "INSERT INTO ftn_routing_decisions VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        params![
+            q,
+            pid,
+            d.link,
+            final_address,
+            next,
+            local,
+            d.aka,
+            digest,
+            mv,
+            version,
+            d.reason,
+            now,
+            delivery_key
+        ],
+    )?;
+    tx.execute("INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES(?1,'pending',?2,?3)",params![q,now,reserve])?;
     Ok(())
 }
 fn load(conn: &rusqlite::Connection, pid: &str) -> Result<(Envelope, i64, Option<String>), Error> {
@@ -642,8 +664,9 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
     ) -> Result<TossResult, Error> {
-        self.toss_ftn_admitted(store, policy, link_id, bytes, now, None)
+        self.toss_ftn_admitted(store, policy, link_id, bytes, now, None, None)
     }
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn toss_ftn_admitted(
         &mut self,
         store: &dyn NetworkArtifactStore,
@@ -652,6 +675,7 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
         permitted: Option<(&[String], &[Address])>,
+        areafix: Option<&AreaFixVerifier<'_>>,
     ) -> Result<TossResult, Error> {
         policy.validate()?;
         let link = policy.link(link_id)?;
@@ -759,6 +783,38 @@ impl RuntimeDatabase {
                     .connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)?;
                 bind(&tx, policy)?;
+                if e.text.area.is_none()
+                    && policy.local(&e.destination).is_some()
+                    && (e.to.eq_ignore_ascii_case("AreaFix")
+                        || e.to.eq_ignore_ascii_case("AreaMgr"))
+                {
+                    let outcome = hub_service::areafix(&tx, policy, link_id, &e, areafix, now)?;
+                    receipt(
+                        &tx,
+                        link_id,
+                        &artifact,
+                        n as i64,
+                        None,
+                        if outcome { "imported" } else { "duplicate" },
+                        "ftn-areafix",
+                        now,
+                    )?;
+                    tx.commit()?;
+                    return Ok((if outcome { "imported" } else { "duplicate" }.into(), None));
+                }
+                if hub::downstream(&tx, link_id)?.is_some_and(|d| d.boss_aka.is_some())
+                    && e.source != link.remote
+                {
+                    return Err(Error::Denied);
+                }
+                if let Some(sender) = hub_service::rescan_marker(&e.text)? {
+                    if e.text.area.is_none()
+                        || sender.domain != link.remote.domain
+                        || sender.address != packet.header.origin
+                    {
+                        return Err(Error::Denied);
+                    }
+                }
                 let identity = e
                     .text
                     .msgid
@@ -790,7 +846,7 @@ impl RuntimeDatabase {
                 }
                 let (conference, recipient) = if let Some(area) = &e.text.area {
                     let map = mapping(&tx, &e.source.domain, area)?;
-                    if !map.receive || !map.links.iter().any(|l| l == link_id) {
+                    if !map.receive || !hub::echo_links(&tx, &map)?.iter().any(|l| l == link_id) {
                         return Err(Error::Denied);
                     }
                     let local = policy.aka(&map.aka)?;
@@ -950,16 +1006,21 @@ impl RuntimeDatabase {
         let (e, mid, _) = load(&tx, &pid)?;
         let link = policy.link(&lid)?;
         let aka = policy.aka(&aka)?;
+        if hub::downstream(&tx, &lid)?.is_some_and(|d| d.held) {
+            tx.commit()?;
+            return Err(Error::Held);
+        }
         let valid:bool=tx.query_row("SELECT lifecycle_state='active' AND state_version=?2 AND CASE WHEN container_kind='conference' THEN visibility='public' AND audience_kind='all-callers' ELSE visibility='private' END FROM messages WHERE message_id=?1",params![mid,version],|r|r.get(0))?;
         let map_ok = if let Some(area) = &e.text.area {
             let m = mapping(&tx, &e.source.domain, area)?;
-            m.version == mv && m.send && m.links.contains(&lid)
+            m.version == mv && m.send && hub::echo_links(&tx, &m)?.contains(&lid)
         } else {
             true
         };
         if !valid
             || !map_ok
             || digest != stored_digest
+            || hub::downstream(&tx, &lid)?.is_some_and(|d| !d.enabled)
             || !link.enabled
             || !link.outbound
             || !aka.enabled
@@ -973,7 +1034,18 @@ impl RuntimeDatabase {
             tx.commit()?;
             return Ok(artifact);
         }
+        let delivery_key: String = tx.query_row(
+            "SELECT delivery_key FROM ftn_routing_decisions WHERE queue_id=?1",
+            [queue_id],
+            |r| r.get(0),
+        )?;
         let mut e = e;
+        if delivery_key != "normal" {
+            e.text
+                .controls
+                .retain(|c| !c.raw.starts_with(b"\x01RESCANNED "));
+            e.text.add_control(&format!("RESCANNED {}", aka.endpoint));
+        }
         if e.text.area.is_some() {
             if aka.endpoint.address.point() == 0 {
                 e.text.seen_by.insert(aka.endpoint.address.two_d());
@@ -982,8 +1054,8 @@ impl RuntimeDatabase {
                 }
             }
             let targets = tx
-                .prepare("SELECT next_address FROM ftn_routing_decisions WHERE publication_id=?1")?
-                .query_map([&pid], |r| r.get::<_, i64>(0))?
+                .prepare("SELECT next_address FROM ftn_routing_decisions WHERE publication_id=?1 AND delivery_key=?2")?
+                .query_map(params![&pid, &delivery_key], |r| r.get::<_, i64>(0))?
                 .collect::<Result<Vec<_>, _>>()?;
             for target in targets {
                 let a = endpoint(&tx, target)?.address;

@@ -1,6 +1,30 @@
 # SPITFIRE NG Status
 
-## N5 networking operator and recovery — COMPLETE / ACCEPTED
+## N6 FTN hub — COMPLETE / ACCEPTED
+
+SPITFIRE NG can act as a leaf, routing node, EchoMail hub and point boss using
+one native message authority. Separate durable downstream subscriptions govern
+fanout. Authenticated AreaFix/AreaMgr changes only its own link; bounded native
+rescan preserves identity and isolates intentional replay. Partial deliveries and
+cold restore preserve each peer acknowledgement. Private NetMail bodies and
+credentials are absent from operator projections. BinkP remains transport only.
+
+Schema **24 → 25**; en-US **1.23.0 / 1,249 messages**. N1–N5 remain accepted.
+[M050](docs/research/m050-networking-n6-ftn-hub.md) records five-daemon Apple Silicon,
+independent Synchronet/SBBSecho, terminal/CAS, privacy and restore evidence.
+[Manual](docs/manual/ftn-hub.md); [Technical Reference](docs/technical/ftn-hub.md).
+Accepted private source: `03ff31f724bbd66ba5e47a338928c9a969052590`. Public gates: **602 passed / 0 failed / 6 opt-in ignored**, six doctest suites,
+108 headers, fmt/Clippy/diff, 120 Markdown/local-link documents and privacy/provenance
+pass. Publication accounting is recorded in M050.
+
+No live public FidoNet traffic. Private corpora, credentials, peer source/config
+and acceptance artifacts are excluded. N7 FileEcho/TIC/FREQ/hatching, general
+scheduler, CircuitNET implementation, B-022/doors and release work remain untouched.
+DDEV, production and FireComm are unchanged. Windows live acceptance remains
+**DEFERRED — REAL WINDOWS ENVIRONMENT REQUIRED**. Exact next action: stop after
+N6 source publication; any later milestone requires a separately scoped pass.
+
+## Previous checkpoint: N5 networking operator and recovery — COMPLETE / ACCEPTED
 
 sfmonitor Networks provides overview, links, queues, areas, directory, quarantine
 and recovery. sfconfig provides named QWK/DOVE/FTN/BinkP policy/mapping forms,

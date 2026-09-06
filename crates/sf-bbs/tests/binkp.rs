@@ -1008,3 +1008,6 @@ fn prepare_network_operator_acceptance_board() {
     .unwrap();
     println!("Prepared isolated N5 operator acceptance board; no network contact.");
 }
+
+#[path = "support/hub_journey.rs"]
+mod hub_journey;

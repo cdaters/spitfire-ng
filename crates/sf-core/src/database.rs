@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 24;
+pub const SCHEMA_VERSION: u32 = 25;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 24] = [
+const MIGRATIONS: [Migration; 25] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1511,6 +1511,11 @@ const MIGRATIONS: [Migration; 24] = [
         version: 24,
         name: "binkp_transport_authority",
         sql: crate::ftn::BINKP_MIGRATION,
+    },
+    Migration {
+        version: 25,
+        name: "ftn_hub_authority",
+        sql: crate::ftn::HUB_MIGRATION,
     },
 ];
 
@@ -3029,7 +3034,7 @@ fn run_migration(
     transaction
         .execute_batch(migration.sql)
         .map_err(DatabaseError::Sqlite)?;
-    if matches!(migration.version, 22 | 23) {
+    if matches!(migration.version, 22 | 23 | 25) {
         let invalid: bool = transaction
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
@@ -5975,6 +5980,58 @@ mod qwk_migration_tests {
             0
         );
         assert_eq!(c.query_row("SELECT (SELECT COUNT(*) FROM qwk_private_policy)+(SELECT COUNT(*) FROM network_private_envelopes)",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+    #[test]
+    fn schema_twenty_five_rollback_and_retained_link_identity() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(24) {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        c.execute_batch("INSERT INTO ftn_addresses VALUES(1,'synthetic',10,100,1,0),(2,'synthetic',10,100,1,7); INSERT INTO ftn_link_bindings VALUES('point7',2,1); CREATE TABLE ftn_area_access(sentinel TEXT); INSERT INTO ftn_area_access VALUES('retained');").unwrap();
+        assert!(apply_migration(&mut c, &MIGRATIONS[24]).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 24);
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name='ftn_downstreams'",
+                [],
+                |r| r.get::<_, u32>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT sentinel FROM ftn_area_access", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "retained"
+        );
+        c.execute_batch("DROP TABLE ftn_area_access").unwrap();
+        apply_migration(&mut c, &MIGRATIONS[24]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 25);
+        assert_eq!(
+            c.query_row(
+                "SELECT remote_address FROM ftn_link_bindings WHERE link_id='point7'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            2
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, u32>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM ftn_subscriptions", [], |r| r
+                .get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
     }
     #[test]
     fn schema_twenty_four_transactional_and_no_fabricated_transport_history() {

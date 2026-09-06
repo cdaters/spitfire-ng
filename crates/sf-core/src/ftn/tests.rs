@@ -388,7 +388,14 @@ fn echomail_native_scan_toss_fanout_and_loop() {
     assert_eq!(f.db.scan_ftn(&f.policy, NOW).unwrap(), 1);
     assert_eq!(f.db.scan_ftn(&f.policy, NOW).unwrap(), 0);
     assert_eq!(f.db.ftn_queue(None).unwrap().len(), 2);
-    let q = f.db.ftn_queue(None).unwrap().remove(0);
+    // Queue identifiers are random; select the node AKA explicitly. The other
+    // configured link uses a real point AKA, which must not append its boss to PATH.
+    let q =
+        f.db.ftn_queue(None)
+            .unwrap()
+            .into_iter()
+            .find(|q| q.link == "next")
+            .unwrap();
     let a =
         f.db.build_ftn(&f.store, &f.policy, &q.id, q.version, NOW)
             .unwrap();
@@ -397,6 +404,19 @@ fn echomail_native_scan_toss_fanout_and_loop() {
     assert_eq!(t.area.as_deref(), Some("TEST1"));
     assert!(t.seen_by.contains(&(100, 1)));
     assert_eq!(t.path, vec![(100, 1)]);
+    let q =
+        f.db.ftn_queue(None)
+            .unwrap()
+            .into_iter()
+            .find(|q| q.link == "peer")
+            .unwrap();
+    let a =
+        f.db.build_ftn(&f.store, &f.policy, &q.id, q.version, NOW)
+            .unwrap();
+    let p = Packet::decode(&f.store.0.lock().unwrap()[&a], (10, 10)).unwrap();
+    let t = Text::parse(&p.messages[0].text, Charset::Ascii).unwrap();
+    assert!(t.path.is_empty());
+    assert_eq!(p.header.origin.point(), 3);
     let b = inbound(3, "10:100/1", Some("TEST2"));
     assert_eq!(
         f.db.toss_ftn(&f.store, &f.policy, "peer", &b, NOW)
@@ -1374,3 +1394,6 @@ fn configuration_references_reject_orphans_and_allow_disabling() {
     changed.enabled = false;
     assert!(f.db.validate_ftn_policy_references(&changed).is_ok());
 }
+
+#[path = "hub_tests.rs"]
+mod hub_tests;

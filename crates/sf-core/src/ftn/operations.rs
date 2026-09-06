@@ -22,9 +22,10 @@ pub enum NetworkSection {
     Directory,
     Quarantine,
     Recovery,
+    Hub,
 }
 impl NetworkSection {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Overview,
         Self::Links,
         Self::Queues,
@@ -32,6 +33,7 @@ impl NetworkSection {
         Self::Directory,
         Self::Quarantine,
         Self::Recovery,
+        Self::Hub,
     ];
     pub const fn key(self) -> &'static str {
         match self {
@@ -42,6 +44,7 @@ impl NetworkSection {
             Self::Directory => "networks-directory",
             Self::Quarantine => "networks-quarantine",
             Self::Recovery => "networks-recovery",
+            Self::Hub => "networks-hub",
         }
     }
 }
@@ -106,6 +109,16 @@ pub struct NetworkConference {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NetworkPage {
+    #[serde(default)]
+    pub downstreams: Vec<Downstream>,
+    #[serde(default)]
+    pub subscriptions: Vec<Subscription>,
+    #[serde(default)]
+    pub area_access: Vec<AreaAccess>,
+    #[serde(default)]
+    pub areafix: Vec<AreaFixActivity>,
+    #[serde(default)]
+    pub rescans: Vec<RescanActivity>,
     pub conferences: Vec<NetworkConference>,
     pub query: NetworkQuery,
     pub more: bool,
@@ -119,6 +132,13 @@ pub struct NetworkPage {
     pub counters: BTreeMap<String, i64>,
 }
 impl RuntimeDatabase {
+    pub fn validate_ftn_hub_transport(&self, policy: &BinkpPolicy) -> Result<(), Error> {
+        for d in self.ftn_downstreams()? {
+            policy.link(&d.link)?;
+        }
+        Ok(())
+    }
+
     /// Static edits cannot orphan relational maps or reinterpret a retained identity.
     pub fn validate_ftn_policy_references(&self, policy: &Policy) -> Result<(), Error> {
         policy.validate()?;
@@ -147,6 +167,9 @@ impl RuntimeDatabase {
                     return Err(Error::Conflict);
                 }
             }
+        }
+        for d in self.ftn_downstreams()? {
+            hub::downstream_valid(policy, &d)?;
         }
         for l in &policy.links {
             let prior: Option<(i64, i64)> = self
@@ -237,7 +260,7 @@ impl RuntimeDatabase {
         }
         match query.section {
             NetworkSection::Queues => {
-                let mut stmt=self.connection.prepare("SELECT q.queue_id,w.adapter,COALESCE(f.link_id,d.link_id),COALESCE(m.domain,l.network),q.state,q.version,q.attempts,q.created_at,q.next_attempt,q.reason,q.artifact_id,a.byte_length,f.final_address,f.next_address,f.aka,COALESCE(f.reason,'configured-qwk'),CASE WHEN f.queue_id IS NULL THEN 'qwk' WHEN m.area LIKE '@netmail/%' THEN 'netmail' ELSE 'echomail' END,COALESCE(f.publication_id,d.publication_id),(SELECT MAX(occurred_at) FROM network_delivery_attempts t WHERE t.queue_id=q.queue_id),d.destination FROM network_outbound_queue q JOIN network_queue_work w USING(queue_id) LEFT JOIN ftn_routing_decisions f USING(queue_id) LEFT JOIN ftn_messages m ON m.publication_id=f.publication_id LEFT JOIN network_routing_decisions d ON d.decision_id=q.queue_id LEFT JOIN qwk_links l ON l.link_id=d.link_id LEFT JOIN network_artifacts a USING(artifact_id) ORDER BY q.queue_id LIMIT 101 OFFSET ?1")?;
+                let mut stmt=self.connection.prepare("SELECT q.queue_id,w.adapter,COALESCE(f.link_id,d.link_id),COALESCE(m.domain,l.network),q.state,q.version,q.attempts,q.created_at,q.next_attempt,q.reason,q.artifact_id,a.byte_length,f.final_address,f.next_address,f.aka,COALESCE(f.reason,'configured-qwk'),CASE WHEN f.queue_id IS NULL THEN 'qwk' WHEN m.area LIKE '@netmail/%' THEN CASE WHEN m.ingress_link IS NOT NULL AND f.reason<>'areafix-response' THEN 'transit-netmail' ELSE 'netmail' END ELSE 'echomail' END,COALESCE(f.publication_id,d.publication_id),(SELECT MAX(occurred_at) FROM network_delivery_attempts t WHERE t.queue_id=q.queue_id),d.destination FROM network_outbound_queue q JOIN network_queue_work w USING(queue_id) LEFT JOIN ftn_routing_decisions f USING(queue_id) LEFT JOIN ftn_messages m ON m.publication_id=f.publication_id LEFT JOIN network_routing_decisions d ON d.decision_id=q.queue_id LEFT JOIN qwk_links l ON l.link_id=d.link_id LEFT JOIN network_artifacts a USING(artifact_id) ORDER BY q.queue_id LIMIT 101 OFFSET ?1")?;
                 let rows = stmt
                     .query_map([query.offset], |r| {
                         Ok((
@@ -294,6 +317,24 @@ impl RuntimeDatabase {
                 page.quarantine=self.connection.prepare("SELECT q.quarantine_id,COALESCE(q.ftn_link,q.link_id),q.reason,q.received_at,a.byte_length FROM network_quarantine q LEFT JOIN network_artifacts a USING(artifact_id) ORDER BY q.quarantine_id DESC LIMIT 101 OFFSET ?1")?.query_map([query.offset],|r|Ok(QuarantineStatus{id:r.get(0)?,link:r.get(1)?,reason:r.get(2)?,received:r.get(3)?,bytes:r.get(4)?}))?.collect::<Result<_,_>>()?;
                 page.more = page.quarantine.len() > 100;
                 page.quarantine.truncate(100);
+            }
+            NetworkSection::Hub => {
+                page.downstreams = self.ftn_downstreams()?;
+                page.subscriptions = self.ftn_subscriptions(query.offset)?;
+                page.areafix = self.ftn_areafix_activity(query.offset)?;
+                page.rescans = self.ftn_rescan_activity(query.offset)?;
+                let keys=self.connection.prepare("SELECT domain,area FROM ftn_area_mappings ORDER BY domain,area LIMIT 100 OFFSET ?1")?.query_map([query.offset],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
+                for (d, a) in keys {
+                    page.area_access
+                        .push(self.ftn_area_access(&d.parse()?, &a)?);
+                }
+                page.more = [
+                    page.subscriptions.len(),
+                    page.areafix.len(),
+                    page.rescans.len(),
+                    page.area_access.len(),
+                ]
+                .contains(&100);
             }
             NetworkSection::Recovery => {
                 page.origins = self.ftn_origin_states()?;

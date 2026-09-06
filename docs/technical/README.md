@@ -1,6 +1,6 @@
 # SPITFIRE NG Technical Reference
 
-Current source implements N1–N4 networking and the N5 [operator/recovery surfaces](network-operations.md). Native messages remain canonical; no live public FidoNet participation is claimed.
+Current source implements N1–N5 networking and [N6 FTN hub services](ftn-hub.md). Native messages remain canonical; BinkP is transport only. No live public FidoNet participation is claimed.
 
 
 <!-- help-topic: technical.reference -->
@@ -251,3 +251,7 @@ queues and directory generations. No BinkP or live public participation is claim
 
 See [Networks operations](network-operations.md) for the cockpit, typed configuration,
 queue recovery and verified restore serial-floor reconciliation.
+
+## FTN hub services — N6
+
+See [hub authority contract](ftn-hub.md) for downstreams, subscriptions, AreaFix, bounded rescan, points and recovery. Schema 25; en-US 1.23.0 / 1,249 messages.

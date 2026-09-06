@@ -322,10 +322,13 @@ impl ConfigurationAuthority {
                 return Ok(ConfigurationResult::Invalid { issues });
             }
         };
-        if candidate.ftn.is_some()
-            && database
+        if (candidate.ftn.is_some() || candidate.binkp.is_some())
+            && (database
                 .validate_ftn_policy_references(&replacement.ftn)
                 .is_err()
+                || database
+                    .validate_ftn_hub_transport(&replacement.binkp)
+                    .is_err())
         {
             if !database.reject_operator_command(command_id, "configuration-invalid", now())? {
                 return Err(failure());
@@ -565,6 +568,43 @@ impl OfflineConfiguration {
                     *expected,
                     now(),
                 )?;
+            }
+            crate::NetworkAction::Ftn { request } => {
+                let c = self.authority.current()?;
+                match request {
+                    crate::ftn::Action::Downstream {
+                        downstream,
+                        expected,
+                    } => {
+                        c.binkp.link(&downstream.link)?;
+                        db.configure_ftn_downstream(
+                            &c.ftn,
+                            &self.principal,
+                            downstream,
+                            *expected,
+                            now(),
+                        )?;
+                    }
+                    crate::ftn::Action::Subscription {
+                        subscription,
+                        expected,
+                    } => db.configure_ftn_subscription(
+                        &c.ftn,
+                        &self.principal,
+                        subscription,
+                        *expected,
+                        now(),
+                    )?,
+                    crate::ftn::Action::AreaAccess { access, expected } => db
+                        .configure_ftn_area_access(
+                            &c.ftn,
+                            &self.principal,
+                            access,
+                            *expected,
+                            now(),
+                        )?,
+                    _ => return Err(failure()),
+                }
             }
             _ => return Err(failure()),
         }

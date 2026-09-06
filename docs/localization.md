@@ -38,7 +38,7 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.22.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.23.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
 copy. It contains 1,014 semantic messages in the complete schema-20 caller and
 operator catalog, including
@@ -284,3 +284,11 @@ selection, safe link diagnostics, directory lookup, credential status and recove
 Machine identities and protocol state tokens remain stable. No speculative
 NodelistDB/AreaFix/FileEcho/CircuitNET UI strings were added. Terminal guards and
 locale fallback remain unchanged. See [Networks operations](manual/network-operations.md).
+
+## N6 / en-US 1.23.0
+
+N6 advances en-US to **1.23.0 / 1,249 messages** (32 additions): Hub, downstream
+policy, subscriptions/access, AreaFix secret status/update, rescan bounds/activity,
+point/boss fields and operator diagnostics. Catalog totals are 853 operator,
+59 shared and 337 caller messages. Existing locale fallback and terminal rendering
+contracts are unchanged. [Hub manual](manual/ftn-hub.md).

@@ -149,7 +149,7 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
     }
     match key.code {
         KeyCode::Char('f') => request(model, worker),
-        KeyCode::Char(c @ '1'..='7') => {
+        KeyCode::Char(c @ '1'..='8') => {
             model.networks.query = NetworkQuery {
                 section: Section::ALL[c as usize - '1' as usize],
                 offset: 0,
@@ -477,6 +477,72 @@ fn rows(model: &MonitorModel) -> Vec<String> {
                     q.bytes.unwrap_or(0)
                 )
             })
+            .collect(),
+        Section::Hub => s
+            .page
+            .downstreams
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} | {} | {} | AreaFix {} | Rescan {} | {} {}",
+                    d.link,
+                    t(if d.held {
+                        "networks-downstream-held"
+                    } else if d.enabled {
+                        "sfconfig-enabled"
+                    } else {
+                        "sfconfig-disabled"
+                    }),
+                    d.boss_aka
+                        .as_deref()
+                        .map(|a| format!("{} {a}", t("networks-boss")))
+                        .unwrap_or_else(|| t("networks-downstream")),
+                    d.areafix,
+                    d.rescan,
+                    t("networks-queue-count"),
+                    s.page.ftn_queue_counts.get(&d.link).unwrap_or(&0)
+                )
+            })
+            .chain(s.page.subscriptions.iter().map(|a| {
+                format!(
+                    "{} | {}@{} | {} | {:?} | v{}",
+                    a.link,
+                    a.area,
+                    a.domain,
+                    t(if a.subscribed {
+                        "networks-subscribed"
+                    } else {
+                        "networks-unsubscribed"
+                    }),
+                    a.source,
+                    a.version
+                )
+            }))
+            .chain(s.page.areafix.iter().map(|a| {
+                format!(
+                    "AreaFix | {} | {} | {} | {} {} | {} {}",
+                    a.link,
+                    time(Some(a.received_at)),
+                    a.result,
+                    t("networks-commands"),
+                    a.commands,
+                    t("networks-changes"),
+                    a.changes
+                )
+            }))
+            .chain(s.page.rescans.iter().map(|r| {
+                format!(
+                    "Rescan | {} | {} | {} {} | {} {} | {} {}",
+                    r.link,
+                    r.area,
+                    t("networks-requested-count"),
+                    r.requested,
+                    t("networks-queued-count"),
+                    r.queued,
+                    t("networks-accepted-count"),
+                    r.accepted
+                )
+            }))
             .collect(),
         Section::Recovery => s
             .page

@@ -274,9 +274,13 @@ impl Text {
                         | "FLAGS"
                         | "PID"
                         | "TID"
+                        | "RESCANNED"
                 );
                 if known {
-                    let delimiter = if matches!(tag, "INTL" | "FMPT" | "TOPT" | "Via" | "FLAGS") {
+                    let delimiter = if matches!(
+                        tag,
+                        "INTL" | "FMPT" | "TOPT" | "Via" | "FLAGS" | "RESCANNED"
+                    ) {
                         b' '
                     } else {
                         b':'
@@ -345,6 +349,9 @@ impl Text {
                             if out.path.len() > MAX_HOPS {
                                 return Err(Error::Limit);
                             }
+                        }
+                        "RESCANNED" => {
+                            value.parse::<super::Endpoint>()?;
                         }
                         "Via" => {
                             if out.via.len() >= MAX_HOPS {

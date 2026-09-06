@@ -159,3 +159,7 @@ NetMail composition remains the N3 service boundary. AreaFix/hub subscriptions,
 FileEcho/TIC/FREQ, general scheduling and CircuitNET remain future work.
 Actual Windows terminal/network/restore acceptance is **DEFERRED — REAL WINDOWS
 ENVIRONMENT REQUIRED**. N5 does not authorize live public FidoNet participation.
+
+## N6 hub extension
+
+The [FTN hub manual](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.

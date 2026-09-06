@@ -60,7 +60,20 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
-        if matches!(self, Self::Hold { .. }) {
+        if matches!(
+            self,
+            Self::Ftn {
+                request: crate::ftn::Action::Downstream { .. }
+                    | crate::ftn::Action::Subscription { .. }
+                    | crate::ftn::Action::AreaAccess { .. }
+                    | crate::ftn::Action::Rescan { .. }
+            } | Self::Binkp {
+                request: crate::binkp::Action::AreaFixCredential { .. }
+                    | crate::binkp::Action::ClearAreaFixCredential { .. }
+            }
+        ) {
+            crate::OperatorFeature::FtnHub
+        } else if matches!(self, Self::Hold { .. }) {
             crate::OperatorFeature::Networks
         } else if matches!(self, Self::Binkp { .. }) {
             crate::OperatorFeature::BinkpNetwork

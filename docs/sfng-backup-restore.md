@@ -367,3 +367,14 @@ or manual counter editing. Directory/source priority/provenance remain snapshot
 authority; sessions never restore as active. Real replacement and new-root
 collision journeys prove fresh outbound identities and no re-send of matching
 accepted work. No speculative migration or live transport backup state was added.
+
+## N6 hub recovery — schema 25
+
+Backups include downstream subscriptions/policies, point relationships, safe AreaFix
+and rescan receipts, queue delivery keys and private AreaFix credential references
+and files. Restore clears live transport authentication/session state. Existing N5
+verified reconciliation preserves independently accepted fanout/rescan work and
+holds unresolved work. Never infer acceptance from old configuration or nodelists.
+The [hub recovery workflow](manual/ftn-hub.md) explains operator handling; the
+[M050 acceptance](research/m050-networking-n6-ftn-hub.md) proves accepted versus
+pending fanout and rescan restoration, including the real stopped-daemon journey.

@@ -779,8 +779,8 @@ networks-areas = Areas
 networks-directory = Directory
 networks-quarantine = Quarantine
 networks-recovery = Recovery
-networks-help = Networks: 1–7 select a section. Up/Down select a row; Enter opens details. T tests a selected BinkP link without mail; P polls. H holds an FTN queue item; R releases/retries it. S scans eligible FTN messages. [ and ] page results. Actions require current explicit permissions and confirmation. Configuration opens separately through System Configuration.
-networks-tabs = 1 Overview  2 Links  3 Queues  4 Areas  5 Directory  6 Quarantine  7 Recovery
+networks-help = Networks: 1–8 select a section. Up/Down select a row; Enter opens details. T tests a selected BinkP link without mail; P polls. H holds an FTN queue item; R releases/retries it. S scans eligible FTN messages. [ and ] page results. Actions require current explicit permissions and confirmation. Configuration opens separately through System Configuration.
+networks-tabs = 1 Overview  2 Links  3 Queues  4 Areas  5 Directory  6 Quarantine  7 Recovery  8 Hub
 networks-keys = F Refresh  Enter details  T Test  P Poll  H Hold  R Release/Retry  S Scan  L Lookup  A Activate generation  [ ] pages
 networks-started = Last request: session started. Current link health and queue counts above show its result; starting alone is not delivery.
 networks-action-rejected = Action rejected. Refresh and review link policy, state, permissions and recovery holds.
@@ -924,3 +924,66 @@ netconfig-conflict = Configuration changed since this form opened. Your draft is
 networks-last-remote = Last authenticated remote addresses
 
 netconfig-conference-picker = Enter edits the conference; Up/Down or Page keys choose a native conference by name, then Enter confirms.
+
+networks-hub = Hub / Downstream / Points
+
+networks-boss = Boss AKA
+
+networks-downstream = Downstream
+
+networks-subscription = Subscription
+
+networks-subscribed = Subscribed
+
+networks-unsubscribed = Unsubscribed
+
+networks-commands = Commands
+
+networks-changes = Changes
+
+networks-requested-count = Requested
+
+networks-queued-count = Queued
+
+networks-accepted-count = Accepted
+
+networks-queue-count = Outstanding
+
+netconfig-hub = FTN Hub / Downstream / Points / AreaFix / Rescan
+
+netconfig-downstream-add = Add downstream relationship
+
+netconfig-point-add = Add point relationship
+
+netconfig-subscription-add = Add downstream subscription
+
+netconfig-area-access = Area access / rescan policy
+
+netconfig-areafix-secret = AreaFix credential (write-only)
+
+netconfig-areafix-secret-prompt = Set AreaFix credential (1–81 printable ASCII characters; hidden)
+
+netconfig-hub-help = Enter: edit / c: clear selected credential / f: refresh / Esc: back. Configure the FTN and BinkP link first. Disable retains history.
+
+netconfig-field-boss-aka = Boss local AKA (empty for downstream node)
+
+netconfig-field-areafix = Allow authenticated AreaFix
+
+netconfig-field-rescan = Allow rescan
+
+netconfig-field-max-area = Maximum rescan messages per area (1–500)
+
+netconfig-field-max-total = Maximum rescan messages per request (1–1000)
+
+netconfig-field-cooldown = Rescan cooldown seconds (60–86400)
+
+netconfig-field-subscribed = Subscribed
+
+netconfig-field-remote-subscribe = Allow remote subscription requests
+
+netconfig-field-request = Rescan request
+
+netconfig-field-count = Message count
+
+netconfig-field-held = Hold downstream exchange (keep queueing)
+networks-downstream-held = Downstream held

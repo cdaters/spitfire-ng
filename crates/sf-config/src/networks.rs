@@ -117,6 +117,10 @@ enum Kind {
     Binkp,
     Qwk,
     Area,
+    Downstream,
+    Subscription,
+    Access,
+    Rescan,
 }
 struct Form {
     kind: Kind,
@@ -189,7 +193,10 @@ impl Form {
         Self {
             kind,
             before: if (kind == Kind::Qwk && v["link"]["version"].as_i64() == Some(0))
-                || (kind == Kind::Area && v["version"].as_i64() == Some(0))
+                || (matches!(
+                    kind,
+                    Kind::Area | Kind::Downstream | Kind::Subscription | Kind::Access
+                ) && v["version"].as_i64() == Some(0))
             {
                 Value::Null
             } else {
@@ -207,7 +214,15 @@ impl Form {
     }
     fn keys(&self) -> Vec<String> {
         match get(&self.draft, &self.path) {
-            Some(Value::Object(o)) => o.keys().filter(|k| *k != "version").cloned().collect(),
+            Some(Value::Object(o)) => o
+                .keys()
+                .filter(|k| {
+                    *k != "version"
+                        && !(self.kind == Kind::Subscription
+                            && ["source", "changed_at"].contains(&k.as_str()))
+                })
+                .cloned()
+                .collect(),
             Some(Value::Array(a)) => (0..a.len()).map(|i| i.to_string()).collect(),
             _ => vec![],
         }
@@ -328,6 +343,39 @@ impl Form {
                     },
                 )
             }
+            Kind::Downstream | Kind::Subscription | Kind::Access | Kind::Rescan => {
+                let expected = self.before["version"].as_i64().unwrap_or(0);
+                let mut draft = self.draft.clone();
+                if self.kind != Kind::Rescan {
+                    draft["version"] = json!(expected + 1);
+                }
+                let request = match self.kind {
+                    Kind::Downstream => sf_bbs::ftn::Action::Downstream {
+                        downstream: serde_json::from_value(draft)
+                            .map_err(|_| t("netconfig-invalid"))?,
+                        expected,
+                    },
+                    Kind::Subscription => sf_bbs::ftn::Action::Subscription {
+                        subscription: serde_json::from_value(draft)
+                            .map_err(|_| t("netconfig-invalid"))?,
+                        expected,
+                    },
+                    Kind::Access => sf_bbs::ftn::Action::AreaAccess {
+                        access: serde_json::from_value(draft)
+                            .map_err(|_| t("netconfig-invalid"))?,
+                        expected,
+                    },
+                    _ => sf_bbs::ftn::Action::Rescan {
+                        link: draft["link"]
+                            .as_str()
+                            .ok_or_else(|| t("netconfig-invalid"))?
+                            .into(),
+                        areas: vec![serde_json::from_value(draft["request"].clone())
+                            .map_err(|_| t("netconfig-invalid"))?],
+                    },
+                };
+                backend.network_action(self.command.clone(), NetworkAction::Ftn { request })
+            }
             Kind::Area => {
                 let mut mapping: Mapping = serde_json::from_value(self.draft.clone())
                     .map_err(|_| t("netconfig-invalid"))?;
@@ -349,7 +397,8 @@ impl Form {
             Value::Number(_) => input.parse::<i64>().map(|v| json!(v)).ok(),
             Value::Bool(_) => input.parse::<bool>().ok().map(Value::Bool),
             _ => Some(
-                if input.is_empty() && p.last().is_some_and(|s| s == "endpoint") {
+                if input.is_empty() && p.last().is_some_and(|s| s == "endpoint" || s == "boss_aka")
+                {
                     Value::Null
                 } else {
                     Value::String(input.clone())
@@ -795,6 +844,7 @@ pub(super) fn run(
                     .unwrap_or_else(|| t("netconfig-secret-online"))
             )
         }));
+        entries.push(t("netconfig-hub"));
         terminal
             .draw(|f| {
                 let p = Layout::vertical([
@@ -884,6 +934,10 @@ pub(super) fn run(
                 }
                 Err(e) => status = e,
             },
+            KeyCode::Enter if selected == entries.len() - 1 => {
+                hub_menu(terminal, backend, &data)?;
+                data = backend.network_data()?;
+            }
             KeyCode::Enter => {
                 let conf = data.conferences.first().map(|c| c.id).unwrap_or(1);
                 let aka = data
@@ -1015,6 +1069,225 @@ pub(super) fn run(
                 }
             }
             _ => {}
+        }
+    }
+}
+
+fn hub_page(backend: &mut Backend) -> Result<sf_core::ftn::NetworkPage, String> {
+    let mut page = sf_core::ftn::NetworkPage::default();
+    let mut offset = 0;
+    loop {
+        let query = NetworkQuery {
+            section: NetworkSection::Hub,
+            offset,
+        };
+        let part = match backend {
+            Backend::Online { runtime, client } => {
+                runtime
+                    .block_on(client.networks(query))
+                    .map_err(|_| t("networks-access"))?
+                    .page
+            }
+            Backend::Offline(a) => a.network_page(&query).map_err(|_| t("networks-access"))?,
+        };
+        page.downstreams = part.downstreams;
+        page.subscriptions.extend(part.subscriptions);
+        page.area_access.extend(part.area_access);
+        if !part.more {
+            break;
+        }
+        offset += 100;
+        if offset > 10000 {
+            return Err(t("networks-action-rejected"));
+        }
+    }
+    Ok(page)
+}
+fn hub_menu(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    backend: &mut Backend,
+    data: &Data,
+) -> Result<(), String> {
+    let mut selected = 0usize;
+    let mut status = String::new();
+    let mut page = hub_page(backend)?;
+    loop {
+        let first = data.snapshot.config.ftn.links.first();
+        let domain = first
+            .map(|l| l.remote.domain.as_str())
+            .unwrap_or("isolated");
+        let link = first.map(|l| l.id.as_str()).unwrap_or("downstream");
+        let area = data
+            .areas
+            .first()
+            .map(|a| a.area.as_str())
+            .unwrap_or("GENERAL");
+        let boss = data
+            .snapshot
+            .config
+            .ftn
+            .akas
+            .iter()
+            .find(|a| a.endpoint.address.point() == 0)
+            .map(|a| a.id.as_str())
+            .unwrap_or("local");
+        let mut forms = vec![
+            (
+                t("netconfig-downstream-add"),
+                Kind::Downstream,
+                json!({"link":link,"enabled":false,"held":false,"boss_aka":null,"areafix":false,"rescan":false,"max_area":50,"max_total":100,"cooldown":300,"version":0}),
+            ),
+            (
+                t("netconfig-point-add"),
+                Kind::Downstream,
+                json!({"link":data.snapshot.config.ftn.links.iter().find(|l|l.remote.address.point()>0).map(|l|l.id.as_str()).unwrap_or("point1"),"enabled":false,"held":false,"boss_aka":boss,"areafix":false,"rescan":false,"max_area":50,"max_total":100,"cooldown":300,"version":0}),
+            ),
+            (
+                t("netconfig-subscription-add"),
+                Kind::Subscription,
+                json!({"link":page.downstreams.first().map(|d|d.link.as_str()).unwrap_or(link),"domain":domain,"area":area,"subscribed":true,"source":"manual","version":0,"changed_at":0}),
+            ),
+        ];
+        for d in &page.downstreams {
+            forms.push((
+                format!("{} / {}", t("networks-downstream"), d.link),
+                Kind::Downstream,
+                serde_json::to_value(d).map_err(|_| t("netconfig-invalid"))?,
+            ));
+        }
+        for a in &page.area_access {
+            forms.push((
+                format!("{} / {}@{}", t("netconfig-area-access"), a.area, a.domain),
+                Kind::Access,
+                serde_json::to_value(a).map_err(|_| t("netconfig-invalid"))?,
+            ));
+        }
+        for s in &page.subscriptions {
+            let mut v = serde_json::to_value(s).map_err(|_| t("netconfig-invalid"))?;
+            v["source"] = json!("manual");
+            forms.push((
+                format!(
+                    "{} / {} / {} / {}",
+                    t("networks-subscription"),
+                    s.link,
+                    s.area,
+                    t(if s.subscribed {
+                        "networks-subscribed"
+                    } else {
+                        "networks-unsubscribed"
+                    })
+                ),
+                Kind::Subscription,
+                v,
+            ));
+        }
+        for d in &page.downstreams {
+            forms.push((
+                format!("Rescan / {}", d.link),
+                Kind::Rescan,
+                json!({"link":d.link,"request":{"area":area,"count":d.max_area}}),
+            ));
+        }
+        let mut entries: Vec<_> = forms.iter().map(|f| f.0.clone()).collect();
+        entries.extend(
+            page.downstreams
+                .iter()
+                .map(|d| format!("{} / {}", t("netconfig-areafix-secret"), d.link)),
+        );
+        terminal
+            .draw(|f| {
+                let p = Layout::vertical([
+                    Constraint::Length(3),
+                    Constraint::Min(4),
+                    Constraint::Length(4),
+                ])
+                .split(f.area());
+                f.render_widget(Paragraph::new(t("netconfig-hub")), p[0]);
+                let mut state = ListState::default().with_selected(Some(selected));
+                f.render_stateful_widget(
+                    List::new(entries.iter().map(|s| ListItem::new(clean(s))))
+                        .block(Block::default().borders(Borders::ALL))
+                        .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+                    p[1],
+                    &mut state,
+                );
+                f.render_widget(
+                    Paragraph::new(format!("{}\n{}", t("netconfig-hub-help"), status))
+                        .wrap(Wrap { trim: false }),
+                    p[2],
+                );
+            })
+            .map_err(|_| t("sfconfig-connection-error"))?;
+        let Event::Key(k) = event::read().map_err(|_| t("sfconfig-connection-error"))? else {
+            continue;
+        };
+        if !matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            continue;
+        }
+        if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
+            return Ok(());
+        }
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => return Ok(()),
+            KeyCode::Up => selected = selected.saturating_sub(1),
+            KeyCode::Down => selected = (selected + 1).min(entries.len().saturating_sub(1)),
+            KeyCode::PageUp => selected = selected.saturating_sub(10),
+            KeyCode::PageDown => selected = (selected + 10).min(entries.len().saturating_sub(1)),
+            KeyCode::Char('f') => page = hub_page(backend)?,
+            KeyCode::Enter if selected < forms.len() => {
+                let (_, kind, value) = &forms[selected];
+                edit_form(terminal, backend, data, Form::new(*kind, value.clone()))?;
+                page = hub_page(backend)?;
+            }
+            KeyCode::Enter | KeyCode::Char('c') if selected >= forms.len() => {
+                let d = &page.downstreams[selected - forms.len()];
+                if let Backend::Online { runtime, client } = backend {
+                    let current = runtime
+                        .block_on(client.binkp_status())
+                        .map_err(|_| t("networks-access"))?;
+                    let credential = current
+                        .links
+                        .iter()
+                        .find(|l| l.link == d.link)
+                        .map(|l| &l.areafix_credential);
+                    status = t(match credential {
+                        Some(sf_bbs::SecretStatus::Configured) => "sfconfig-secret-configured",
+                        Some(sf_bbs::SecretStatus::Invalid) => "sfconfig-secret-invalid",
+                        _ => "sfconfig-secret-missing",
+                    });
+                    let request = if k.code == KeyCode::Char('c') {
+                        if prompt(terminal, "netconfig-clear-prompt", false)?.as_deref()
+                            != Some("CLEAR")
+                        {
+                            continue;
+                        }
+                        sf_bbs::binkp::Action::ClearAreaFixCredential {
+                            link: d.link.clone(),
+                            expected: current.policy,
+                        }
+                    } else {
+                        let Some(secret) =
+                            prompt(terminal, "netconfig-areafix-secret-prompt", true)?
+                        else {
+                            continue;
+                        };
+                        sf_bbs::binkp::Action::AreaFixCredential {
+                            link: d.link.clone(),
+                            expected: current.policy,
+                            secret,
+                        }
+                    };
+                    status = match backend
+                        .network_action(command_id(), NetworkAction::Binkp { request })
+                    {
+                        Ok(()) => t("binkp-credential-updated"),
+                        Err(e) => e,
+                    };
+                } else {
+                    status = t("netconfig-secret-online")
+                }
+            }
+            _ => (),
         }
     }
 }

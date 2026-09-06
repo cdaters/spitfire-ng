@@ -7,6 +7,11 @@
 
 # SPITFIRE NG
 
+The [N6 FTN hub services](docs/manual/ftn-hub.md) add durable downstream
+subscriptions, authenticated AreaFix, bounded rescan and point-boss operation to
+the accepted native FTN/BinkP engine. Native messages remain canonical; schema 25;
+en-US 1.23.0 / 1,249 messages. No live public FidoNet traffic or new binary release.
+
 The [N5 Networks cockpit and recovery](docs/manual/network-operations.md) operate
 accepted QWK/DOVE-compatible networking, native FTN and BinkP through sfmonitor
 and named sfconfig forms. Verified restore protects origin identity and accepted

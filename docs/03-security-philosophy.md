@@ -293,3 +293,14 @@ from ordinary forms/reviews and audit. Terminal controls in directory/config
 presentation are filtered. Source retirement and verified monotonic serial floors
 protect restore origination; missing evidence leaves a hold. Optional external
 NodelistDB is not implemented or required.
+
+## N6 hub privacy and authentication
+
+AreaFix requires the authenticated configured downstream link, exact sender identity
+and a separate write-only credential. Password-bearing requests are handled before
+native message import; safe immutable metadata receipts drive replay suppression.
+Raw transport artifacts retain existing private custody. Replies never echo secrets.
+Rescan selects active public EchoMail from native authority only and uses explicit
+recipient-specific delivery keys. NetMail bodies remain absent from operator views.
+Existing capabilities remain bounded at 21; read-only bootstrap gains no mutations.
+See [hub security contract](technical/ftn-hub.md) and [acceptance](research/m050-networking-n6-ftn-hub.md).

@@ -2,7 +2,7 @@
 
 <!-- help-topic: operator.dashboard -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 24)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 25)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -281,3 +281,7 @@ restore recovery. Same-root replacement retains proven later FTN serial floors
 and matching peer acknowledgements. New-root recovery uses a stopped surviving
 source, retires its origination, and keeps uncertain work held. No live public
 FidoNet participation or N6/N7 functionality is claimed.
+
+## N6 hub extension
+
+The [FTN hub manual](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.

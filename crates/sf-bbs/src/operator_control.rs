@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 9;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 10;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -131,6 +131,7 @@ pub enum OperatorFeature {
     FtnNetwork,
     BinkpNetwork,
     Networks,
+    FtnHub,
 }
 
 impl OperatorFeature {
@@ -163,6 +164,9 @@ impl OperatorFeature {
         if minor >= crate::networks::NETWORKS_MINOR {
             features.push(Self::Networks);
         }
+        if minor >= 10 {
+            features.push(Self::FtnHub);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -182,7 +186,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 22] = [
+    const ALL: [Self; 23] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -205,6 +209,7 @@ impl OperatorFeature {
         Self::FtnNetwork,
         Self::BinkpNetwork,
         Self::Networks,
+        Self::FtnHub,
     ];
 }
 
@@ -1906,6 +1911,7 @@ mod server {
                     && *item != OperatorFeature::QwkNetwork
                     && *item != OperatorFeature::FtnNetwork
                     && *item != OperatorFeature::Networks
+                    && *item != OperatorFeature::FtnHub
                     && *item != OperatorFeature::BinkpNetwork
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
@@ -3171,6 +3177,9 @@ mod windows_tests {
 impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
+            Self::Networks { query } if query.section == sf_core::ftn::NetworkSection::Hub => {
+                OperatorFeature::FtnHub
+            }
             Self::Networks { .. } | Self::NetworkLookup { .. } => OperatorFeature::Networks,
             Self::QwkNetwork | Self::QwkNetworkQueue { .. } => OperatorFeature::QwkNetwork,
             Self::BinkpNetwork => OperatorFeature::BinkpNetwork,
@@ -3202,7 +3211,8 @@ fn all_read_capabilities() -> Vec<LocalOperatorCapability> {
 
 fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability]) -> bool {
     let required = match feature {
-        OperatorFeature::Networks
+        OperatorFeature::FtnHub
+        | OperatorFeature::Networks
         | OperatorFeature::BinkpNetwork
         | OperatorFeature::QwkNetwork
         | OperatorFeature::FtnNetwork => LocalOperatorCapability::NetworkStatus,
