@@ -46,6 +46,13 @@ pub(super) trait Backend {
     fn offered(&mut self, key: &str) -> Result<(), Error>;
     fn accepted(&mut self, key: &str) -> Result<(), Error>;
     fn receive(&mut self, bytes: &[u8]) -> Result<(), Error>;
+    fn accepts_file(&self, name: &str) -> bool {
+        name.to_ascii_lowercase().ends_with(".pkt")
+    }
+    fn receive_file(&mut self, offer: &Offer, bytes: &[u8]) -> Result<(), Error> {
+        let _ = offer;
+        self.receive(bytes)
+    }
     fn cancelled(&self) -> bool;
 }
 pub(super) struct Limits {
@@ -336,7 +343,7 @@ fn exchange(
                         r.bytes.extend(bytes);
                         if r.bytes.len() == r.offer.size as usize {
                             let r = receiving.take().ok_or(Error::Malformed)?;
-                            backend.receive(&r.bytes)?;
+                            backend.receive_file(&r.offer, &r.bytes)?;
                             wire.send(Command::Got, &r.offer.arguments(false))?;
                             summary.received += 1;
                         }
@@ -478,7 +485,7 @@ fn exchange(
                                 receiving = None;
                                 discard = false;
                                 if plan.as_ref().is_some_and(|p| p.mode == BinkpMode::Test)
-                                    || !offer.name.to_ascii_lowercase().ends_with(".pkt")
+                                    || !backend.accepts_file(&offer.name)
                                 {
                                     wire.send(Command::Skip, &offer.arguments(false))?;
                                     discard = true;
@@ -582,6 +589,7 @@ mod tests {
     use std::net::TcpListener;
     struct Peer {
         point: bool,
+        files: bool,
         secret: Vec<u8>,
         send: Vec<Vec<u8>>,
         received: Vec<Vec<u8>>,
@@ -592,6 +600,7 @@ mod tests {
         fn new(point: bool) -> Self {
             Self {
                 point,
+                files: false,
                 secret: b"isolated-binkp-test".to_vec(),
                 send: vec![vec![42; 20000], vec![24; 100]],
                 received: vec![],
@@ -621,6 +630,9 @@ mod tests {
         }
     }
     impl Backend for Peer {
+        fn accepts_file(&self, name: &str) -> bool {
+            name.ends_with(".pkt") || (self.files && sf_net::tic::filename(name).is_ok())
+        }
         fn identify(&mut self, _: &str) -> Result<Plan, Error> {
             Ok(self.plan())
         }
@@ -641,7 +653,7 @@ mod tests {
                 .map(|(i, b)| Outgoing {
                     key: i.to_string(),
                     offer: Offer {
-                        name: format!("{i}.pkt"),
+                        name: format!("{i}.{}", if self.files { "ZIP" } else { "pkt" }),
                         size: b.len() as u64,
                         time: 100,
                         offset: 0,
@@ -807,6 +819,27 @@ mod tests {
         assert!(result.is_err());
         assert!(peer.received.is_empty());
         let mut sender = Peer::new(false);
+        sender.send = vec![vec![7; 100]];
+        let (caller, answerer, a, b) = pair(sender, peer);
+        assert!(a.is_ok() && b.is_ok());
+        assert_eq!(caller.accepted, 1);
+        assert_eq!(answerer.received, vec![vec![7; 100]]);
+    }
+    #[test]
+    fn interrupted_file_payload_never_imports_and_retry_is_accepted_once() {
+        let mut peer = Peer::new(true);
+        peer.send.clear();
+        peer.files = true;
+        let (peer, result) = scripted(peer, |socket| {
+            raw_send(socket, Command::File, "BROKEN.ZIP 100 100 0");
+            socket
+                .write_all(&Frame::Data(vec![7; 99]).encode().unwrap())
+                .unwrap();
+        });
+        assert!(result.is_err());
+        assert!(peer.received.is_empty());
+        let mut sender = Peer::new(false);
+        sender.files = true;
         sender.send = vec![vec![7; 100]];
         let (caller, answerer, a, b) = pair(sender, peer);
         assert!(a.is_ok() && b.is_ok());

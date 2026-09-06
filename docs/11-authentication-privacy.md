@@ -719,3 +719,7 @@ Rescan selects active public EchoMail from native authority only and uses explic
 recipient-specific delivery keys. NetMail bodies remain absent from operator views.
 Existing capabilities remain bounded at 21; read-only bootstrap gains no mutations.
 See [hub security contract](technical/ftn-hub.md) and [acceptance](research/m050-networking-n6-ftn-hub.md).
+
+## N7 file trust and privacy
+
+TIC secrets reuse the private custodian and are excluded from Debug, audit, receipts and projections. Rotation invalidates incomplete authenticated controls. FREQ resolution is per-link native-file authorization, with no path or private-file access. [Contract](technical/ftn-files.md).

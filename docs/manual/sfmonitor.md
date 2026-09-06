@@ -2,7 +2,7 @@
 
 <!-- help-topic: operator.dashboard -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 25)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 26)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -285,3 +285,7 @@ FidoNet participation or N6/N7 functionality is claimed.
 ## N6 hub extension
 
 The [FTN hub manual](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.
+
+## N7 file-network extension
+
+FileEcho, TIC, native-file hatching and exact approved FREQ reuse native file authority and BinkP transport. sfconfig offers typed file policy/mapping/subscription/grant/hatch forms; sfmonitor Networks → 9 Files includes staging, history and Enter delivery detail. [File-network workflows and authority](ftn-files.md). No raw path or credential appears in projections.

@@ -842,10 +842,11 @@ fn copy_reader(input: &mut File, destination: &Path) -> Result<(u64, String), Bo
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
-    if destination
-        .components()
-        .any(|c| c.as_os_str() == "binkp-credentials" || c.as_os_str() == "areafix-credentials")
-    {
+    if destination.components().any(|c| {
+        c.as_os_str() == "binkp-credentials"
+            || c.as_os_str() == "areafix-credentials"
+            || c.as_os_str() == "tic-credentials"
+    }) {
         use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
         options.mode(0o600);
         if let Some(parent) = destination.parent() {

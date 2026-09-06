@@ -1,6 +1,6 @@
 # SPITFIRE NG Documentation
 
-Current source implements N1–N5 networking and [N6 FTN hub services](manual/ftn-hub.md). Native messages remain canonical; BinkP is transport only. No live public FidoNet participation is claimed.
+Current source implements N1–N6 networking and [N7 FTN file networking](manual/ftn-files.md). Native messages and files remain canonical; BinkP is transport only. No live public FidoNet participation is claimed.
 
 
 Choose the section that matches what you want to do. You do not need to read
@@ -229,3 +229,7 @@ independently tested. BinkP and live public FidoNet participation are not claime
 ## FTN hub services — N6
 
 See [operator workflows](manual/ftn-hub.md) for downstreams, subscriptions, AreaFix, bounded rescan, points and recovery. Schema 25; en-US 1.23.0 / 1,249 messages.
+
+## FTN file networking — N7
+
+See [FileEcho, TIC, hatching and FREQ](manual/ftn-files.md) for implemented authority and workflows. Schema 26; en-US 1.24.0 / 1,291 messages.

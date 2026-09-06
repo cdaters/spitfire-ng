@@ -23,6 +23,22 @@ pub struct OriginState {
 pub struct RecoveryEvidence {
     origins: Vec<OriginState>,
     accepted: Vec<AcceptedEvidence>,
+    files: Vec<FileEvidence>,
+}
+struct FileEvidence {
+    delivery: String,
+    publication: Option<String>,
+    link: String,
+    file: Option<i64>,
+    name: String,
+    sha: String,
+    size: i64,
+    kind: String,
+    payload: bool,
+    tic: bool,
+    held: bool,
+    attempts: i64,
+    accepted_at: Option<i64>,
 }
 struct AcceptedEvidence {
     queue: String,
@@ -89,7 +105,26 @@ impl RuntimeDatabase {
         if accepted.len() > 10000 {
             return Err(Error::Capacity);
         }
-        Ok(RecoveryEvidence { origins, accepted })
+        let has_files: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='ftn_file_deliveries')",
+            [],
+            |r| r.get(0),
+        )?;
+        let files = if has_files {
+            self.connection.prepare("SELECT delivery_id,publication_id,link_id,file_id,name,sha256,size,kind,payload_accepted,tic_accepted,held,attempts,accepted_at FROM ftn_file_deliveries ORDER BY delivery_id LIMIT 10001")?.query_map([], |r| Ok(FileEvidence {
+                delivery:r.get(0)?,publication:r.get(1)?,link:r.get(2)?,file:r.get(3)?,name:r.get(4)?,sha:r.get(5)?,size:r.get(6)?,kind:r.get(7)?,payload:r.get(8)?,tic:r.get(9)?,held:r.get(10)?,attempts:r.get(11)?,accepted_at:r.get(12)?
+            }))?.collect::<Result<Vec<_>,_>>()?
+        } else {
+            vec![]
+        };
+        if files.len() > 10000 {
+            return Err(Error::Capacity);
+        }
+        Ok(RecoveryEvidence {
+            origins,
+            accepted,
+            files,
+        })
     }
     /// Monotonic reconciliation; no caller-supplied numeric floor or random reset.
     pub fn reconcile_ftn_recovery(
@@ -128,6 +163,12 @@ impl RuntimeDatabase {
             tx.execute("INSERT OR IGNORE INTO network_delivery_attempts(queue_id,occurred_at,outcome,attempt_number) VALUES(?1,?2,'accepted',?3)",params![a.queue,a.occurred_at,a.attempt])?;
             tx.execute("UPDATE network_outbound_queue SET state='accepted',attempts=MAX(attempts,?2),reason='recovered-peer-acceptance',next_attempt=NULL,version=version+1 WHERE queue_id=?1",params![a.queue,a.attempt])?;
             result.accepted += 1;
+        }
+        for file in &evidence.files {
+            let changed = tx.execute("UPDATE ftn_file_deliveries SET payload_accepted=MAX(payload_accepted,?9),tic_accepted=MAX(tic_accepted,?10),held=?11,attempts=MAX(attempts,?12),accepted_at=COALESCE(accepted_at,?13),last_error=NULL,session_id=NULL,payload_offered=0,tic_offered=0,version=version+1 WHERE delivery_id=?1 AND publication_id IS ?2 AND link_id=?3 AND file_id IS ?4 AND name=?5 AND sha256=?6 AND size=?7 AND kind=?8 AND session_id IS NULL", params![file.delivery,file.publication,file.link,file.file,file.name,file.sha,file.size,file.kind,file.payload,file.tic,file.held,file.attempts,file.accepted_at])?;
+            if changed == 1 && file.payload && file.tic {
+                result.accepted += 1;
+            }
         }
         audit(&tx, principal, "ftn.recovery-reconciled", now)?;
         event(&tx, "recovery-reconciled", now)?;

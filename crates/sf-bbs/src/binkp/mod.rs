@@ -109,10 +109,36 @@ impl Drop for Permit {
     }
 }
 
+// Reserve both worker slots during credential rotation. This closes the gap
+// between invalidating staged trust and atomically publishing the new secret.
+struct CredentialPermit(Arc<AtomicUsize>);
+impl CredentialPermit {
+    fn acquire(count: Arc<AtomicUsize>) -> std::result::Result<Self, Error> {
+        count
+            .compare_exchange(0, 2, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| Error::Busy)?;
+        Ok(Self(count))
+    }
+}
+impl Drop for CredentialPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(2, Ordering::AcqRel);
+    }
+}
+
 pub const BINKP_MINOR: u16 = 8;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Action {
+    TicCredential {
+        link: String,
+        expected: String,
+        secret: String,
+    },
+    ClearTicCredential {
+        link: String,
+        expected: String,
+    },
     Poll {
         link: String,
         expected: String,
@@ -156,6 +182,8 @@ impl std::fmt::Debug for Action {
 impl Action {
     pub fn operation(&self) -> &'static str {
         match self {
+            Self::TicCredential { .. } => "ftn.tic-credential",
+            Self::ClearTicCredential { .. } => "ftn.tic-clear-credential",
             Self::AreaFixCredential { .. } => "ftn.areafix-credential",
             Self::ClearAreaFixCredential { .. } => "ftn.areafix-clear-credential",
             Self::Poll { .. } => "binkp.poll",
@@ -169,7 +197,9 @@ impl Action {
     pub fn capability(&self) -> sf_core::LocalOperatorCapability {
         use sf_core::LocalOperatorCapability as C;
         match self {
-            Self::Credential { .. }
+            Self::TicCredential { .. }
+            | Self::ClearTicCredential { .. }
+            | Self::Credential { .. }
             | Self::ClearCredential { .. }
             | Self::AreaFixCredential { .. }
             | Self::ClearAreaFixCredential { .. } => C::ChangeSensitiveConfiguration,
@@ -181,7 +211,10 @@ impl Action {
     /// Credential command receipts identify the operation, not a password verifier.
     pub(crate) fn fingerprint(&self) -> std::result::Result<Vec<u8>, serde_json::Error> {
         let mut a = self.clone();
-        if let Self::Credential { secret, .. } | Self::AreaFixCredential { secret, .. } = &mut a {
+        if let Self::Credential { secret, .. }
+        | Self::AreaFixCredential { secret, .. }
+        | Self::TicCredential { secret, .. } = &mut a
+        {
             *secret = "write-only-update".into();
         }
         serde_json::to_vec(&a)
@@ -342,7 +375,9 @@ pub(crate) fn dispatch(
         | Action::Credential { link, expected, .. }
         | Action::ClearCredential { link, expected }
         | Action::AreaFixCredential { link, expected, .. }
-        | Action::ClearAreaFixCredential { link, expected } => (link, expected),
+        | Action::ClearAreaFixCredential { link, expected }
+        | Action::TicCredential { link, expected, .. }
+        | Action::ClearTicCredential { link, expected } => (link, expected),
         _ => unreachable!(),
     };
     if &c.binkp.digest(&c.ftn)? != expected {
@@ -362,15 +397,37 @@ pub(crate) fn dispatch(
     {
         return Err(ftn::Error::Denied.into());
     }
-    let directory = if area_secret {
+    let tic_secret = matches!(
+        action,
+        Action::TicCredential { .. } | Action::ClearTicCredential { .. }
+    );
+    let _rotation = if tic_secret {
+        Some(
+            CredentialPermit::acquire(runtime.binkp_sessions.clone())
+                .map_err(|_| ftn::Error::Conflict)?,
+        )
+    } else {
+        None
+    };
+    let directory = if tic_secret {
+        "tic-credentials"
+    } else if area_secret {
         "areafix-credentials"
     } else {
         "binkp-credentials"
     };
     match action {
-        Action::Credential { secret, .. } | Action::AreaFixCredential { secret, .. } => {
-            if !valid_secret(secret.as_bytes()) || (area_secret && secret.len() > 71) {
+        Action::Credential { secret, .. }
+        | Action::AreaFixCredential { secret, .. }
+        | Action::TicCredential { secret, .. } => {
+            if !valid_secret(secret.as_bytes())
+                || ((area_secret || tic_secret) && secret.len() > 71)
+            {
                 return Err(ftn::Error::Policy.into());
+            }
+            if tic_secret {
+                RuntimeDatabase::open(runtime.database_path())?
+                    .invalidate_staged_tics(link, now())?;
             }
             let root = credential_root(runtime, directory).map_err(|_| ftn::Error::Denied)?;
             let mut file =
@@ -385,7 +442,13 @@ pub(crate) fn dispatch(
                 .fetch_add(1, Ordering::AcqRel);
             Ok(Result::Updated)
         }
-        Action::ClearCredential { .. } | Action::ClearAreaFixCredential { .. } => {
+        Action::ClearCredential { .. }
+        | Action::ClearAreaFixCredential { .. }
+        | Action::ClearTicCredential { .. } => {
+            if tic_secret {
+                RuntimeDatabase::open(runtime.database_path())?
+                    .invalidate_staged_tics(link, now())?;
+            }
             let root = credential_root(runtime, directory).map_err(|_| ftn::Error::Denied)?;
             match fs::remove_file(root.join(link)) {
                 Ok(()) => (),
@@ -431,6 +494,7 @@ struct NativeBackend {
     session: Option<String>,
     link: Option<String>,
     work: BTreeMap<String, BinkpWork>,
+    file_work: BTreeMap<String, Vec<u8>>,
 }
 impl NativeBackend {
     fn new(
@@ -449,6 +513,7 @@ impl NativeBackend {
             session: None,
             link: None,
             work: BTreeMap::new(),
+            file_work: BTreeMap::new(),
         }
     }
     fn db(&self) -> std::result::Result<RuntimeDatabase, Error> {
@@ -631,16 +696,51 @@ impl session::Backend for NativeBackend {
             });
             self.work.insert(item.queue.clone(), item);
         }
+        let used = result.iter().map(|item| item.offer.size).sum::<u64>();
+        let storage = custody(sf_core::FileStorage::open_existing(&self.runtime.paths))?;
+        let files = custody(db.claim_file_work(
+            &self.ftn,
+            &storage,
+            &session,
+            &|link| {
+                read_credential(&self.runtime, link, "tic-credentials")
+                    .ok()
+                    .and_then(|s| String::from_utf8(s).ok())
+            },
+            wire::MAX_FILES.saturating_sub(result.len()),
+            wire::MAX_SESSION_BYTES.saturating_sub(used),
+        ))?;
+        for (item, bytes) in files {
+            self.file_work.insert(item.key.clone(), bytes);
+            result.push(session::Outgoing {
+                key: item.key,
+                offer: wire::Offer {
+                    name: item.name,
+                    size: item.size,
+                    time: item.time,
+                    offset: 0,
+                },
+            });
+        }
         Ok(result)
     }
     fn load(&mut self, key: &str) -> std::result::Result<Vec<u8>, Error> {
+        if let Some(bytes) = self.file_work.get(key) {
+            return Ok(bytes.clone());
+        }
         let item = self.work.get(key).ok_or(Error::Custody)?;
         custody(self.runtime.network_artifacts.read_binkp(&item.artifact))
     }
     fn offered(&mut self, key: &str) -> std::result::Result<(), Error> {
+        if self.file_work.contains_key(key) {
+            return custody(self.db()?.file_work_offered(self.session()?, key));
+        }
         custody(self.db()?.offered_binkp(self.session()?, key))
     }
     fn accepted(&mut self, key: &str) -> std::result::Result<(), Error> {
+        if self.file_work.contains_key(key) {
+            return custody(self.db()?.file_work_accepted(self.session()?, key, now()));
+        }
         custody(self.db()?.accepted_binkp(self.session()?, key, now()))
     }
     fn receive(&mut self, bytes: &[u8]) -> std::result::Result<(), Error> {
@@ -665,6 +765,39 @@ impl session::Backend for NativeBackend {
             }),
         ))?;
         Ok(())
+    }
+    fn accepts_file(&self, name: &str) -> bool {
+        name.to_ascii_lowercase().ends_with(".pkt")
+            || (sf_net::tic::filename(name).is_ok()
+                && self
+                    .db()
+                    .and_then(|db| custody(db.file_network_policy()))
+                    .is_ok_and(|p| p.enabled))
+    }
+    fn receive_file(
+        &mut self,
+        offer: &wire::Offer,
+        bytes: &[u8],
+    ) -> std::result::Result<(), Error> {
+        if offer.name.to_ascii_lowercase().ends_with(".pkt") {
+            return self.receive(bytes);
+        }
+        let storage = custody(sf_core::FileStorage::open_existing(&self.runtime.paths))?;
+        custody(self.db()?.receive_file_offer(
+            &self.ftn,
+            &storage,
+            self.session()?,
+            offer,
+            bytes,
+            now(),
+            &|link, supplied| {
+                read_credential(&self.runtime, link, "tic-credentials").is_ok_and(|stored| {
+                    let challenge = b"SPITFIRE TIC credential check";
+                    let response = wire::cram(supplied.as_bytes(), challenge);
+                    wire::verify_cram(&stored, challenge, &response).is_ok()
+                })
+            },
+        ))
     }
     fn cancelled(&self) -> bool {
         self.runtime.shutdown_in_progress().unwrap_or(true)
@@ -757,6 +890,18 @@ mod tests {
     use super::*;
     #[test]
     fn credentials_have_no_debug_or_receipt_verifier_and_explicit_privilege() {
+        let slots = Arc::new(AtomicUsize::new(1));
+        assert!(CredentialPermit::acquire(slots.clone()).is_err());
+        slots.store(0, Ordering::Release);
+        let rotation = CredentialPermit::acquire(slots.clone()).unwrap();
+        assert_eq!(slots.load(Ordering::Acquire), 2);
+        assert!(slots
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < 2)
+                .then_some(n + 1))
+            .is_err());
+        drop(rotation);
+        assert_eq!(slots.load(Ordering::Acquire), 0);
+
         let first = Action::Credential {
             link: "peer".into(),
             expected: "policy".into(),
@@ -795,6 +940,19 @@ mod tests {
             .contains("synthetic-area-secret"));
         assert_eq!(
             area.capability(),
+            sf_core::LocalOperatorCapability::ChangeSensitiveConfiguration
+        );
+        let tic = Action::TicCredential {
+            link: "peer".into(),
+            expected: "policy".into(),
+            secret: "synthetic-tic-secret".into(),
+        };
+        assert!(!format!("{tic:?}").contains("synthetic-tic-secret"));
+        assert!(!String::from_utf8(tic.fingerprint().unwrap())
+            .unwrap()
+            .contains("synthetic-tic-secret"));
+        assert_eq!(
+            tic.capability(),
             sf_core::LocalOperatorCapability::ChangeSensitiveConfiguration
         );
         for secret in [

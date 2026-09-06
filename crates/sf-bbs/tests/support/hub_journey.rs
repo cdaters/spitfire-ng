@@ -531,3 +531,7 @@ fn prepare_n6_operator_acceptance() {
     }
     println!("Prepared private N6 acceptance boards; no network contact.");
 }
+
+#[cfg(unix)]
+#[path = "files_journey.rs"]
+mod files_journey;

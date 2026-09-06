@@ -7,6 +7,11 @@
 
 # SPITFIRE NG
 
+The [N7 file-network layer](docs/manual/ftn-files.md) adds FileEcho, authenticated
+TIC processing, native-file hatching and explicitly authorized FREQ to the
+accepted FTN/BinkP stack. Native messages and files remain canonical; schema 26;
+en-US 1.24.0 / 1,291 messages. No public FidoNet traffic or new binary release.
+
 The [N6 FTN hub services](docs/manual/ftn-hub.md) add durable downstream
 subscriptions, authenticated AreaFix, bounded rescan and point-boss operation to
 the accepted native FTN/BinkP engine. Native messages remain canonical; schema 25;

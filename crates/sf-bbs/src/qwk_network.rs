@@ -63,6 +63,17 @@ impl NetworkAction {
         if matches!(
             self,
             Self::Ftn {
+                request: crate::ftn::Action::Files { .. }
+            } | Self::Binkp {
+                request: crate::binkp::Action::TicCredential { .. }
+                    | crate::binkp::Action::ClearTicCredential { .. }
+            }
+        ) {
+            return crate::OperatorFeature::FtnFiles;
+        }
+        if matches!(
+            self,
+            Self::Ftn {
                 request: crate::ftn::Action::Downstream { .. }
                     | crate::ftn::Action::Subscription { .. }
                     | crate::ftn::Action::AreaAccess { .. }

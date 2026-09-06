@@ -149,7 +149,7 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
     }
     match key.code {
         KeyCode::Char('f') => request(model, worker),
-        KeyCode::Char(c @ '1'..='8') => {
+        KeyCode::Char(c @ '1'..='9') => {
             model.networks.query = NetworkQuery {
                 section: Section::ALL[c as usize - '1' as usize],
                 offset: 0,
@@ -477,7 +477,16 @@ fn rows(model: &MonitorModel) -> Vec<String> {
                     q.bytes.unwrap_or(0)
                 )
             })
+            .chain(s.files.iter().flat_map(|f|f.activity.iter()).filter(|a|a.result.contains("rejected") || a.result.contains("denied") || a.result.contains("mismatch") || a.result.contains("unsafe") || a.result.contains("expired") || a.result.contains("conflict") || a.result.contains("exceeded")).map(|a|format!("{} | {} | {} | {} bytes",a.link.as_deref().unwrap_or("—"),a.result,time(Some(a.time)),a.bytes)))
             .collect(),
+        Section::Files => s.files.as_ref().map(|files| {
+            let mut rows=vec![format!("{}: {} | {} bytes | FREQ {}",t("netfiles-staging"),files.staged,files.staged_bytes,files.policy.freq)];
+            rows.extend(files.areas.iter().map(|a|format!("FileEcho {}@{} / {} {} / in {} / out {} / v{}",a.tag,a.domain,t("netfiles-native-area"),a.native_area,a.inbound,a.outbound,a.version)));
+            rows.extend(files.subscriptions.iter().map(|s|format!("{} / {} / in {} / out {} / hold {}",s.link,s.tag,s.inbound,s.subscribed,s.held)));
+            rows.extend(files.queue.iter().map(|q|format!("{} / {} / {} / {} bytes / SHA256 {} / payload {} / TIC {} / hold {} / attempts {} / {}",q.filename,q.link,format_args!("{} / {} / {} / {}",q.kind,q.area.as_deref().unwrap_or("—"),q.origin.as_deref().unwrap_or("—"),q.provenance.as_deref().unwrap_or("—")),q.size,q.sha256,q.payload_accepted,q.tic_accepted,q.held,q.attempts,q.last_error.as_deref().unwrap_or("—"))));
+            rows.extend(files.activity.iter().map(|a|format!("{} / {} / {} / {} / {} files / {} bytes",time(Some(a.time)),a.link.as_deref().unwrap_or("—"),a.filename.as_deref().unwrap_or("—"),a.result,a.files,a.bytes)));
+            rows
+        }).unwrap_or_else(||vec![t("networks-access")]),
         Section::Hub => s
             .page
             .downstreams
@@ -742,6 +751,54 @@ fn details(model: &MonitorModel) -> Vec<String> {
                 ]
             })
             .unwrap_or_default(),
+        Section::Files => s
+            .files
+            .as_ref()
+            .and_then(|f| {
+                i.checked_sub(1 + f.areas.len() + f.subscriptions.len())
+                    .and_then(|n| f.queue.get(n))
+            })
+            .map(|q| {
+                vec![
+                    format!(
+                        "{} / {} / {}",
+                        q.filename,
+                        q.area.as_deref().unwrap_or("FREQ"),
+                        q.link
+                    ),
+                    format!(
+                        "{} / {} / {} bytes",
+                        q.provenance.as_deref().unwrap_or(&q.kind),
+                        q.origin.as_deref().unwrap_or("—"),
+                        q.size
+                    ),
+                    format!("SHA256 {}", q.sha256),
+                    format!(
+                        "{} {} / TIC {} / {} {}",
+                        t("netfiles-payload-accepted"),
+                        q.payload_accepted,
+                        q.tic_accepted,
+                        t("networks-attempts"),
+                        q.attempts
+                    ),
+                    format!(
+                        "{} {} / {}",
+                        t("netfiles-held"),
+                        q.held,
+                        q.last_error.as_deref().unwrap_or("—")
+                    ),
+                    format!(
+                        "{}: {}",
+                        t("networks-route"),
+                        if q.kind == "fileecho" {
+                            t("netfiles-subscription")
+                        } else {
+                            t("netfiles-freq")
+                        }
+                    ),
+                ]
+            })
+            .unwrap_or_else(|| vec![t("networks-files")]),
         Section::Quarantine => vec![t("networks-quarantine-help")],
         _ => vec![t("networks-authority")],
     }

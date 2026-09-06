@@ -378,3 +378,7 @@ holds unresolved work. Never infer acceptance from old configuration or nodelist
 The [hub recovery workflow](manual/ftn-hub.md) explains operator handling; the
 [M050 acceptance](research/m050-networking-n6-ftn-hub.md) proves accepted versus
 pending fanout and rescan restoration, including the real stopped-daemon journey.
+
+## N7 file recovery — schema 26
+
+Cold snapshots include native bytes plus file-network maps, subscriptions, FREQ policy/grants/receipts, sanitized incomplete staging, hatch provenance and per-artifact acknowledgements. TIC credentials use the existing protected backup custodian. Restore clears sessions and holds uncertain work; surviving later receipts reconcile accepted fanout without resending proven recipients. [Detailed contract](technical/ftn-files.md#trust-backup-and-failure-handling); [workflow](manual/ftn-files.md#restart-and-restore).

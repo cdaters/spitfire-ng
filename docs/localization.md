@@ -38,7 +38,7 @@ hashes, unsafe paths, symlinks, special files, excessive sizes/counts,
 incompatible engines, malformed UTF-8/Fluent, incomplete provenance, or
 non-redistributable records fail validation.
 
-The canonical `en-US` 1.23.0 baseline is project-authored and embedded for
+The canonical `en-US` 1.24.0 baseline is project-authored and embedded for
 recovery. Normal setup also installs an independently validated board-local
 copy. It contains 1,014 semantic messages in the complete schema-20 caller and
 operator catalog, including
@@ -292,3 +292,7 @@ policy, subscriptions/access, AreaFix secret status/update, rescan bounds/activi
 point/boss fields and operator diagnostics. Catalog totals are 853 operator,
 59 shared and 337 caller messages. Existing locale fallback and terminal rendering
 contracts are unchanged. [Hub manual](manual/ftn-hub.md).
+
+## N7 / en-US 1.24.0
+
+N7 advances en-US to **1.24.0 / 1,291 messages** (42 additions) for file configuration, hatching, request policy, staging, integrity failures and delivery detail. Operator protocol minor 11 adds negotiated `FtnFiles`; its 24-feature bound remains below 32. No new operator capability is required; the existing 21-capability framework applies. [File operator guide](manual/ftn-files.md).

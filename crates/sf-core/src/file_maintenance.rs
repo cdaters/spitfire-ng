@@ -1188,6 +1188,32 @@ impl RuntimeDatabase {
         description: &str,
         bytes: &[u8],
     ) -> Result<FileOperationResult, FileMaintenanceError> {
+        self.add_managed_file_committing(
+            storage,
+            actor,
+            area_id,
+            expected_area_version,
+            filename,
+            description,
+            bytes,
+            |_, _| Ok(()),
+        )
+    }
+
+    /// Adapter intent commits with the native catalog row. The caller cannot
+    /// substitute storage paths or create a second file catalog.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add_managed_file_committing(
+        &mut self,
+        storage: &FileStorage,
+        actor: FileAdminActor,
+        area_id: FileAreaId,
+        expected_area_version: u64,
+        filename: &str,
+        description: &str,
+        bytes: &[u8],
+        commit: impl FnOnce(&rusqlite::Transaction<'_>, FileId) -> rusqlite::Result<()>,
+    ) -> Result<FileOperationResult, FileMaintenanceError> {
         self.authorize_file_admin(actor)?;
         let area = self
             .load_area_by_id(area_id)?
@@ -1278,6 +1304,13 @@ impl RuntimeDatabase {
             "UPDATE file_operations SET file_id=?2,phase='catalog-committed',updated_at=CURRENT_TIMESTAMP WHERE operation_id=?1",
             params![operation_id, file_id.get()],
         )?;
+        if let Err(error) = commit(&transaction, file_id) {
+            drop(transaction);
+            if fs::remove_file(&destination).is_ok() {
+                self.mark_operation_needs_review(&operation_id, "adapter-commit-failed")?;
+            }
+            return Err(FileMaintenanceError::Sqlite(error));
+        }
         transaction.commit()?;
         self.finish_operation(&operation_id, actor, file_id, "file-added")?;
         Ok(FileOperationResult {

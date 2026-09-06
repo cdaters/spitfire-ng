@@ -17,6 +17,8 @@ use thiserror::Error;
 pub enum ApplicationError {
     #[error(transparent)]
     Ftn(#[from] sf_core::ftn::Error),
+    #[error("file-network operation failed")]
+    FtnFiles(#[from] sf_core::ftn::files::FileNetworkError),
     #[error(transparent)]
     QwkNetwork(#[from] sf_core::qwk_network::Error),
     #[error(transparent)]

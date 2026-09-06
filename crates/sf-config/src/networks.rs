@@ -113,6 +113,7 @@ impl Backend {
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
+    Files,
     Ftn,
     Binkp,
     Qwk,
@@ -218,6 +219,7 @@ impl Form {
                 .keys()
                 .filter(|k| {
                     *k != "version"
+                        && !(self.kind == Kind::Files && *k == "operation")
                         && !(self.kind == Kind::Subscription
                             && ["source", "changed_at"].contains(&k.as_str()))
                 })
@@ -285,6 +287,16 @@ impl Form {
     }
     fn save(&mut self, backend: &mut Backend, data: &Data) -> Result<(), String> {
         match self.kind {
+            Kind::Files => {
+                let request = serde_json::from_value(self.draft.clone())
+                    .map_err(|_| t("netconfig-invalid"))?;
+                backend.network_action(
+                    self.command.clone(),
+                    NetworkAction::Ftn {
+                        request: sf_bbs::ftn::Action::Files { request },
+                    },
+                )
+            }
             Kind::Ftn | Kind::Binkp => {
                 let mut candidate = ConfigurationCandidate {
                     expected: data.snapshot.version.clone(),
@@ -845,6 +857,7 @@ pub(super) fn run(
             )
         }));
         entries.push(t("netconfig-hub"));
+        entries.push(t("networks-files"));
         terminal
             .draw(|f| {
                 let p = Layout::vertical([
@@ -935,6 +948,10 @@ pub(super) fn run(
                 Err(e) => status = e,
             },
             KeyCode::Enter if selected == entries.len() - 1 => {
+                file_menu(terminal, backend, &data)?;
+                data = backend.network_data()?;
+            }
+            KeyCode::Enter if selected == entries.len() - 2 => {
                 hub_menu(terminal, backend, &data)?;
                 data = backend.network_data()?;
             }
@@ -1285,6 +1302,289 @@ fn hub_menu(
                     };
                 } else {
                     status = t("netconfig-secret-online")
+                }
+            }
+            _ => (),
+        }
+    }
+}
+
+fn file_page(backend: &mut Backend) -> Result<sf_core::ftn::files::FileStatus, String> {
+    match backend {
+        Backend::Online { runtime, client } => runtime
+            .block_on(client.networks(NetworkQuery {
+                section: NetworkSection::Files,
+                offset: 0,
+            }))
+            .map_err(|_| t("networks-access"))?
+            .files
+            .ok_or_else(|| t("networks-access")),
+        _ => Err(t("netfiles-online")),
+    }
+}
+fn file_menu(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    backend: &mut Backend,
+    data: &Data,
+) -> Result<(), String> {
+    let mut page = match file_page(backend) {
+        Ok(page) => page,
+        Err(_) => {
+            let _ = prompt(terminal, "netfiles-online", false)?;
+            return Ok(());
+        }
+    };
+    let mut selected = 0usize;
+    let mut status = String::new();
+    loop {
+        let link = data
+            .snapshot
+            .config
+            .ftn
+            .links
+            .first()
+            .map(|l| l.id.as_str())
+            .unwrap_or("peer");
+        let domain = data
+            .snapshot
+            .config
+            .ftn
+            .akas
+            .first()
+            .map(|a| a.endpoint.domain.as_str())
+            .unwrap_or("isolated");
+        let area = page
+            .areas
+            .first()
+            .map(|a| a.tag.as_str())
+            .unwrap_or("FILES");
+        let native = page.native_files.first();
+        let mut forms = vec![
+            (
+                t("netfiles-policy"),
+                json!({"operation":"policy","value":page.policy}),
+            ),
+            (
+                t("netfiles-area-add"),
+                json!({"operation":"area","value":{"domain":domain,"tag":"FILES","native_area":native.map(|f|f.area).unwrap_or(1),"enabled":false,"inbound":true,"outbound":true,"description":"","version":0}}),
+            ),
+            (
+                t("netfiles-subscribe"),
+                json!({"operation":"subscription","value":{"link":link,"domain":domain,"tag":area,"inbound":false,"subscribed":false,"held":false,"version":0}}),
+            ),
+            (
+                t("netfiles-grant"),
+                json!({"operation":"grant","value":{"link":link,"name":native.map(|f|f.filename.as_str()).unwrap_or("FILE.ZIP"),"file":native.map(|f|f.id).unwrap_or(1),"enabled":false,"version":0}}),
+            ),
+            (
+                t("netfiles-request"),
+                json!({"operation":"request","link":link,"names":["FILE.ZIP"],"native_area":native.map(|f|f.area).unwrap_or(1)}),
+            ),
+        ];
+        forms.extend(page.areas.iter().map(|a| {
+            (
+                format!(
+                    "FileEcho {} / {} {}",
+                    a.tag,
+                    t("netfiles-native-area"),
+                    a.native_area
+                ),
+                json!({"operation":"area","value":a}),
+            )
+        }));
+        forms.extend(page.subscriptions.iter().map(|s| {
+            (
+                format!("{} / {} / {}", t("netfiles-subscription"), s.link, s.tag),
+                json!({"operation":"subscription","value":s}),
+            )
+        }));
+        forms.extend(page.grants.iter().map(|g| {
+            (
+                format!("FREQ / {} / {}", g.link, g.name),
+                json!({"operation":"grant","value":g}),
+            )
+        }));
+        forms.extend(page.queue.iter().filter(|q|!q.payload_accepted || !q.tic_accepted).map(|q|(format!("{} / {} / {}",t("netfiles-queue-policy"),q.link,q.filename),json!({"operation":"hold","delivery":q.delivery,"expected":q.version,"held":q.held}))));
+        let hatches: Vec<_> = page
+            .native_files
+            .iter()
+            .filter_map(|f| {
+                page.areas
+                    .iter()
+                    .find(|a| a.native_area == f.area && a.enabled && a.outbound)
+                    .map(|a| (f, a))
+            })
+            .collect();
+        let mut entries: Vec<_> = forms.iter().map(|(title, _)| title.clone()).collect();
+        entries.extend(hatches.iter().map(|(f, a)| {
+            format!(
+                "{} / {} / {} / {} / ID {}",
+                t("netfiles-hatch"),
+                f.area_name,
+                f.filename,
+                a.tag,
+                f.id
+            )
+        }));
+        entries.extend(
+            data.snapshot
+                .config
+                .binkp
+                .links
+                .iter()
+                .map(|l| format!("{} / {}", t("netfiles-tic-secret"), l.link)),
+        );
+        terminal
+            .draw(|f| {
+                let p = Layout::vertical([
+                    Constraint::Length(3),
+                    Constraint::Min(4),
+                    Constraint::Length(4),
+                ])
+                .split(f.area());
+                f.render_widget(
+                    Paragraph::new(format!(
+                        "{} | {} {} / {} bytes",
+                        t("networks-files"),
+                        t("netfiles-staging"),
+                        page.staged,
+                        page.staged_bytes
+                    )),
+                    p[0],
+                );
+                let mut state = ListState::default()
+                    .with_selected(Some(selected.min(entries.len().saturating_sub(1))));
+                f.render_stateful_widget(
+                    List::new(entries.iter().map(|s| ListItem::new(clean(s))))
+                        .block(Block::default().borders(Borders::ALL))
+                        .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+                    p[1],
+                    &mut state,
+                );
+                f.render_widget(
+                    Paragraph::new(format!("{}\n{}", t("netfiles-help"), clean(&status)))
+                        .wrap(Wrap { trim: false }),
+                    p[2],
+                );
+            })
+            .map_err(|_| t("sfconfig-connection-error"))?;
+        let Event::Key(k) = event::read().map_err(|_| t("sfconfig-connection-error"))? else {
+            continue;
+        };
+        if !matches!(k.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            continue;
+        }
+        if k.modifiers.contains(KeyModifiers::CONTROL) && k.code == KeyCode::Char('c') {
+            return Ok(());
+        }
+        match k.code {
+            KeyCode::Esc | KeyCode::Char('q') => return Ok(()),
+            KeyCode::Up => selected = selected.saturating_sub(1),
+            KeyCode::Down => selected = (selected + 1).min(entries.len().saturating_sub(1)),
+            KeyCode::Char('r') => page = file_page(backend)?,
+            KeyCode::Enter if selected < forms.len() => {
+                let mut form = Form::new(Kind::Files, forms[selected].1.clone());
+                if form.draft["value"]["version"].as_i64() == Some(0) {
+                    form.before = Value::Null;
+                }
+                edit_form(terminal, backend, data, form)?;
+                page = file_page(backend)?;
+            }
+            KeyCode::Enter if selected < forms.len() + hatches.len() => {
+                let (file, area) = hatches[selected - forms.len()];
+                let request = sf_bbs::ftn::FileAction::Preview {
+                    file: file.id,
+                    domain: area.domain.clone(),
+                    tag: area.tag.clone(),
+                };
+                let result = match backend {
+                    Backend::Online { runtime, client } => runtime
+                        .block_on(client.qwk_network_action(
+                            command_id(),
+                            NetworkAction::Ftn {
+                                request: sf_bbs::ftn::Action::Files { request },
+                            },
+                        ))
+                        .map_err(|_| t("networks-action-rejected"))?,
+                    _ => return Err(t("netfiles-online")),
+                };
+                if let NetworkResult::Ftn {
+                    response: sf_bbs::ftn::Result::HatchPreview { preview },
+                } = result
+                {
+                    loop {
+                        terminal.draw(|f|f.render_widget(Paragraph::new(format!("{}\n\n{} / {}\n{}: {}\nFileEcho {}@{}\n{} bytes / CRC {:08X}\nSHA256 {}\n{}\n{}: {}\n\n{}",t("netfiles-hatch"),clean(&preview.filename),preview.native_area,t("netfiles-transfer-name"),preview.transfer_name,preview.area.tag,preview.area.domain,preview.size,preview.crc,preview.sha256,clean(&preview.description),t("netfiles-recipients"),preview.recipients.join(", "),t("netfiles-hatch-confirm"))).wrap(Wrap{trim:false}).block(Block::default().borders(Borders::ALL)),f.area())).map_err(|_|t("sfconfig-connection-error"))?;
+                        let Event::Key(key) =
+                            event::read().map_err(|_| t("sfconfig-connection-error"))?
+                        else {
+                            continue;
+                        };
+                        if key.code == KeyCode::Esc {
+                            break;
+                        }
+                        if key.code == KeyCode::Enter {
+                            status = match backend.network_action(
+                                command_id(),
+                                NetworkAction::Ftn {
+                                    request: sf_bbs::ftn::Action::Files {
+                                        request: sf_bbs::ftn::FileAction::Hatch { preview },
+                                    },
+                                },
+                            ) {
+                                Ok(()) => t("netfiles-queued"),
+                                Err(e) => e,
+                            };
+                            break;
+                        }
+                    }
+                } else {
+                    status = t("networks-action-rejected");
+                }
+                page = file_page(backend)?;
+            }
+            KeyCode::Enter | KeyCode::Char('c') if selected >= forms.len() + hatches.len() => {
+                if let Some(link) = data
+                    .snapshot
+                    .config
+                    .binkp
+                    .links
+                    .get(selected - forms.len() - hatches.len())
+                {
+                    let expected = match backend {
+                        Backend::Online { runtime, client } => {
+                            runtime
+                                .block_on(client.binkp_status())
+                                .map_err(|_| t("networks-access"))?
+                                .policy
+                        }
+                        _ => return Err(t("netfiles-online")),
+                    };
+                    let request = if k.code == KeyCode::Char('c') {
+                        if prompt(terminal, "netconfig-clear-prompt", false)?.as_deref()
+                            != Some("CLEAR")
+                        {
+                            continue;
+                        }
+                        sf_bbs::binkp::Action::ClearTicCredential {
+                            link: link.link.clone(),
+                            expected,
+                        }
+                    } else {
+                        let Some(secret) = prompt(terminal, "netfiles-tic-secret", true)? else {
+                            continue;
+                        };
+                        sf_bbs::binkp::Action::TicCredential {
+                            link: link.link.clone(),
+                            expected,
+                            secret,
+                        }
+                    };
+                    status = match backend
+                        .network_action(command_id(), NetworkAction::Binkp { request })
+                    {
+                        Ok(()) => t("sfconfig-ftn-saved"),
+                        Err(e) => e,
+                    };
                 }
             }
             _ => (),

@@ -22,6 +22,8 @@ pub struct Snapshot {
     pub binkp: crate::binkp::Status,
     pub qwk: Vec<sf_core::qwk_network::LinkStatus>,
     pub now: i64,
+    #[serde(default)]
+    pub files: Option<ftn::files::FileStatus>,
 }
 pub(crate) fn snapshot(
     runtime: &BoardRuntime,
@@ -36,6 +38,7 @@ pub(crate) fn snapshot(
         binkp: crate::binkp::status(runtime)?,
         qwk: db.qwk_network_status()?,
         now: chrono::Utc::now().timestamp(),
+        files: Some(db.file_network_status()?),
     };
     if serde_json::to_vec(&result).map_or(true, |b| b.len() > 524288) {
         return Err(ftn::Error::Capacity.into());

@@ -360,3 +360,7 @@ Synchronet exchange passed both directions. Small typed Poll/Test/configuration
 and status surfaces are implemented. See [M048](docs/research/m048-networking-n4-binkp.md).
 Next separately scoped action: N5 operator surfaces and recovery ergonomics.
 No live public FTN, AreaFix/FileEcho, scheduler, B-022, doors or release work.
+
+## N7 FTN file networking — M051
+
+Implemented FileEcho leaf/hub, authenticated TIC processing, native-file hatching, explicit grant-only FREQ and file-network operator/recovery surfaces. Schema 26; en-US 1.24.0 / 1,291. N1–N6 remain accepted. [Report](docs/research/m051-networking-n7-ftn-files.md), [manual](docs/manual/ftn-files.md), [contract](docs/technical/ftn-files.md). Stop after acceptance and sanitized source synchronization; no public FidoNet, scheduler, CircuitNET implementation, B-022/doors or release work begins.

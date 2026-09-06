@@ -1,6 +1,6 @@
 # sfmonitor Technical Architecture
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 25)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 26)
 
 `sfmonitor` 0.1 is a separate workspace binary and process. The `sf-monitor`
 crate owns only terminal presentation, ephemeral view state, and a bounded
@@ -191,3 +191,7 @@ recovery without inventing post-snapshot history. Wire/message authority is unch
 ## N6 hub extension
 
 The [FTN hub contract](ftn-hub.md) defines downstream/point configuration, separate area subscriptions, authenticated AreaFix, bounded rescan, safe activity and per-recipient recovery. Schema 25 and operator protocol 1.10 add these typed services; existing N1–N5 authority remains intact. Network bodies and credentials are absent from operator projections.
+
+## N7 file-network extension
+
+FileEcho, TIC, native-file hatching and exact approved FREQ reuse native file authority and BinkP transport. sfconfig offers typed file policy/mapping/subscription/grant/hatch forms; sfmonitor Networks → 9 Files includes staging, history and Enter delivery detail. [File-network workflows and authority](ftn-files.md). No raw path or credential appears in projections.

@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 25;
+pub const SCHEMA_VERSION: u32 = 26;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 25] = [
+const MIGRATIONS: [Migration; 26] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1516,6 +1516,11 @@ const MIGRATIONS: [Migration; 25] = [
         version: 25,
         name: "ftn_hub_authority",
         sql: crate::ftn::HUB_MIGRATION,
+    },
+    Migration {
+        version: 26,
+        name: "ftn_file_network_authority",
+        sql: crate::ftn::FILE_MIGRATION,
     },
 ];
 
@@ -5980,6 +5985,49 @@ mod qwk_migration_tests {
             0
         );
         assert_eq!(c.query_row("SELECT (SELECT COUNT(*) FROM qwk_private_policy)+(SELECT COUNT(*) FROM network_private_envelopes)",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
+    #[test]
+    fn schema_twenty_six_upgrade_and_failure_are_atomic() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in MIGRATIONS.iter().take(25) {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        c.execute_batch("CREATE TABLE ftn_freq_grants(sentinel TEXT); INSERT INTO ftn_freq_grants VALUES('retained');").unwrap();
+        assert!(apply_migration(&mut c, &MIGRATIONS[25]).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 25);
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name='ftn_file_policy'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT sentinel FROM ftn_freq_grants", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "retained"
+        );
+        c.execute_batch("DROP TABLE ftn_freq_grants;").unwrap();
+        apply_migration(&mut c, &MIGRATIONS[25]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 26);
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT enabled+freq FROM ftn_file_policy", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
     #[test]
     fn schema_twenty_five_rollback_and_retained_link_identity() {

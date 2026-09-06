@@ -1,5 +1,25 @@
 # SPITFIRE NG Status
 
+## N7 FTN file networking — COMPLETE / ACCEPTED
+
+Native file authority now supports FileEcho leaf/hub operation, authenticated
+fail-closed TIC, native-file hatching and explicitly authorized exact-name FREQ.
+Per-link acknowledgement truth survives partial fanout and restore. Staging is
+bounded/private; traversal and arbitrary-file access are blocked. Native message
+and file catalogs remain canonical; BinkP remains transport only. N1–N6 accepted.
+
+Schema **25 → 26**; en-US **1.24.0 / 1,291 messages**. Accepted source:
+`6a6a7e9dd93b911e9281085e62b116160bffafb9`. [M051](docs/research/m051-networking-n7-ftn-files.md),
+[manual](docs/manual/ftn-files.md), [reference](docs/technical/ftn-files.md).
+Four native macOS daemons and independent TickIT/BinkP prove the file flows;
+independent FREQ is not claimed. Public gates pass 620 tests, six doctest suites, 112 headers and 123 Markdown/local-link documents; fmt/Clippy/diff/privacy pass. Full evidence is recorded in M051.
+
+No public FidoNet traffic. Private corpus, peer source/config, credential files,
+acceptance artifacts and private Git history are excluded. Scheduler, CircuitNET
+implementation, B-022, doors, DDEV, production, FireComm and release/service
+packaging are unchanged. Windows live acceptance remains deferred. Exact next
+action: stop after N7 source synchronization; later work needs a new scoped pass.
+
 ## N6 FTN hub — COMPLETE / ACCEPTED
 
 SPITFIRE NG can act as a leaf, routing node, EchoMail hub and point boss using

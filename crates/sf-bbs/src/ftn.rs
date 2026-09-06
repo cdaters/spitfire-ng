@@ -17,6 +17,9 @@ pub const FTN_MINOR: u16 = 7;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Action {
+    Files {
+        request: FileAction,
+    },
     Downstream {
         downstream: ftn::Downstream,
         expected: i64,
@@ -63,9 +66,69 @@ pub enum Action {
         expected: i64,
     },
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum FileAction {
+    Policy {
+        value: ftn::files::FilePolicy,
+    },
+    Area {
+        value: ftn::files::FileEchoArea,
+    },
+    Subscription {
+        value: ftn::files::FileSubscription,
+    },
+    Grant {
+        value: ftn::files::FreqGrant,
+    },
+    Preview {
+        file: i64,
+        domain: sf_net::ftn::Domain,
+        tag: String,
+    },
+    Hatch {
+        preview: Box<ftn::files::HatchPreview>,
+    },
+    Request {
+        link: String,
+        names: Vec<String>,
+        native_area: i64,
+    },
+    Hold {
+        delivery: String,
+        expected: i64,
+        held: bool,
+    },
+}
+impl FileAction {
+    fn capability(&self) -> Capability {
+        match self {
+            Self::Policy { .. }
+            | Self::Area { .. }
+            | Self::Subscription { .. }
+            | Self::Grant { .. } => Capability::ChangeSensitiveConfiguration,
+            Self::Preview { .. } => Capability::NetworkStatus,
+            Self::Hold { .. } => Capability::NetworkQueue,
+            _ => Capability::NetworkRun,
+        }
+    }
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Policy { .. } => "ftn.file-policy",
+            Self::Area { .. } => "ftn.file-area",
+            Self::Subscription { .. } => "ftn.file-subscription",
+            Self::Grant { .. } => "ftn.freq-grant",
+            Self::Preview { .. } => "ftn.hatch-preview",
+            Self::Hatch { .. } => "ftn.hatch",
+            Self::Request { .. } => "ftn.freq-request",
+            Self::Hold { .. } => "ftn.file-hold",
+        }
+    }
+}
 impl Action {
     pub fn capability(&self) -> Capability {
         match self {
+            Self::Files { request } => request.capability(),
             Self::Mapping { .. }
             | Self::Alias { .. }
             | Self::Downstream { .. }
@@ -77,6 +140,7 @@ impl Action {
     }
     pub fn operation(&self) -> &'static str {
         match self {
+            Self::Files { request } => request.operation(),
             Self::Downstream { .. } => "ftn.downstream",
             Self::Subscription { .. } => "ftn.subscription",
             Self::AreaAccess { .. } => "ftn.area-access",
@@ -96,11 +160,22 @@ impl Action {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "kebab-case")]
 pub enum Result {
+    HatchPreview {
+        preview: Box<ftn::files::HatchPreview>,
+    },
     Updated,
-    Scanned { messages: u32 },
-    Tossed { summary: ftn::TossResult },
-    Built { artifact: String },
-    Directory { generation: ftn::Generation },
+    Scanned {
+        messages: u32,
+    },
+    Tossed {
+        summary: ftn::TossResult,
+    },
+    Built {
+        artifact: String,
+    },
+    Directory {
+        generation: ftn::Generation,
+    },
 }
 pub(crate) fn dispatch(
     runtime: &BoardRuntime,
@@ -111,6 +186,44 @@ pub(crate) fn dispatch(
 ) -> std::result::Result<Result, ApplicationError> {
     let policy = runtime.configuration.current()?.ftn;
     Ok(match action {
+        Action::Files { request } => {
+            let storage = sf_core::FileStorage::open_existing(&runtime.paths)?;
+            match request {
+                FileAction::Policy { value } => db.configure_file_network(principal, value, now)?,
+                FileAction::Area { value } => {
+                    db.configure_fileecho_area(&policy, principal, value, now)?
+                }
+                FileAction::Subscription { value } => {
+                    db.configure_file_subscription(&policy, principal, value, now)?
+                }
+                FileAction::Grant { value } => {
+                    db.configure_freq_grant(&policy, &storage, principal, value, now)?
+                }
+                FileAction::Preview { file, domain, tag } => {
+                    return Ok(Result::HatchPreview {
+                        preview: Box::new(
+                            db.preview_file_hatch(&policy, &storage, *file, domain, tag, now)?,
+                        ),
+                    })
+                }
+                FileAction::Hatch { preview } => {
+                    db.hatch_native_file(&policy, &storage, principal, preview, now)?;
+                }
+                FileAction::Request {
+                    link,
+                    names,
+                    native_area,
+                } => {
+                    db.request_ftn_files(&policy, principal, link, names, *native_area, now)?;
+                }
+                FileAction::Hold {
+                    delivery,
+                    expected,
+                    held,
+                } => db.hold_file_delivery(principal, delivery, *expected, *held, now)?,
+            }
+            Result::Updated
+        }
         Action::Downstream {
             downstream,
             expected,

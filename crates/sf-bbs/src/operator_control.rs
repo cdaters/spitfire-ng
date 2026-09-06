@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 10;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 11;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -132,6 +132,7 @@ pub enum OperatorFeature {
     BinkpNetwork,
     Networks,
     FtnHub,
+    FtnFiles,
 }
 
 impl OperatorFeature {
@@ -167,6 +168,9 @@ impl OperatorFeature {
         if minor >= 10 {
             features.push(Self::FtnHub);
         }
+        if minor >= 11 {
+            features.push(Self::FtnFiles);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -186,7 +190,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 23] = [
+    const ALL: [Self; 24] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -210,6 +214,7 @@ impl OperatorFeature {
         Self::BinkpNetwork,
         Self::Networks,
         Self::FtnHub,
+        Self::FtnFiles,
     ];
 }
 
@@ -1912,6 +1917,7 @@ mod server {
                     && *item != OperatorFeature::FtnNetwork
                     && *item != OperatorFeature::Networks
                     && *item != OperatorFeature::FtnHub
+                    && *item != OperatorFeature::FtnFiles
                     && *item != OperatorFeature::BinkpNetwork
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
@@ -3177,6 +3183,9 @@ mod windows_tests {
 impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
+            Self::Networks { query } if query.section == sf_core::ftn::NetworkSection::Files => {
+                OperatorFeature::FtnFiles
+            }
             Self::Networks { query } if query.section == sf_core::ftn::NetworkSection::Hub => {
                 OperatorFeature::FtnHub
             }
@@ -3211,7 +3220,8 @@ fn all_read_capabilities() -> Vec<LocalOperatorCapability> {
 
 fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability]) -> bool {
     let required = match feature {
-        OperatorFeature::FtnHub
+        OperatorFeature::FtnFiles
+        | OperatorFeature::FtnHub
         | OperatorFeature::Networks
         | OperatorFeature::BinkpNetwork
         | OperatorFeature::QwkNetwork

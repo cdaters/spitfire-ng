@@ -605,6 +605,18 @@ fn finish(
     failure: Option<protocol::Error>,
     now: i64,
 ) -> Result<(), Error> {
+    let has_files: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='ftn_file_deliveries')",
+        [],
+        |r| r.get(0),
+    )?;
+    if has_files {
+        tx.execute(
+            "UPDATE binkp_link_health SET freq_files=0,freq_bytes=0 WHERE session_id=?1",
+            [session],
+        )?;
+        tx.execute("UPDATE ftn_file_deliveries SET session_id=NULL,payload_offered=0,tic_offered=0,last_error='transfer-incomplete',version=version+1 WHERE session_id=?1 AND accepted_at IS NULL", [session])?;
+    }
     let has_auth:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('binkp_link_health') WHERE name='authenticated')",[],|r|r.get(0))?;
     if has_auth {
         tx.execute(

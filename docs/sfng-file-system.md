@@ -414,3 +414,7 @@ integration, then read [SPITFIRE NG File Transfers](sfng-file-transfers.md)
 before changing wire protocols. B-013 is VERIFIED. B-015 and B-012 remain
 IMPLEMENTED pending the exact acceptance items recorded in the verification
 report.
+
+## FTN file adapters — N7
+
+FileEcho import and hatching use the native catalog, storage locators, lifecycle and SHA-256. Schema 26 adds network provenance and per-link delivery/request receipts, not a second file catalog. Native maintenance commits file publication and adapter fanout atomically through an internal transaction callback. [FTN file contract](technical/ftn-files.md); [operator guide](manual/ftn-files.md).

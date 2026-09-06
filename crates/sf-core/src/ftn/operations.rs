@@ -23,9 +23,10 @@ pub enum NetworkSection {
     Quarantine,
     Recovery,
     Hub,
+    Files,
 }
 impl NetworkSection {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Overview,
         Self::Links,
         Self::Queues,
@@ -34,6 +35,7 @@ impl NetworkSection {
         Self::Quarantine,
         Self::Recovery,
         Self::Hub,
+        Self::Files,
     ];
     pub const fn key(self) -> &'static str {
         match self {
@@ -45,6 +47,7 @@ impl NetworkSection {
             Self::Quarantine => "networks-quarantine",
             Self::Recovery => "networks-recovery",
             Self::Hub => "networks-hub",
+            Self::Files => "networks-files",
         }
     }
 }
@@ -136,6 +139,10 @@ impl RuntimeDatabase {
         for d in self.ftn_downstreams()? {
             policy.link(&d.link)?;
         }
+        if self.connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ftn_file_subscriptions')",[],|r|r.get::<_,bool>(0))? {
+            let mut stmt=self.connection.prepare("SELECT link_id FROM ftn_file_subscriptions UNION SELECT link_id FROM ftn_freq_grants UNION SELECT link_id FROM ftn_file_deliveries UNION SELECT link_id FROM ftn_file_staging")?;
+            for link in stmt.query_map([],|r|r.get::<_,String>(0))? { policy.link(&link?)?; }
+        }
         Ok(())
     }
 
@@ -166,6 +173,17 @@ impl RuntimeDatabase {
                 if policy.link(&link)?.remote.domain.as_str() != domain {
                     return Err(Error::Conflict);
                 }
+            }
+        }
+        let has_files: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='ftn_file_subscriptions')",
+            [],
+            |r| r.get(0),
+        )?;
+        if has_files {
+            let links=self.connection.prepare("SELECT link_id FROM ftn_file_subscriptions UNION SELECT link_id FROM ftn_freq_grants UNION SELECT link_id FROM ftn_file_deliveries UNION SELECT link_id FROM ftn_file_staging")?.query_map([],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+            for link in links {
+                policy.link(&link)?;
             }
         }
         for d in self.ftn_downstreams()? {

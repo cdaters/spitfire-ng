@@ -780,7 +780,7 @@ networks-directory = Directory
 networks-quarantine = Quarantine
 networks-recovery = Recovery
 networks-help = Networks: 1–8 select a section. Up/Down select a row; Enter opens details. T tests a selected BinkP link without mail; P polls. H holds an FTN queue item; R releases/retries it. S scans eligible FTN messages. [ and ] page results. Actions require current explicit permissions and confirmation. Configuration opens separately through System Configuration.
-networks-tabs = 1 Overview  2 Links  3 Queues  4 Areas  5 Directory  6 Quarantine  7 Recovery  8 Hub
+networks-tabs = 1 Overview  2 Links  3 Queues  4 Areas  5 Directory  6 Quarantine  7 Recovery  8 Hub  9 Files
 networks-keys = F Refresh  Enter details  T Test  P Poll  H Hold  R Release/Retry  S Scan  L Lookup  A Activate generation  [ ] pages
 networks-started = Last request: session started. Current link health and queue counts above show its result; starting alone is not delivery.
 networks-action-rejected = Action rejected. Refresh and review link policy, state, permissions and recovery holds.
@@ -987,3 +987,88 @@ netconfig-field-count = Message count
 
 netconfig-field-held = Hold downstream exchange (keep queueing)
 networks-downstream-held = Downstream held
+
+networks-files = FTN file networking
+
+netfiles-staging = Incomplete pairs
+
+netfiles-native-area = Native file area
+
+netfiles-policy = FileEcho and FREQ policy
+
+netfiles-area-add = Add FileEcho area
+
+netfiles-subscribe = Add file subscription
+
+netfiles-grant = Approve native file for FREQ
+
+netfiles-request = Request FTN files
+
+netfiles-subscription = File subscription
+
+netfiles-queue-policy = File queue hold / release
+
+netfiles-hatch = Hatch native file
+
+netfiles-tic-secret = TIC password (write-only)
+
+netfiles-recipients = Recipients
+
+netfiles-hatch-confirm = Enter queues this hatch. Esc cancels.
+
+netfiles-queued = File queued
+
+netfiles-online = Connect to the running daemon to configure file networking. Esc returns.
+
+netfiles-help = Enter edits / selects. R refreshes. C clears a selected TIC credential. Esc returns.
+
+netconfig-field-operation = Operation
+
+netconfig-field-value = Settings
+
+netconfig-field-freq = FREQ service
+
+netconfig-field-max-payload = Maximum file bytes
+
+netconfig-field-staging-bytes = Maximum staging bytes
+
+netconfig-field-staging-count = Maximum staged artifacts
+
+netconfig-field-staging-age = Incomplete pair retention (seconds)
+
+netconfig-field-freq-files = Maximum FREQ files per request / session
+
+netconfig-field-freq-bytes = Maximum FREQ response bytes per request / session
+
+netconfig-field-tag = FileEcho tag
+
+netconfig-field-native-area = Native file area ID
+
+netconfig-field-file = Native file ID
+
+netconfig-field-names = Requested filenames
+
+netconfig-field-delivery = File delivery ID
+
+netconfig-field-expected = Expected version
+
+netfiles-checksum-mismatch = Checksum mismatch
+
+netfiles-size-mismatch = Size mismatch
+
+netfiles-unsafe-name = Unsafe filename
+
+netfiles-request-denied = File request denied
+
+netfiles-delivered = File delivered
+
+netfiles-held = File held
+
+netfiles-quarantine = Quarantined file metadata
+
+# N7 file delivery detail.
+netfiles-payload-accepted = Payload accepted
+
+netfiles-freq = Explicit FTN file request
+
+netfiles-transfer-name = Transfer filename

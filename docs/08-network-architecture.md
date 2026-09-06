@@ -144,3 +144,7 @@ Authenticated AreaFix and bounded rescan operate through the same transactional
 native authority. Explicit points retain 4-D identity and existing BinkP links.
 See [hub contract](technical/ftn-hub.md). Schema 25 adds only N6 authority; N7 file
 networking remains unimplemented.
+
+## N7 — file adapter authority
+
+FileEcho/TIC/hatching/FREQ wrap the existing native file authority. Schema 26 owns only mappings, subscriptions, provenance, bounded staging and delivery/request receipts. The accepted N4 BinkP engine transports every artifact; there is no second mailer or generic file catalog. [Contract](technical/ftn-files.md); [operator guide](manual/ftn-files.md).

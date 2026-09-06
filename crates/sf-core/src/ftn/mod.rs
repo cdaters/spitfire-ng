@@ -10,6 +10,8 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Native FTN message, directory and queue authority. Transport remains N4.
+pub mod files;
+pub(crate) const FILE_MIGRATION: &str = include_str!("files.sql");
 mod binkp;
 pub(crate) use binkp::BINKP_MIGRATION;
 pub use binkp::*;
@@ -338,6 +340,14 @@ impl RuntimeDatabase {
         let tx = self.connection.transaction()?;
         tx.execute("UPDATE ftn_serials SET restored_hold=1", [])?;
         tx.execute("UPDATE network_outbound_queue SET state='held',reason='restored-ftn',version=version+1 WHERE state IN ('pending','ready','retry') AND queue_id IN (SELECT queue_id FROM ftn_routing_decisions)",[])?;
+        let has_files: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='ftn_file_deliveries')",
+            [],
+            |r| r.get(0),
+        )?;
+        if has_files {
+            tx.execute("UPDATE ftn_file_deliveries SET held=1,last_error='restored-file-review',session_id=NULL,payload_offered=0,tic_offered=0,version=version+1 WHERE accepted_at IS NULL",[])?;
+        }
         tx.commit()?;
         Ok(())
     }
