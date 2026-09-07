@@ -342,8 +342,34 @@ pub(crate) fn run(
                     now,
                 )
                 .map_err(SessionError::Network)?;
-                match db.import_offline_replies(actor, board, &files[0].bytes, store, &intent, now)
-                {
+                match db.import_offline_replies_reviewed(
+                    actor,
+                    board,
+                    &files[0].bytes,
+                    store,
+                    &intent,
+                    now,
+                    &mut |preview, conference| {
+                        if crate::encode_text(
+                            preview.posted_as(),
+                            crate::terminal_text_encoding(&t.info()),
+                        )
+                        .is_none()
+                        {
+                            return Ok(false);
+                        }
+                        write(
+                            t,
+                            "qwk-identity-review",
+                            &LocalizationArgs::new()
+                                .with("name", preview.posted_as())
+                                .with("conference", u64::from(conference)),
+                        )
+                        .map_err(|_| NetworkError::Unavailable)?;
+                        let answer = t.read_line(8).map_err(|_| NetworkError::Unavailable)?;
+                        Ok(answer.as_deref().is_some_and(|a| key(a) == b'Y'))
+                    },
+                ) {
                     Ok(s) => {
                         db.attach_reply_artifact(actor, &id, &files[0].bytes)
                             .map_err(SessionError::Network)?;

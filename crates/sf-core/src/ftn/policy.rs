@@ -31,6 +31,9 @@ pub struct Aka {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Link {
+    // Omitting the compatibility default preserves schema-27 policy fingerprints.
+    #[serde(default, skip_serializing_if = "handle_identity_default")]
+    pub posting_identity: crate::PostingIdentityPolicy,
     pub id: String,
     pub remote: Endpoint,
     pub aka: String,
@@ -41,6 +44,10 @@ pub struct Link {
     pub profile: PacketProfile,
     pub charset: Charset,
 }
+fn handle_identity_default(policy: &crate::PostingIdentityPolicy) -> bool {
+    *policy == crate::PostingIdentityPolicy::HandleAllowed
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum RouteMatch {
@@ -209,5 +216,25 @@ impl Policy {
         Ok(sf_net::qwk::digest(
             &serde_json::to_vec(self).map_err(|_| Error::Policy)?,
         ))
+    }
+}
+
+#[cfg(test)]
+mod identity_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn identity_default_keeps_schema27_ftn_policy_fingerprint() {
+        // Exact field order and bytes emitted by the pre-identity Policy serializer.
+        let legacy = r#"{"enabled":true,"akas":[{"id":"local","endpoint":{"domain":"synthetic","address":"10:100/1"},"enabled":true,"primary":true}],"links":[{"id":"peer","remote":{"domain":"synthetic","address":"10:100/2"},"aka":"local","enabled":true,"inbound":true,"outbound":true,"transit":false,"profile":"type2-plus","charset":"cp437"}],"routes":[],"sources":[]}"#;
+        let mut policy: Policy = serde_json::from_str(legacy).unwrap();
+        assert_eq!(serde_json::to_string(&policy).unwrap(), legacy);
+        let old_digest = sf_net::qwk::digest(legacy.as_bytes());
+        assert_eq!(policy.digest().unwrap(), old_digest);
+        policy.links[0].posting_identity = crate::PostingIdentityPolicy::RealNameRequired;
+        assert_ne!(policy.digest().unwrap(), old_digest);
+        let roundtrip: Policy =
+            serde_json::from_str(&serde_json::to_string(&policy).unwrap()).unwrap();
+        assert_eq!(roundtrip, policy);
     }
 }

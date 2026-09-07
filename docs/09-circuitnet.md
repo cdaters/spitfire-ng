@@ -6,6 +6,14 @@ CircuitNET preservation/revival is planned. **No CircuitNET adapter or packet
 codec is implemented, and compatibility is not yet claimed.** The speculative
 feature inventory below remains a research agenda, not current functionality.
 
+Retained historical identity research confirms that the
+July 7, 1991 CircuitNet International charter permitted alias/pseudonym headers
+while requiring real identity in message text and participating Sysop enforcement.
+That network policy is distinct from the software's configurable Sysop-name
+translation. The [schema-28 identity contract](technical/identity-policy.md) implements
+core account separation without selecting modern body disclosure behavior or
+starting CircuitNET implementation.
+
 Future work is authorized to study and reverse-engineer surviving CircuitNET
 binaries and file formats for preservation and interoperability; recover record
 and file layouts where evidence permits; document behavior independently; and

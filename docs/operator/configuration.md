@@ -96,22 +96,25 @@ privileged service. Every enabled listener must have a unique endpoint.
 Port 2222 is the SSH caller default; port 22 is allowed when host permissions
 and service conflicts have been handled deliberately.
 
-## Caller login, handle, and real name
+## Caller login, Handle and private names
 
-`spitfire console` exposes privacy-bounded identity maintenance. `CALLERS`
-shows stable caller ID, login identifier, and public handle but omits real
-name. To distinguish an upgraded or newly registered caller's values:
+The login identifier is used by SSH. Handle is ordinary BBS identity and the
+traditional login label. First Name and Last Name are private profile components;
+editing them does not change credentials or old messages.
 
 ```text
-IDENTITY Current Handle|pixelwizard|PixelWizard|Avery Example
+IDENTITY Current Handle|pixelwizard|PixelWizard
+NAMES PixelWizard|Avery|Example
 ```
 
-The login is normalized lowercase and must use only safe SSH characters. The
-handle remains ordinary BBS attribution. The optional real name is private and
-may be cleared with an empty final field. Identity changes preserve stable
-caller/message ownership, reject duplicates and stale state versions, and do
-not rewrite historical message attribution. The configured named Sysop handle
-cannot be renamed through this operation.
+Use the local operator console for these authorized commands. The old fourth
+full-name IDENTITY field is retired; legacy values remain preserved. Caller Main
+`R` edits private components. Board **Require first and last name** controls signup
+collection; **Posting identity** controls the fallback used by conferences. Both
+default to handle-friendly operation. A mapped network can impose a stricter
+posting rule, displayed before the caller submits. See
+[caller management](caller-management.md) and the
+[identity contract](../technical/identity-policy.md).
 
 ## 4. Security and caller defaults
 

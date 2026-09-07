@@ -202,3 +202,16 @@ restore recovery. Same-root replacement retains proven later FTN serial floors
 and matching peer acknowledgements. New-root recovery uses a stopped surviving
 source, retires its origination, and keeps uncertain work held. No live public
 FidoNet participation or N6/N7 functionality is claimed.
+
+## Posting names
+
+A network mapping or link can require **Real name required** while the local
+conference ordinarily allows handles. The caller sees the resulting name before
+submission. Missing First Name or Last Name prevents a required-name post. Handle
+allowed remains the default; FTN and QWK do not acquire a universal real-name rule.
+Queued senders remain frozen through profile edits. A stricter requirement holds
+unsuitable old work; it never substitutes a current profile name. Configuration
+and queue summaries do not show private account names.
+
+See [posting identity](../technical/identity-policy.md) and
+[caller management](../operator/caller-management.md).

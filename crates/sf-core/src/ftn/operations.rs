@@ -105,6 +105,12 @@ pub struct QuarantineStatus {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkConference {
+    #[serde(default)]
+    pub effective_identity: Option<crate::PostingIdentityPolicy>,
+    #[serde(default)]
+    pub identity_source: Option<String>,
+    #[serde(default)]
+    pub posting_identity: Option<crate::PostingIdentityPolicy>,
     pub id: i64,
     pub number: u16,
     pub name: String,
@@ -318,7 +324,18 @@ impl RuntimeDatabase {
                 page.queues.truncate(100);
             }
             NetworkSection::Areas => {
-                page.conferences=self.connection.prepare("SELECT conference_id,conference_number,name,active FROM message_conferences ORDER BY conference_number LIMIT 784")?.query_map([],|r|Ok(NetworkConference{id:r.get(0)?,number:r.get(1)?,name:r.get(2)?,active:r.get(3)?}))?.collect::<Result<_,_>>()?;
+                page.conferences=self.connection.prepare("SELECT conference_id,conference_number,name,active,posting_identity FROM message_conferences ORDER BY conference_number LIMIT 784")?.query_map([],|r|Ok(NetworkConference{effective_identity:None,identity_source:None,id:r.get(0)?,number:r.get(1)?,name:r.get(2)?,active:r.get(3)?,posting_identity:r.get::<_,Option<String>>(4)?.map(|p|if p=="real-name-required"{crate::PostingIdentityPolicy::RealNameRequired}else{crate::PostingIdentityPolicy::HandleAllowed})}))?.collect::<Result<_,_>>()?;
+                for conference in &mut page.conferences {
+                    if conference.active {
+                        let (policy, source, _, _) = crate::identity::conference_policy(
+                            &self.connection,
+                            &self.identity_context,
+                            conference.id,
+                        )?;
+                        conference.effective_identity = Some(policy);
+                        conference.identity_source = Some(source);
+                    }
+                }
                 let keys=self.connection.prepare("SELECT domain,area FROM ftn_area_mappings ORDER BY domain,area LIMIT 101 OFFSET ?1")?.query_map([query.offset],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
                 page.more = keys.len() > 100;
                 for (d, a) in keys.into_iter().take(100) {

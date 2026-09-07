@@ -232,4 +232,8 @@ See [operator workflows](manual/ftn-hub.md) for downstreams, subscriptions, Area
 
 ## FTN file networking — N7
 
-See [FileEcho, TIC, hatching and FREQ](manual/ftn-files.md) for implemented authority and workflows. Schema 27; en-US 1.24.0 / 1,291 messages.
+See [FileEcho, TIC, hatching and FREQ](manual/ftn-files.md) for implemented authority and workflows. Schema 28; en-US 1.25.0 / 1,308 messages.
+
+## Account and posting identity — schema 28
+
+See the [identity contract](technical/identity-policy.md), [caller instructions](caller-guide/README.md#first-name-last-name-and-posting-identity), [caller administration](operator/caller-management.md) and [conference settings](operator/messages.md#posting-identity).

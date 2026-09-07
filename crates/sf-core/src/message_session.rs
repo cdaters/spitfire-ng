@@ -439,12 +439,12 @@ fn list_messages(
         } else {
             ""
         };
-        terminal.write_all(
-            format!(
+        write_dynamic(
+            terminal,
+            &format!(
                 "{unread}{:>5}  To: {:<20} From: {:<20}{private}\r\n        ",
                 message.number, message.recipient_name, message.author_name
-            )
-            .as_bytes(),
+            ),
         )?;
         write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
         if terminal.output_aborted() {
@@ -1482,6 +1482,7 @@ fn display_message(
             )?;
         }
     }
+    let displayed_author = display_identity(terminal, &message.author_name);
     write_key_line(
         terminal,
         if message.origin == crate::message::MessageOrigin::ExternalNetwork {
@@ -1489,7 +1490,7 @@ fn display_message(
         } else {
             "message-field-from"
         },
-        &crate::LocalizationArgs::new().with("name", message.author_name.clone()),
+        &crate::LocalizationArgs::new().with("name", displayed_author),
     )?;
     write_key(
         terminal,
@@ -1542,6 +1543,39 @@ fn compose_message(
     parent_message_id: Option<MessageId>,
     quote_source: Option<Message>,
 ) -> Result<ComposeOutcome, SessionError> {
+    let identity_preview = match backend.posting_identity_preview(actor, conference.id) {
+        Ok(preview) => preview,
+        Err(MessageError::Identity(error)) => {
+            write_line(terminal, &error.to_string())?;
+            return Ok(ComposeOutcome::Cancelled);
+        }
+        Err(error) => return Err(error.into()),
+    };
+    if crate::encode_text(
+        identity_preview.posted_as(),
+        crate::terminal_text_encoding(&terminal.info()),
+    )
+    .is_none()
+    {
+        write_key_line(
+            terminal,
+            "message-identity-unrepresentable",
+            &crate::LocalizationArgs::new(),
+        )?;
+        return Ok(ComposeOutcome::Cancelled);
+    }
+    write_key_line(
+        terminal,
+        "message-posting-as",
+        &crate::LocalizationArgs::new().with("name", identity_preview.posted_as()),
+    )?;
+    if identity_preview.policy() == crate::PostingIdentityPolicy::RealNameRequired {
+        write_key_line(
+            terminal,
+            "message-real-name-required",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
     let recipient = if let Some(recipient) = fixed_recipient {
         Some(recipient)
     } else {
@@ -1696,6 +1730,11 @@ fn compose_message(
         }
         EditorOutcome::Disconnected => return Ok(ComposeOutcome::Disconnected),
     };
+    write_key_line(
+        terminal,
+        "message-posting-as",
+        &crate::LocalizationArgs::new().with("name", identity_preview.posted_as()),
+    )?;
     write_key(
         terminal,
         "message-compose-save-question",
@@ -1720,6 +1759,7 @@ fn compose_message(
     let stored = match backend.post_with_cc(
         actor,
         NewMessage {
+            identity_preview: Some(identity_preview),
             conference_id: conference.id,
             recipient_caller_id,
             recipient_name,
@@ -1743,6 +1783,10 @@ fn compose_message(
                     "That caller does not have Conference {number} in their message queue; nothing was saved."
                 ),
             )?;
+            return Ok(ComposeOutcome::Cancelled);
+        }
+        Err(MessageError::Identity(error)) => {
+            write_line(terminal, &error.to_string())?;
             return Ok(ComposeOutcome::Cancelled);
         }
         Err(error) => return Err(error.into()),
@@ -2387,12 +2431,12 @@ fn show_personal_message_list(
         } else {
             "SENT"
         };
-        terminal.write_all(
-            format!(
+        write_dynamic(
+            terminal,
+            &format!(
                 "[{status:<8}] C{:>3}/M{:>5}  To: {:<20} From: {:<20}\r\n             ",
                 conference.number, message.number, message.recipient_name, message.author_name
-            )
-            .as_bytes(),
+            ),
         )?;
         write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
         if terminal.output_aborted() {
@@ -2503,6 +2547,28 @@ fn ensure_line_ending(terminal: &mut dyn Terminal, bytes: &[u8]) -> Result<(), T
     Ok(())
 }
 
+fn display_identity(terminal: &dyn Terminal, value: &str) -> String {
+    let encoding = crate::terminal_text_encoding(&terminal.info());
+    value
+        .chars()
+        .map(|c| {
+            let text = c.to_string();
+            if crate::encode_text(&text, encoding).is_some() {
+                text
+            } else {
+                format!("[U+{:04X}]", u32::from(c))
+            }
+        })
+        .collect()
+}
+
+fn write_dynamic(terminal: &mut dyn Terminal, value: &str) -> Result<(), TerminalError> {
+    let text = display_identity(terminal, value);
+    let bytes = crate::encode_text(&text, crate::terminal_text_encoding(&terminal.info()))
+        .expect("display_identity produces representable text");
+    terminal.write_all(&bytes)
+}
+
 fn write_line(terminal: &mut dyn Terminal, line: &str) -> Result<(), TerminalError> {
     terminal.write_all(line.as_bytes())?;
     terminal.write_all(b"\r\n")
@@ -2533,6 +2599,17 @@ mod tests {
         CallerState, ConferenceAccessMode, ConferenceDefinition, CredentialHasher,
         InMemoryTerminal, PasswordHashConfig, RuntimeDatabase,
     };
+
+    #[test]
+    fn identity_headers_encode_cp437_and_escape_unrepresentable_history() {
+        let terminal = InMemoryTerminal::default();
+        let encoding = crate::terminal_text_encoding(&terminal.info());
+        let name = display_identity(&terminal, "Café 界");
+        assert!(crate::encode_text(&name, encoding).is_some());
+        if encoding == crate::TerminalTextEncoding::Cp437 {
+            assert_eq!(name, "Café [U+754C]");
+        }
+    }
 
     fn message_database() -> (
         tempfile::TempDir,
@@ -2573,6 +2650,7 @@ mod tests {
         for (number, name) in [(1, "General"), (2, "SPITFIRE")] {
             database
                 .ensure_conference(&ConferenceDefinition {
+                    posting_identity: None,
                     number,
                     name: name.to_owned(),
                     description: format!("{name} messages"),
@@ -2605,6 +2683,7 @@ mod tests {
             .post(
                 actor,
                 NewMessage {
+                    identity_preview: None,
                     conference_id: conference.id,
                     recipient_caller_id: None,
                     recipient_name: "All Callers".to_owned(),
@@ -2658,6 +2737,7 @@ mod tests {
         let threshold = MessageActor::new(threshold_caller.id, SecurityLevel::new(100).unwrap());
         let conference = database.conference(alice, 1).unwrap();
         let source = NewMessage {
+            identity_preview: None,
             conference_id: conference.id,
             recipient_caller_id: Some(bob.caller_id()),
             recipient_name: "Bob Caller".to_owned(),
@@ -2756,6 +2836,7 @@ mod tests {
             .post(
                 bob,
                 NewMessage {
+                    identity_preview: None,
                     conference_id: general.id,
                     recipient_caller_id: None,
                     recipient_name: "All Callers".to_owned(),
@@ -2772,6 +2853,7 @@ mod tests {
             .post(
                 bob,
                 NewMessage {
+                    identity_preview: None,
                     conference_id: spitfire.id,
                     recipient_caller_id: None,
                     recipient_name: "All Callers".to_owned(),
@@ -2846,6 +2928,7 @@ mod tests {
     #[test]
     fn bounded_editor_commands_and_reply_quoting_preserve_cp437_bytes() {
         let conference = Conference {
+            posting_identity: Default::default(),
             id: crate::ConferenceId::new(1).unwrap(),
             number: 1,
             name: "General".to_owned(),
@@ -2938,6 +3021,7 @@ mod tests {
         let conference = database.conference(alice, 1).unwrap();
         let first = post_public(&mut database, alice, &conference, b"Thread Subject");
         let mut reply = NewMessage {
+            identity_preview: None,
             conference_id: conference.id,
             recipient_caller_id: Some(bob.caller_id()),
             recipient_name: "Bob Caller".to_owned(),

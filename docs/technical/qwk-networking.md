@@ -34,7 +34,8 @@ hold unsent work. This is typed relational configuration, not generic JSON stora
 JSON is only the typed IPC/CLI request representation.
 
 The manual operator endpoint is the authenticated exchange context. Packet claims
-never grant caller or operator authority. Local author exports use public handles;
+never grant caller or operator authority. Local author exports use immutable
+resolved posting names (Handle by default, Real Name where required);
 network imports use external attribution with a null local author reference and
 `origin_kind=external-network`. System-authored native seed messages are excluded.
 Imported content shares the existing native payload/fan-out/delivery services and
@@ -279,3 +280,11 @@ projections, named configuration forms and CAS, queue actions, retained-referenc
 checks and verified origin/acceptance reconciliation. Schema remains 24. Older
 restore descriptions above describe the safe held default; N5 adds verified
 recovery without inventing post-snapshot history. Wire/message authority is unchanged.
+
+## Schema 28 identity integration
+
+The [identity policy contract](identity-policy.md) defines private components,
+configuration precedence, pre-submission preview, immutable posted author and
+exact queue sender custody. Real-name requirements are configured policy, not an
+inferred property of every FTN/QWK network. Imports retain external authors without
+local name matching. Operational projections contain no private components.

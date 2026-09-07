@@ -16,7 +16,7 @@ use sf_core::{
     qwk_network::{ImportResult, Link, LinkStatus, Mapping},
     LocalOperatorCapability as Capability, RuntimeDatabase,
 };
-pub const NETWORK_MINOR: u16 = 6;
+pub const NETWORK_MINOR: u16 = 12;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
@@ -149,6 +149,7 @@ pub(crate) fn dispatch(
     }
     let now = chrono::Utc::now().timestamp();
     let mut db = RuntimeDatabase::open(runtime.database_path())?;
+    db.bind_posting_identity_configuration(&runtime.configuration.current()?);
     let operation = match action {
         NetworkAction::Binkp { request } => request.operation(),
         NetworkAction::Ftn { request } => request.operation(),

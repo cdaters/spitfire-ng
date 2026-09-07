@@ -47,6 +47,8 @@ pub enum ConfigurationField {
     MinimumPasswordLength,
     MaximumPasswordLength,
     PostLoginJourney,
+    PostingIdentity,
+    RequireNames,
     ProfileAddress,
     ProfilePhone,
     ProfileEmail,
@@ -108,6 +110,8 @@ impl ConfigurationField {
             Self::MinimumPasswordLength => "sfconfig-field-min-password",
             Self::MaximumPasswordLength => "sfconfig-field-max-password",
             Self::PostLoginJourney => "sfconfig-field-journey",
+            Self::PostingIdentity => "sfconfig-field-posting-identity",
+            Self::RequireNames => "sfconfig-field-require-names",
             Self::ProfileAddress => "sfconfig-field-address",
             Self::ProfilePhone => "sfconfig-field-phone",
             Self::ProfileEmail => "sfconfig-field-email",
@@ -185,6 +189,8 @@ impl ConfigurationField {
             MinimumPasswordLength,
             MaximumPasswordLength,
             PostLoginJourney,
+            PostingIdentity,
+            RequireNames,
             ProfileAddress,
             ProfilePhone,
             ProfileEmail,
@@ -245,6 +251,8 @@ impl ConfigurationField {
                 "none"
             }
             .into(),
+            Self::PostingIdentity => c.posting_identity.key().into(),
+            Self::RequireNames => c.profile.require_names.to_string(),
             Self::ProfileAddress => profile_value(c.profile.address),
             Self::ProfilePhone => profile_value(c.profile.phone),
             Self::ProfileEmail => profile_value(c.profile.email),
@@ -341,6 +349,11 @@ impl ConfigurationField {
                     _ => return Err(invalid()),
                 }
             }
+            Self::PostingIdentity => {
+                c.posting_identity =
+                    crate::PostingIdentityPolicy::parse(value).map_err(|_| invalid())?
+            }
+            Self::RequireNames => number!(c.profile.require_names),
             Self::ProfileAddress
             | Self::ProfilePhone
             | Self::ProfileEmail

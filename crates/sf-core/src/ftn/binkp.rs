@@ -357,6 +357,12 @@ impl RuntimeDatabase {
         Ok(work)
     }
     pub fn offered_binkp(&mut self, session: &str, queue: &str) -> Result<(), Error> {
+        super::mail::validate_export_identity(
+            &self.connection,
+            &self.identity_context,
+            &self.identity_context.ftn,
+            queue,
+        )?;
         if self.connection.execute(
             "UPDATE binkp_queue_claims SET offered=1 WHERE session_id=?1 AND queue_id=?2",
             params![session, queue],

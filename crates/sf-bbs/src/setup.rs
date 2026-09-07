@@ -92,6 +92,7 @@ impl SetupPlan {
             config,
             conferences: vec![
                 ConferenceDefinition {
+                    posting_identity: None,
                     number: 1,
                     name: "General".to_owned(),
                     description: "General board discussion".to_owned(),
@@ -104,6 +105,7 @@ impl SetupPlan {
                     privileged_security_levels: Vec::new(),
                 },
                 ConferenceDefinition {
+                    posting_identity: None,
                     number: 2,
                     name: "SPITFIRE".to_owned(),
                     description: "SPITFIRE board discussion".to_owned(),

@@ -20,7 +20,7 @@ caller-joker-denial = This caller name is unavailable. Please contact the Sysop.
 caller-subscription-warning = Your SPITFIRE subscription is nearing expiration.
 caller-subscription-changed = Your subscription access level has changed.
 caller-access-state-changed = Your caller access changed. Please reconnect.
-caller-registration-name-prompt = New Caller Name: { " " }
+caller-registration-name-prompt = Handle: { " " }
 caller-registration-name-too-long = Caller name is too long. Please try again.
 caller-registration-name-invalid = Caller name is not valid. Please try again.
 caller-registration-password-prompt = Choose Password: { " " }
@@ -350,3 +350,16 @@ menu-action-message-qwk = QWK Offline Mail
 qwk-menu-entry = <L> QWK Offline Mail
 
 message-field-from-network = From (QWK network): { $name }
+
+# M061.1 private account components and caller-approved posting identity.
+caller-first-name-prompt = First Name [{ $current }] (Enter to keep, - to clear): { " " }
+caller-last-name-prompt = Last Name [{ $current }] (Enter to keep, - to clear): { " " }
+caller-name-privacy = First and last name are private account information. Some conferences or networks require them when posting. Leave blank if optional. Editing names does not rename existing messages.
+caller-name-invalid = Enter names without controls, at most 60 UTF-8 bytes each, together at most 120 bytes and 60 characters.
+message-posting-as = Posting as: { $name }
+message-real-name-required = This conference requires your real name.
+qwk-identity-review = Reply for conference { $conference } will post as { $name }. This publishes your real name. Submit this reply? [y/N]: { " " }
+message-identity-unrepresentable = The posting name cannot be displayed exactly by this terminal. Use a terminal that supports it.
+
+caller-profile-handle = Handle: { $name }
+caller-profile-real-name = Real Name (derived, private): { $name }

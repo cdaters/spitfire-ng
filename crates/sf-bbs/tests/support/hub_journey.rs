@@ -74,6 +74,7 @@ fn make_board(root: &Path, address: &str, listen: u16, links: &[(&str, &str, u16
         links: links
             .iter()
             .map(|(id, address, _)| Link {
+                posting_identity: Default::default(),
                 id: (*id).into(),
                 remote: address.parse().unwrap(),
                 aka: "local".into(),
@@ -152,6 +153,7 @@ fn make_board(root: &Path, address: &str, listen: u16, links: &[(&str, &str, u16
     for n in [2, 3] {
         let c = db
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: n,
                 name: format!("N6 Echo {n}"),
                 description: "Isolated hub acceptance".into(),
@@ -168,6 +170,7 @@ fn make_board(root: &Path, address: &str, listen: u16, links: &[(&str, &str, u16
             &policy,
             "operator",
             &Mapping {
+                posting_identity: Default::default(),
                 domain: local.domain.clone(),
                 area: format!("AREA{}", n - 1),
                 conference_id: c.id.get(),
@@ -199,9 +202,11 @@ fn make_board(root: &Path, address: &str, listen: u16, links: &[(&str, &str, u16
 fn echo(b: &HubBoard, area: u8, seq: u32) {
     let b0 = &b.board;
     let mut db = RuntimeDatabase::open(b0.paths.database()).unwrap();
+    db.bind_posting_identity_configuration(&RuntimeConfig::load(&b0.config).unwrap());
     db.post(
         b0.actor,
         NewMessage {
+            identity_preview: None,
             conference_id: if area == 1 { b0.conference } else { b.second },
             recipient_caller_id: None,
             recipient_name: "All Callers".into(),
@@ -224,6 +229,7 @@ fn mail(b: &HubBoard, destination: &str, recipient: &str, subject: &str, body: &
             b.actor,
             &b.policy,
             &NewNetMail {
+                identity_preview: None,
                 aka: "local".into(),
                 destination: destination.parse().unwrap(),
                 recipient: recipient.into(),
@@ -329,6 +335,9 @@ async fn subscribe(c: &mut OperatorClient, link: &str, area: &str, state: bool, 
 }
 #[test]
 fn five_daemon_hub_areafix_rescan_point_and_partial_delivery() {
+    let _journey = DAEMON_JOURNEY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let temp = tempfile::tempdir().unwrap();
     let ports = [port(), port(), port(), port(), port()];
     let hub = make_board(
@@ -490,6 +499,7 @@ fn prepare_n6_operator_acceptance() {
             &hub.board.policy,
             "operator",
             &Mapping {
+                posting_identity: Default::default(),
                 domain: "isolated".parse().unwrap(),
                 area: area.into(),
                 conference_id: conference.get(),

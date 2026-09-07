@@ -56,6 +56,7 @@ fn policy() -> Policy {
         ],
         links: vec![
             Link {
+                posting_identity: Default::default(),
                 id: "peer".into(),
                 remote: "10:100/2@synthetic".parse().unwrap(),
                 aka: "point".into(),
@@ -67,6 +68,7 @@ fn policy() -> Policy {
                 charset: Charset::Utf8,
             },
             Link {
+                posting_identity: Default::default(),
                 id: "next".into(),
                 remote: "10:100/4@synthetic".parse().unwrap(),
                 aka: "node".into(),
@@ -160,6 +162,7 @@ fn fixture() -> Fixture {
     for n in [1, 2] {
         let c = db
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: n,
                 name: format!("Synthetic {n}"),
                 description: "FTN tests".into(),
@@ -177,6 +180,7 @@ fn fixture() -> Fixture {
             &policy,
             "synthetic-operator",
             &Mapping {
+                posting_identity: Default::default(),
                 domain: "synthetic".parse().unwrap(),
                 area: format!("TEST{n}"),
                 conference_id: c.id.get(),
@@ -266,6 +270,7 @@ fn native_point_netmail_queue_build_restart_and_mailbox_separation() {
             f.actor,
             &f.policy,
             &NewNetMail {
+                identity_preview: None,
                 aka: "point".into(),
                 destination: "10:100/2.9@synthetic".parse().unwrap(),
                 recipient: "Remote".into(),
@@ -373,6 +378,7 @@ fn echomail_native_scan_toss_fanout_and_loop() {
         f.db.post(
             f.actor,
             NewMessage {
+                identity_preview: None,
                 conference_id: ConferenceId::new(f.areas[0]).unwrap(),
                 recipient_caller_id: None,
                 recipient_name: "All Callers".into(),
@@ -581,6 +587,7 @@ fn directory_generation_conflict_staleness_backup_restore() {
             f.actor,
             &f.policy,
             &NewNetMail {
+                identity_preview: None,
                 aka: "point".into(),
                 destination: "10:100/2.9@synthetic".parse().unwrap(),
                 recipient: "Remote".into(),
@@ -663,6 +670,7 @@ fn independent_peer_packet_exchange() {
         f.actor,
         &f.policy,
         &NewNetMail {
+            identity_preview: None,
             aka: "point".into(),
             destination: "10:100/2.9@synthetic".parse().unwrap(),
             recipient: "Sysop".into(),
@@ -676,6 +684,7 @@ fn independent_peer_packet_exchange() {
     f.db.post(
         f.actor,
         NewMessage {
+            identity_preview: None,
             conference_id: ConferenceId::new(f.areas[1]).unwrap(),
             recipient_caller_id: None,
             recipient_name: "All Callers".into(),
@@ -821,6 +830,7 @@ fn directory_source_priority_conflict_and_domain_isolation() {
 fn local_text_cannot_supply_ftn_controls_and_stale_work_is_held() {
     let mut f = fixture();
     let mut mail = NewNetMail {
+        identity_preview: None,
         aka: "point".into(),
         destination: "10:100/2.9@synthetic".parse().unwrap(),
         recipient: "Peer".into(),
@@ -863,6 +873,7 @@ fn netmail_reply_binding_and_missing_identity_are_conservative() {
             f.actor,
             &f.policy,
             &NewNetMail {
+                identity_preview: None,
                 aka: "point".into(),
                 destination: "10:100/2.9@synthetic".parse().unwrap(),
                 recipient: "Remote Author".into(),
@@ -940,6 +951,7 @@ fn queued_binkp(f: &mut Fixture) {
         f.actor,
         &f.policy,
         &NewNetMail {
+            identity_preview: None,
             aka: "point".into(),
             destination: "10:100/2.9@synthetic".parse().unwrap(),
             recipient: "Remote".into(),
@@ -1397,3 +1409,181 @@ fn configuration_references_reject_orphans_and_allow_disabling() {
 
 #[path = "hub_tests.rs"]
 mod hub_tests;
+
+#[test]
+fn identity_real_name_echo_sender_is_frozen_and_cached_artifact_is_revalidated() {
+    let mut f = fixture();
+    let caller = f.db.caller_by_id(f.actor.caller_id()).unwrap().unwrap();
+    let mut profile = caller.profile;
+    profile.identity = PrivateIdentity::new(Some("Craig".into()), Some("Daters".into())).unwrap();
+    f.db.update_caller_profile(caller.id, profile, &CallerProfilePolicy::default())
+        .unwrap();
+    let mut m = mail::mapping(&f.db.connection, &"synthetic".parse().unwrap(), "TEST1").unwrap();
+    m.posting_identity = PostingIdentityPolicy::RealNameRequired;
+    m.version += 1;
+    f.db.configure_ftn_mapping(&f.policy, "synthetic-operator", &m, 1, NOW)
+        .unwrap();
+    let conference = ConferenceId::new(m.conference_id).unwrap();
+    let preview = f.db.preview_posting_identity(f.actor, conference).unwrap();
+    assert_eq!(preview.posted_as(), "Craig Daters");
+    let post =
+        f.db.post(
+            f.actor,
+            NewMessage {
+                identity_preview: Some(preview),
+                conference_id: conference,
+                recipient_caller_id: None,
+                recipient_name: "All Callers".into(),
+                subject: b"Identity snapshot".to_vec(),
+                body: b"Synthetic body\r\n".to_vec(),
+                created_at: NOW,
+                parent_message_id: None,
+                visibility: MessageVisibility::Public,
+                kind: MessageKind::Standard,
+            },
+        )
+        .unwrap();
+    f.db.scan_ftn(&f.policy, NOW).unwrap();
+    let q = f.db.ftn_queue(None).unwrap().remove(0);
+    let caller = f.db.caller_by_id(caller.id).unwrap().unwrap();
+    let mut profile = caller.profile;
+    profile.identity = PrivateIdentity::new(Some("Chris".into()), Some("D.".into())).unwrap();
+    f.db.update_caller_profile(caller.id, profile, &CallerProfilePolicy::default())
+        .unwrap();
+    let artifact =
+        f.db.build_ftn(&f.store, &f.policy, &q.id, q.version, NOW)
+            .unwrap();
+    let bytes = f.store.0.lock().unwrap()[&artifact].clone();
+    let packet = Packet::decode(&bytes, (10, 10)).unwrap();
+    assert_eq!(packet.messages[0].from, b"Craig Daters");
+    assert_eq!(
+        f.db.message(f.actor, conference, post.number)
+            .unwrap()
+            .author_name,
+        "Craig Daters"
+    );
+    assert!(f
+        .db
+        .connection
+        .execute("UPDATE network_sender_snapshots SET sender='Mutated'", [])
+        .is_err());
+    let q =
+        f.db.ftn_queue(None)
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == q.id)
+            .unwrap();
+    f.db.connection
+        .execute(
+            "UPDATE callers SET account_state='disabled' WHERE caller_id=?1",
+            [caller.id.get()],
+        )
+        .unwrap();
+    assert!(matches!(
+        f.db.build_ftn(&f.store, &f.policy, &q.id, q.version, NOW),
+        Err(Error::Held)
+    ));
+    assert_eq!(f.store.0.lock().unwrap()[&artifact], bytes);
+}
+
+#[test]
+fn identity_netmail_requires_complete_names_preview_and_explicit_mailbox_enrollment() {
+    let mut f = fixture();
+    f.policy.links[0].posting_identity = PostingIdentityPolicy::RealNameRequired;
+    let mut mail = NewNetMail {
+        identity_preview: None,
+        aka: "point".into(),
+        destination: "10:100/2.9@synthetic".parse().unwrap(),
+        recipient: "Remote".into(),
+        subject: "Identity".into(),
+        body: "Synthetic body".into(),
+        reply_to: None,
+    };
+    assert!(f
+        .db
+        .preview_ftn_mail_identity(f.actor, &f.policy, &mail)
+        .is_err());
+    let caller = f.db.caller_by_id(f.actor.caller_id()).unwrap().unwrap();
+    let mut profile = caller.profile;
+    profile.identity = PrivateIdentity::new(Some("Craig".into()), Some("Daters".into())).unwrap();
+    f.db.update_caller_profile(caller.id, profile, &CallerProfilePolicy::default())
+        .unwrap();
+    assert!(matches!(
+        f.db.preview_ftn_mail_identity(f.actor, &f.policy, &mail),
+        Err(Error::Identity(IdentityError::EnrollmentMismatch))
+    ));
+    // This fixture explicitly replaces its old enrollment; names alone never do it.
+    f.db.connection
+        .execute(
+            "DELETE FROM ftn_mailbox_aliases WHERE caller_id=?1",
+            [caller.id.get()],
+        )
+        .unwrap();
+    f.db.configure_ftn_alias(
+        &f.policy,
+        "synthetic-operator",
+        &MailboxAlias {
+            aka: "point".into(),
+            alias: "Craig Daters".into(),
+            caller_id: caller.id.get(),
+        },
+        NOW,
+    )
+    .unwrap();
+    let preview =
+        f.db.preview_ftn_mail_identity(f.actor, &f.policy, &mail)
+            .unwrap();
+    assert!(matches!(
+        f.db.send_ftn_mail(f.actor, &f.policy, &mail, NOW),
+        Err(Error::Identity(IdentityError::PreviewRequired))
+    ));
+    mail.identity_preview = Some(preview);
+    let mid = f.db.send_ftn_mail(f.actor, &f.policy, &mail, NOW).unwrap();
+    let caller = f.db.caller_by_id(caller.id).unwrap().unwrap();
+    let mut profile = caller.profile;
+    profile.identity = PrivateIdentity::new(Some("Craig".into()), Some("D.".into())).unwrap();
+    f.db.update_caller_profile(caller.id, profile, &CallerProfilePolicy::default())
+        .unwrap();
+    let q = f.db.ftn_queue(None).unwrap().remove(0);
+    let artifact =
+        f.db.build_ftn(&f.store, &f.policy, &q.id, q.version, NOW)
+            .unwrap();
+    assert_eq!(
+        Packet::decode(&f.store.0.lock().unwrap()[&artifact], (10, 10))
+            .unwrap()
+            .messages[0]
+            .from,
+        b"Craig Daters"
+    );
+    assert_eq!(
+        f.db.read_ftn_mail(f.actor, mid).unwrap().author,
+        "Craig Daters"
+    );
+}
+
+#[test]
+fn identity_imported_author_matching_handle_or_private_name_stays_external() {
+    let mut f = fixture();
+    let caller = f.db.caller_by_id(f.actor.caller_id()).unwrap().unwrap();
+    let mut profile = caller.profile;
+    profile.identity = PrivateIdentity::new(Some("Craig".into()), Some("Daters".into())).unwrap();
+    f.db.update_caller_profile(caller.id, profile, &CallerProfilePolicy::default())
+        .unwrap();
+    for (n, author) in [caller.display_name, "Craig Daters".into()]
+        .into_iter()
+        .enumerate()
+    {
+        let mut packet = Packet::decode(
+            &inbound(100 + n as u32, "10:100/1", Some("TEST1")),
+            (10, 10),
+        )
+        .unwrap();
+        packet.messages[0].from = author.as_bytes().to_vec();
+        let result =
+            f.db.toss_ftn(&f.store, &f.policy, "peer", &packet.encode().unwrap(), NOW)
+                .unwrap();
+        assert_eq!(result.imported, 1);
+        let row:(Option<i64>,String,String)=f.db.connection.query_row("SELECT author_caller_id,author_name,identity_mode FROM messages ORDER BY message_id DESC LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        assert_eq!(row, (None, author, "external-asserted".into()));
+    }
+}

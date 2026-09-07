@@ -190,7 +190,20 @@ fn value(v: &Value) -> String {
     }
 }
 impl Form {
-    fn new(kind: Kind, v: Value) -> Self {
+    fn new(kind: Kind, mut v: Value) -> Self {
+        // FTN omits its handle default to preserve old durable policy digests.
+        // Forms still expose an explicit editable field for every existing link.
+        if kind == Kind::Ftn {
+            if let Some(links) = v.get_mut("links").and_then(Value::as_array_mut) {
+                for link in links {
+                    if let Some(fields) = link.as_object_mut() {
+                        fields
+                            .entry("posting_identity")
+                            .or_insert(json!("handle-allowed"));
+                    }
+                }
+            }
+        }
         Self {
             kind,
             before: if (kind == Kind::Qwk && v["link"]["version"].as_i64() == Some(0))
@@ -269,7 +282,7 @@ impl Form {
             "akas" => json!(aka),
             "remote_akas" => json!({"domain":domain,"address":"10:100/2.1"}),
             "links" if self.kind == Kind::Ftn => {
-                json!({"id":"peer","remote":{"domain":domain,"address":"10:100/2"},"aka":aka,"enabled":false,"inbound":false,"outbound":false,"transit":false,"profile":"type2-plus","charset":"cp437"})
+                json!({"posting_identity":"handle-allowed","id":"peer","remote":{"domain":domain,"address":"10:100/2"},"aka":aka,"enabled":false,"inbound":false,"outbound":false,"transit":false,"profile":"type2-plus","charset":"cp437"})
             }
             "links" if self.kind == Kind::Binkp => {
                 json!({"link":link,"enabled":false,"inbound":false,"outbound":false,"endpoint":null,"port":24554,"directory":true,"akas":[aka],"remote_akas":[],"auth":"require-cram","allow_domainless":false})
@@ -280,7 +293,7 @@ impl Form {
                 json!({"id":"nodes","domain":domain,"enabled":false,"format":"nodelist","charset":"ascii","default_zone":10,"priority":10,"cadence_days":7,"require_crc":true})
             }
             "mappings" => {
-                json!({"wire_conference":1,"area":"general","conference_id":conference,"enabled":true,"inbound":true,"outbound":true,"version":1})
+                json!({"posting_identity":"handle-allowed","wire_conference":1,"area":"general","conference_id":conference,"enabled":true,"inbound":true,"outbound":true,"version":1})
             }
             _ => return None,
         })
@@ -563,7 +576,7 @@ fn draw_form(frame: &mut Frame<'_>, f: &Form, data: &Data) {
             t("netconfig-conference-picker"),
             chosen
                 .map(|c| format!(
-                    "{} ({}) / ID {} / {}",
+                    "{} ({}) / ID {} / {} / {}: {} / {}: {} ({})",
                     c.name,
                     c.number,
                     c.id,
@@ -571,12 +584,33 @@ fn draw_form(frame: &mut Frame<'_>, f: &Form, data: &Data) {
                         t("sfconfig-enabled")
                     } else {
                         t("sfconfig-disabled")
-                    }
+                    },
+                    t("netconfig-posting-identity"),
+                    c.posting_identity
+                        .map_or("inherit", sf_core::PostingIdentityPolicy::key),
+                    t("netconfig-effective-identity"),
+                    c.effective_identity
+                        .map_or("inactive", sf_core::PostingIdentityPolicy::key),
+                    c.identity_source.as_deref().unwrap_or("inactive")
                 ))
                 .unwrap_or_else(|| t("netconfig-unset"))
         )
     } else {
-        f.status.clone()
+        let selected = get(&f.draft, &f.path)
+            .and_then(|v| v.get("conference_id"))
+            .and_then(Value::as_i64);
+        if let Some(c) = data.conferences.iter().find(|c| Some(c.id) == selected) {
+            format!(
+                "{} | {}: {} ({})",
+                f.status,
+                t("netconfig-effective-identity"),
+                c.effective_identity
+                    .map_or("inactive", sf_core::PostingIdentityPolicy::key),
+                c.identity_source.as_deref().unwrap_or("inactive")
+            )
+        } else {
+            f.status.clone()
+        }
     };
     frame.render_widget(
         Paragraph::new(clean(status)).wrap(Wrap { trim: false }),
@@ -986,11 +1020,11 @@ pub(super) fn run(
                     )),
                     2 => Some(Form::new(
                         Kind::Qwk,
-                        json!({"link":{"id":"partner","network":"isolated","local_id":"MYBBS","remote_id":"PEER","name":"QWK partner","profile":"qwk-headers","role":"hub","enabled":false,"inbound":true,"outbound":true,"version":0},"mappings":[{"wire_conference":1,"area":"general","conference_id":conf,"enabled":true,"inbound":true,"outbound":true,"version":1}]}),
+                        json!({"link":{"posting_identity":"handle-allowed","id":"partner","network":"isolated","local_id":"MYBBS","remote_id":"PEER","name":"QWK partner","profile":"qwk-headers","role":"hub","enabled":false,"inbound":true,"outbound":true,"version":0},"mappings":[{"posting_identity":"handle-allowed","wire_conference":1,"area":"general","conference_id":conf,"enabled":true,"inbound":true,"outbound":true,"version":1}]}),
                     )),
                     3 => Some(Form::new(
                         Kind::Area,
-                        json!({"domain":domain,"area":"GENERAL","conference_id":conf,"aka":aka,"receive":false,"send":false,"origin":"SPITFIRE NG","links":[],"version":0}),
+                        json!({"domain":domain,"area":"GENERAL","conference_id":conf,"aka":aka,"receive":false,"send":false,"origin":"SPITFIRE NG","posting_identity":"handle-allowed","links":[],"version":0}),
                     )),
                     4 => {
                         if let Backend::Offline(authority) = backend {
@@ -1620,6 +1654,12 @@ mod tests {
     }
     #[test]
     fn creation_review_includes_every_added_field_and_removal() {
+        let legacy_ftn = Form::new(Kind::Ftn, json!({"links":[{"id":"peer"}]}));
+        assert_eq!(
+            legacy_ftn.draft["links"][0]["posting_identity"],
+            "handle-allowed"
+        );
+        assert_eq!(legacy_ftn.before, legacy_ftn.draft);
         let f = Form::new(
             Kind::Qwk,
             json!({"link":{"id":"peer","version":0,"enabled":false},"mappings":[]}),

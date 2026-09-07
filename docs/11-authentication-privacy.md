@@ -6,6 +6,12 @@ This document defines how modern SPITFIRE should represent callers, authenticate
 
 The goal is practical security without excessive friction.
 
+The implemented schema-28 [identity contract](technical/identity-policy.md)
+separates private name components from authentication and handles. Stored legacy
+`real_name` remains unclassified, immutable compatibility data. Intentional name
+publication requires a disclosed posting requirement and preview. Ordinary caller,
+monitor, queue and audit projections receive no private components.
+
 ### Implemented native baseline
 
 Stock Core Increment 2 implements the first native caller/authentication
@@ -17,16 +23,17 @@ and plaintext-transport warning. The remainder of this document continues to
 describe longer-term authentication/privacy direction and must not be read as
 claiming that every optional feature below already exists.
 
-M042.5 now implements the minimum durable modern identity separation and SSH
+M042.5 established the minimum durable modern identity separation and SSH
 password transport described by that specification: stable caller ID, unique
-login identifier, public display handle, private optional real name, and one
+login identifier, public display handle, preserved optional legacy full name, and one
 authoritative Argon2id domain. See
 [Secure SSH Caller Transport](sfng-secure-ssh-transport.md). MFA, public-key
-management, web login, and network adapters remain future work.
+management and web login remain future work. Schema 28 adds explicit private
+first/last components and posting policy to the implemented FTN/QWK adapters.
 
 M043 adds a separate public-information projection. Stable caller ID is used
-internally for ownership/revalidation, handle is the only caller-facing
-identity, and login identifier plus optional real name remain private. The
+internally for ownership/revalidation; the public directory uses Handle only,
+and login identifier plus name components remain private. The
 board directory and every caller default unlisted; board policy can permit but
 cannot force disclosure. Disabled, Deleted, and opted-out callers appear
 absent to ordinary directory/locate commands. See
@@ -66,9 +73,10 @@ Caller-visible identity may include:
     Real Name
     Display Name
 
-A board may eventually configure protocol-specific identity policy. Current
-local presentation uses the handle, SSH authentication uses the login
-identifier, and real name remains private unless explicit policy requires it.
+A board can configure posting identity and stricter mapped network requirements.
+Ordinary local presentation uses Handle, SSH authentication uses the login
+identifier, and private components are published only as an intentionally
+resolved posting name. The immutable post survives later profile changes.
 
 Historical SPITFIRE behavior should be preserved where practical.
 

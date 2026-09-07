@@ -22,6 +22,7 @@ pub struct TossResult {
 }
 /// Authenticated caller input; never a serialized operator impersonation request.
 pub struct NewNetMail {
+    pub identity_preview: Option<crate::identity::PostingIdentityPreview>,
     pub aka: String,
     pub destination: Endpoint,
     pub recipient: String,
@@ -130,7 +131,7 @@ pub(super) fn mapping(
     domain: &Domain,
     area: &str,
 ) -> Result<Mapping, Error> {
-    let mut m=conn.query_row("SELECT conference_id,aka,receive,send,origin,version FROM ftn_area_mappings WHERE domain=?1 AND area=?2",params![domain.as_str(),area],|r|Ok(Mapping{domain:domain.clone(),area:area.into(),conference_id:r.get(0)?,aka:r.get(1)?,receive:r.get(2)?,send:r.get(3)?,origin:r.get(4)?,version:r.get(5)?,links:vec![]})).optional()?.ok_or(Error::Policy)?;
+    let mut m=conn.query_row("SELECT conference_id,aka,receive,send,origin,version,posting_identity FROM ftn_area_mappings WHERE domain=?1 AND area=?2",params![domain.as_str(),area],|r|Ok(Mapping{domain:domain.clone(),area:area.into(),conference_id:r.get(0)?,aka:r.get(1)?,receive:r.get(2)?,send:r.get(3)?,origin:r.get(4)?,version:r.get(5)?,posting_identity: if r.get::<_,String>(6)? == "real-name-required" {crate::PostingIdentityPolicy::RealNameRequired} else {crate::PostingIdentityPolicy::HandleAllowed},links:vec![]})).optional()?.ok_or(Error::Policy)?;
     m.links = conn
         .prepare("SELECT link_id FROM ftn_area_links WHERE domain=?1 AND area=?2 ORDER BY link_id")?
         .query_map(params![domain.as_str(), area], |r| r.get(0))?
@@ -204,6 +205,27 @@ fn serial(tx: &Transaction<'_>, source: &Endpoint) -> Result<u32, Error> {
     )?;
     Ok(result)
 }
+enum NativeIdentity<'a> {
+    Local(&'a crate::identity::PostingIdentityPreview),
+    External,
+    System,
+}
+impl NativeIdentity<'_> {
+    fn mode(&self) -> &str {
+        match self {
+            Self::Local(p) => p.evidence.mode.key(),
+            Self::External => "external-asserted",
+            Self::System => "system",
+        }
+    }
+    fn proof(&self) -> Result<Option<String>, crate::IdentityError> {
+        match self {
+            Self::Local(p) => p.proof().map(Some),
+            _ => Ok(None),
+        }
+    }
+}
+#[allow(clippy::too_many_arguments)]
 fn insert_native(
     tx: &Transaction<'_>,
     e: &Envelope,
@@ -212,6 +234,7 @@ fn insert_native(
     conference: Option<i64>,
     parent: Option<i64>,
     now: i64,
+    identity: NativeIdentity<'_>,
 ) -> Result<i64, Error> {
     e.validate()?;
     let mid = crate::message::next_message_id(tx)?.get();
@@ -245,7 +268,7 @@ fn insert_native(
     } else {
         "network-transit"
     };
-    tx.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'active','single',0,?12,?13)",params![mid,fanout,conference,number.map(|n|n as i64),author,e.from,written,now,parent,if conference.is_some(){"all-callers"}else if recipient.is_some(){"local-recipient"}else{"external-recipient"},if conference.is_some(){"public"}else{"private"},if author.is_some(){"native"}else{"external-network"},container])?;
+    tx.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind,identity_mode,identity_proof) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,'active','single',0,?12,?13,?14,?15)",params![mid,fanout,conference,number.map(|n|n as i64),author,e.from,written,now,parent,if conference.is_some(){"all-callers"}else if recipient.is_some(){"local-recipient"}else{"external-recipient"},if conference.is_some(){"public"}else{"private"},if author.is_some(){"native"}else{"external-network"},container,identity.mode(),identity.proof()?])?;
     if let Some((caller, name)) = recipient {
         tx.execute(
             "INSERT INTO message_delivery_recipients VALUES(?1,?2,?3,?4,?5)",
@@ -406,6 +429,13 @@ fn queue_target(
         ],
     )?;
     tx.execute("INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES(?1,'pending',?2,?3)",params![q,now,reserve])?;
+    crate::identity::freeze_sender(
+        tx,
+        &q,
+        mid,
+        &e.text.charset.encode(&e.from)?,
+        e.text.charset.identifier(),
+    )?;
     Ok(())
 }
 fn load(conn: &rusqlite::Connection, pid: &str) -> Result<(Envelope, i64, Option<String>), Error> {
@@ -501,7 +531,120 @@ fn load(conn: &rusqlite::Connection, pid: &str) -> Result<(Envelope, i64, Option
         ingress,
     ))
 }
+fn resolve_mail_identity(
+    conn: &rusqlite::Connection,
+    context: &crate::identity::IdentityContext,
+    actor: crate::MessageActor,
+    policy: &Policy,
+    mail: &NewNetMail,
+    alias: String,
+) -> Result<crate::identity::PostingIdentityPreview, Error> {
+    let (scope, requirement, charset) = if policy.local(&mail.destination).is_some() {
+        (
+            format!("ftn-private-local:{}", mail.aka),
+            crate::PostingIdentityPolicy::HandleAllowed,
+            Charset::Utf8,
+        )
+    } else {
+        let route = policy.route(&mail.destination)?;
+        let link = policy.link(&route.link)?;
+        (
+            format!("ftn-private:{}", link.id),
+            link.posting_identity,
+            link.charset,
+        )
+    };
+    Ok(crate::identity::resolve_private(
+        conn,
+        context,
+        actor.caller_id(),
+        scope,
+        requirement,
+        policy.digest()?,
+        alias,
+        35,
+        charset,
+    )?)
+}
+
+pub(super) fn validate_export_identity(
+    conn: &rusqlite::Connection,
+    context: &crate::identity::IdentityContext,
+    policy: &Policy,
+    queue: &str,
+) -> Result<(), Error> {
+    let (pid, lid): (String, String) = conn.query_row(
+        "SELECT publication_id,link_id FROM ftn_routing_decisions WHERE queue_id=?1",
+        [queue],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let (e, mid, ingress) = load(conn, &pid)?;
+    let valid:bool=conn.query_row("SELECT q.state IN ('pending','ready','retry') AND d.policy_digest=?2 AND m.lifecycle_state='active' AND m.state_version=d.message_version FROM ftn_routing_decisions d JOIN network_outbound_queue q USING(queue_id) JOIN messages m ON m.message_id=?3 WHERE d.queue_id=?1",params![queue,policy.digest()?,mid],|r|r.get(0))?;
+    if !valid {
+        return Err(Error::Held);
+    }
+
+    let link = policy.link(&lid)?;
+    if !link.enabled || !link.outbound {
+        return Err(Error::Held);
+    }
+    let (requirement, scope) = if let Some(area) = &e.text.area {
+        let m = mapping(conn, &e.source.domain, area)?;
+        let version: i64 = conn.query_row(
+            "SELECT mapping_version FROM ftn_routing_decisions WHERE queue_id=?1",
+            [queue],
+            |r| r.get(0),
+        )?;
+        if m.version != version || !m.send || !hub::echo_links(conn, &m)?.contains(&lid) {
+            return Err(Error::Held);
+        }
+        (
+            m.posting_identity.join(link.posting_identity),
+            format!("ftn:{}:{area}:{lid}", e.source.domain.as_str()),
+        )
+    } else {
+        let local_author: bool = conn.query_row(
+            "SELECT author_caller_id IS NOT NULL FROM messages WHERE message_id=?1",
+            [mid],
+            |r| r.get(0),
+        )?;
+        if ingress.is_none() && local_author {
+            let enrolled:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM messages m JOIN ftn_messages f USING(message_id) JOIN ftn_mailbox_aliases a ON a.address_id=f.origin_address AND a.caller_id=m.author_caller_id WHERE m.message_id=?1 AND a.alias=m.author_name COLLATE NOCASE)",[mid],|r|r.get(0))?;
+            if !enrolled {
+                return Err(Error::Held);
+            }
+        }
+        (link.posting_identity, format!("ftn-private:{lid}"))
+    };
+    crate::identity::validate_destination(conn, context, mid, requirement, &scope)?;
+    crate::identity::freeze_sender(
+        conn,
+        queue,
+        mid,
+        &e.text.charset.encode(&e.from)?,
+        e.text.charset.identifier(),
+    )?;
+    Ok(())
+}
+
 impl RuntimeDatabase {
+    pub fn preview_ftn_mail_identity(
+        &self,
+        actor: crate::MessageActor,
+        policy: &Policy,
+        mail: &NewNetMail,
+    ) -> Result<crate::identity::PostingIdentityPreview, Error> {
+        let aka = policy.aka(&mail.aka)?;
+        let author:String=self.connection.query_row("SELECT a.alias FROM ftn_mailbox_aliases a JOIN ftn_addresses f USING(address_id) JOIN callers c USING(caller_id) WHERE f.domain=?1 AND f.zone=?2 AND f.net=?3 AND f.node=?4 AND f.point=?5 AND c.caller_id=?6 AND c.account_state='active'",params![aka.endpoint.domain.as_str(),aka.endpoint.address.zone(),aka.endpoint.address.net(),aka.endpoint.address.node(),aka.endpoint.address.point(),actor.caller_id().get()],|r|r.get(0)).optional()?.ok_or(Error::Denied)?;
+        resolve_mail_identity(
+            &self.connection,
+            &self.identity_context,
+            actor,
+            policy,
+            mail,
+            author,
+        )
+    }
     pub fn send_ftn_mail(
         &mut self,
         actor: crate::MessageActor,
@@ -519,6 +662,10 @@ impl RuntimeDatabase {
         }
         let source = address_id(&tx, &aka.endpoint)?;
         let author:String=tx.query_row("SELECT a.alias FROM ftn_mailbox_aliases a JOIN callers c USING(caller_id) WHERE a.address_id=?1 AND a.caller_id=?2 AND c.account_state='active'",params![source,actor.caller_id().get()],|r|r.get(0)).optional()?.ok_or(Error::Denied)?;
+        let identity =
+            resolve_mail_identity(&tx, &self.identity_context, actor, policy, mail, author)?;
+        crate::identity::check_preview(&identity, mail.identity_preview.as_ref())?;
+        let author = identity.posted_as().to_owned();
         let reply = if let Some(parent) = mail.reply_to {
             tx.query_row("SELECT f.msgid FROM ftn_messages f JOIN messages m USING(message_id) JOIN message_delivery_recipients r USING(message_id) WHERE m.message_id=?1 AND r.caller_id=?2 AND m.container_kind='local-network-mailbox' AND m.lifecycle_state='active' AND f.domain=?3 AND f.origin_address=?4 AND m.author_name=?5 COLLATE NOCASE",params![parent.get(),actor.caller_id().get(),mail.destination.domain.as_str(),address_id(&tx,&mail.destination)?,mail.recipient],|r|r.get::<_,Option<String>>(0)).optional()?.ok_or(Error::Denied)?
         } else {
@@ -565,6 +712,7 @@ impl RuntimeDatabase {
             None,
             mail.reply_to.map(|m| m.get()),
             now,
+            NativeIdentity::Local(&identity),
         )?;
         let pid = publish(&tx, &e, mid, None, now)?;
         queue(&tx, policy, &pid, &e, mid, None, now)?;
@@ -901,7 +1049,16 @@ impl RuntimeDatabase {
                     (None, None)
                 };
                 let parent = resolve_reply(&tx, &e, conference, recipient.as_ref().map(|r| r.0))?;
-                let mid = insert_native(&tx, &e, None, recipient, conference, parent, now)?;
+                let mid = insert_native(
+                    &tx,
+                    &e,
+                    None,
+                    recipient,
+                    conference,
+                    parent,
+                    now,
+                    NativeIdentity::External,
+                )?;
                 let pid = publish(&tx, &e, mid, Some(link_id), now)?;
                 queue(&tx, policy, &pid, &e, mid, Some(link_id), now)?;
                 receipt(
@@ -1000,6 +1157,7 @@ impl RuntimeDatabase {
         expected: i64,
         now: i64,
     ) -> Result<String, Error> {
+        self.identity_context.ftn = policy.clone();
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1023,7 +1181,10 @@ impl RuntimeDatabase {
         } else {
             true
         };
+        let identity_ok =
+            validate_export_identity(&tx, &self.identity_context, policy, queue_id).is_ok();
         if !valid
+            || !identity_ok
             || !map_ok
             || digest != stored_digest
             || hub::downstream(&tx, &lid)?.is_some_and(|d| !d.enabled)

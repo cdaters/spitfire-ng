@@ -117,3 +117,20 @@ See the [FTN Sysop procedure](../manual/ftn-core.md) for isolated operation and
 [Technical Reference](../technical/ftn-core.md) for authority/privacy/recovery.
 Native messages remain canonical; private FTN mail is separate from QWK private
 mail. BinkP is not implemented and live public FidoNet is not claimed.
+
+## Posting identity
+
+Set a conference's **Posting identity** to **Inherit**, **Handle allowed**, or
+**Real name required**. Inherit uses the board default; the compatibility default
+is Handle allowed. The conference list shows its configured choice. Network
+mapping screens also show the saved effective choice and its source.
+
+A mapped network/link may require real names even when this conference allows
+handles. The strongest active outbound requirement applies before the caller
+writes: the same displayed name is stored locally and sent to those networks.
+The caller sees **Posting as** and cannot submit an incomplete required name.
+There is no silent export-time name change. Existing messages retain their original
+author; newly stricter rules hold unsuitable queued work rather than rewriting it.
+
+See [caller names](caller-management.md) and the
+[technical policy contract](../technical/identity-policy.md).

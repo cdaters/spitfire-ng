@@ -25,6 +25,7 @@ pub mod database;
 pub mod file;
 pub mod file_maintenance;
 mod file_session;
+pub mod identity;
 pub mod interaction;
 pub mod localization;
 pub mod message;
@@ -82,6 +83,7 @@ pub use file::{
     MAX_FILE_NAME_BYTES,
 };
 pub use file_maintenance::*;
+pub use identity::{IdentityError, PostingIdentityMode, PostingIdentityPolicy, PrivateIdentity};
 pub use interaction::{
     AllowancePause, CallerChat, ChatAuthorization, DisconnectTicket, InteractionError,
     InteractionHub, OperatorChat, PageAnswer, PageRequest, PageState, PageTicket,

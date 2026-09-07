@@ -859,6 +859,7 @@ fn interop_rescan_fixture() -> Fixture {
         &f.policy,
         "operator",
         &Mapping {
+            posting_identity: Default::default(),
             domain: "interop".parse().unwrap(),
             area: "INTEROP.TEST".into(),
             conference_id: f.areas[0],
@@ -1100,6 +1101,7 @@ fn contextual_rescan_does_not_relax_packet_destination_or_outbound_admission() {
                     f.actor,
                     &f.policy,
                     &NewNetMail {
+                        identity_preview: None,
                         aka: "interop-local".into(),
                         destination,
                         recipient: "Recipient".into(),

@@ -223,3 +223,22 @@ the terminal window is an emergency disconnect, not the normal logoff method.
 For a problem specific to one board, contact that board's Sysop. Include the
 connection type, terminal name/version, the menu you were using, and the exact
 error text, but never send your password.
+
+## First Name, Last Name and posting identity
+
+**Handle** is the name other callers normally see. Main `R` lets you view or edit
+your private **First Name** and **Last Name**. Enter leaves an existing value;
+`-` clears an optional component and `/Q` cancels. Some boards require both at
+signup; otherwise you can complete them when needed. These fields do not change
+your login and do not claim verified identity.
+
+Some message conferences or networks require your first and last name when
+posting. Before writing, check **Posting as**. A handle area shows your Handle;
+a real-name area shows your joined First Name and Last Name and explains why.
+If a required component is missing, complete your profile before posting.
+A mapped network may impose this rule on an otherwise handle-friendly conference.
+
+Names remain private during ordinary handle-based activity. A real-name post
+intentionally publishes its displayed name. Changing your profile or asking the
+Sysop to rename your Handle never renames old posts or already queued senders.
+An offline QWK reply requiring your real name asks for review before it is saved.

@@ -517,7 +517,9 @@ impl NativeBackend {
         }
     }
     fn db(&self) -> std::result::Result<RuntimeDatabase, Error> {
-        custody(RuntimeDatabase::open(self.runtime.database_path()))
+        let mut db = custody(RuntimeDatabase::open(self.runtime.database_path()))?;
+        db.bind_posting_identity_configuration(&custody(self.runtime.configuration.current())?);
+        Ok(db)
     }
     fn session(&self) -> std::result::Result<&str, Error> {
         self.session.as_deref().ok_or(Error::Authentication)

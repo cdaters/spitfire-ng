@@ -183,3 +183,16 @@ The [FTN hub manual](ftn-hub.md) defines downstream/point configuration, separat
 ## N7 file-network extension
 
 FileEcho, TIC, native-file hatching and exact approved FREQ reuse native file authority and BinkP transport. sfconfig offers typed file policy/mapping/subscription/grant/hatch forms; sfmonitor Networks → 9 Files includes staging, history and Enter delivery detail. [File-network workflows and authority](ftn-files.md). No raw path or credential appears in projections.
+
+## Caller names and posting policy
+
+Board fields **Posting identity** and **Require first and last name** are
+independent. The first controls the fallback posting name; the second controls
+private collection at signup/profile editing. Both default to handle-friendly
+operation. Conference settings can inherit or choose Handle allowed / Real name
+required. FTN/QWK mapping and link forms expose their own posting requirement;
+conference selection shows the saved effective requirement and source, without
+caller names. Draft changes take effect only after the existing review/save flow.
+
+Use [caller management](../operator/caller-management.md) for the private profile
+commands. See [identity precedence](../technical/identity-policy.md) for exact rules.

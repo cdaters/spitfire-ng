@@ -474,6 +474,21 @@ pub fn run_operator_console(
             "CALLERS" => show_callers(service, output)?,
             "PROFILE" => show_caller_profile(service, rest, output)?,
             "PROFILE-SET" => update_caller_profile(service, rest)?,
+            "NAMES" => {
+                let parts = rest.split('|').map(str::trim).collect::<Vec<_>>();
+                let [name, first, last] = parts.as_slice() else {
+                    return Err(ApplicationError::InvalidSetupValue(
+                        "use NAMES <handle>|<first name>|<last name>",
+                    ));
+                };
+                let mut caller = service.caller(name)?;
+                caller.profile.identity =
+                    sf_core::PrivateIdentity::new(Some((*first).into()), Some((*last).into()))
+                        .map_err(|_| {
+                            ApplicationError::InvalidSetupValue("invalid first/last name")
+                        })?;
+                service.set_caller_profile(name, caller.profile)?;
+            }
             "IDENTITY" => {
                 write_caller_mutation(
                     output,
@@ -946,6 +961,14 @@ fn show_caller_profile(
     .map_err(ApplicationError::SetupIo)?;
     for (label, value) in [
         (
+            op("operator-first-name"),
+            caller.profile.identity.first_name(),
+        ),
+        (
+            op("operator-last-name"),
+            caller.profile.identity.last_name(),
+        ),
+        (
             op("operator-console-profile-address-1"),
             address.line_1.as_deref(),
         ),
@@ -1024,6 +1047,20 @@ fn update_caller_profile(
     let mut caller = service.caller(name.trim())?;
     let value = (!value.trim().is_empty()).then(|| value.trim().to_owned());
     match field.to_ascii_lowercase().as_str() {
+        "firstname" => {
+            caller.profile.identity = sf_core::PrivateIdentity::new(
+                value,
+                caller.profile.identity.last_name().map(str::to_owned),
+            )
+            .map_err(|_| ApplicationError::InvalidSetupValue("invalid first/last name"))?
+        }
+        "lastname" => {
+            caller.profile.identity = sf_core::PrivateIdentity::new(
+                caller.profile.identity.first_name().map(str::to_owned),
+                value,
+            )
+            .map_err(|_| ApplicationError::InvalidSetupValue("invalid first/last name"))?
+        }
         "address1" => caller.profile.address.line_1 = value,
         "address2" => caller.profile.address.line_2 = value,
         "city" => caller.profile.address.city = value,
@@ -1052,9 +1089,9 @@ fn update_caller_identity(
     arguments: &str,
 ) -> Result<Caller, ApplicationError> {
     let fields = arguments.split('|').map(str::trim).collect::<Vec<_>>();
-    let [name, login_identifier, display_handle, real_name] = fields.as_slice() else {
+    let [name, login_identifier, display_handle] = fields.as_slice() else {
         return Err(ApplicationError::InvalidSetupValue(
-            "use IDENTITY <current name>|<login identifier>|<display handle>|<real name or blank>",
+            "use IDENTITY <current handle>|<login identifier>|<handle>; combined real-name writes are retired; use NAMES <handle>|<first name>|<last name>",
         ));
     };
     if name.is_empty() || login_identifier.is_empty() || display_handle.is_empty() {
@@ -1062,12 +1099,7 @@ fn update_caller_identity(
             "caller name, login identifier, and display handle cannot be blank",
         ));
     }
-    service.set_caller_identity(
-        name,
-        login_identifier,
-        display_handle,
-        (!real_name.is_empty()).then(|| (*real_name).to_owned()),
-    )
+    service.set_caller_identity(name, login_identifier, display_handle, None)
 }
 
 fn read_console_line(input: &mut dyn BufRead) -> Result<Option<String>, ApplicationError> {

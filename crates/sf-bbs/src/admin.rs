@@ -669,6 +669,22 @@ fn edit_caller_defaults(
             ));
         }
     };
+    config.caller.profile.require_names = prompt_yes_no(
+        input,
+        output,
+        &op("sfconfig-field-require-names"),
+        config.caller.profile.require_names,
+    )?;
+    let posting = prompt(
+        input,
+        output,
+        &op("sfconfig-field-posting-identity"),
+        config.caller.posting_identity.key(),
+    )?;
+    config.caller.posting_identity =
+        sf_core::PostingIdentityPolicy::parse(&posting).map_err(|_| {
+            ApplicationError::InvalidSetupValue("use handle-allowed or real-name-required")
+        })?;
     config.caller.profile.address = prompt_profile_policy(
         input,
         output,
@@ -734,6 +750,14 @@ fn edit_conferences(
     admin: &BoardAdmin,
 ) -> Result<(), ApplicationError> {
     let conferences = admin.conferences()?;
+    let mut identity_db = RuntimeDatabase::open_read_only(admin.paths.database())?;
+    identity_db.bind_posting_identity_configuration(&admin.config);
+    let identity_status = identity_db
+        .network_page(&sf_core::ftn::NetworkQuery {
+            section: sf_core::ftn::NetworkSection::Areas,
+            offset: 0,
+        })?
+        .conferences;
     writeln!(output, "\n{}", op("operator-config-conferences-title"))
         .map_err(ApplicationError::SetupIo)?;
     for conference in &conferences {
@@ -749,6 +773,25 @@ fn edit_conferences(
                     .with("read", conference.read_security.get())
                     .with("post", conference.post_security.get())
                     .with("mode", format!("{:?}", conference.access_mode))
+                    .with(
+                        "identity",
+                        format!(
+                            "{} -> {} ({})",
+                            conference
+                                .posting_identity
+                                .map_or("inherit", sf_core::PostingIdentityPolicy::key),
+                            identity_status
+                                .iter()
+                                .find(|c| c.id == conference.id.get())
+                                .and_then(|c| c.effective_identity)
+                                .map_or("inactive", sf_core::PostingIdentityPolicy::key),
+                            identity_status
+                                .iter()
+                                .find(|c| c.id == conference.id.get())
+                                .and_then(|c| c.identity_source.as_deref())
+                                .unwrap_or("inactive")
+                        )
+                    )
             )
         )
         .map_err(ApplicationError::SetupIo)?;
@@ -843,7 +886,27 @@ fn prompt_conference(
         &op("operator-config-maximum-lines"),
         current.map_or(50, |value| value.maximum_lines),
     )?;
+    let identity = prompt(
+        input,
+        output,
+        &op("operator-conference-identity"),
+        current
+            .and_then(|c| c.posting_identity)
+            .map_or("inherit", sf_core::PostingIdentityPolicy::key),
+    )?;
+    let posting_identity = if identity == "inherit" {
+        None
+    } else {
+        Some(
+            sf_core::PostingIdentityPolicy::parse(&identity).map_err(|_| {
+                ApplicationError::InvalidSetupValue(
+                    "use inherit, handle-allowed or real-name-required",
+                )
+            })?,
+        )
+    };
     Ok(ConferenceDefinition {
+        posting_identity,
         number,
         name,
         description,
@@ -1021,6 +1084,7 @@ mod tests {
         let admin = BoardAdmin::load(&config_path).unwrap();
         let original = admin.conferences().unwrap().remove(0);
         let definition = ConferenceDefinition {
+            posting_identity: None,
             number: original.number,
             name: "General Discussion".to_owned(),
             description: "Edited without deleting messages".to_owned(),
@@ -1044,6 +1108,7 @@ mod tests {
 
         let created = admin
             .create_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 3,
                 name: "Verification Conference".to_owned(),
                 description: "Clean-board conference acceptance".to_owned(),

@@ -21,7 +21,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-pub const CONFIGURATION_MINOR: u16 = 5;
+pub const CONFIGURATION_MINOR: u16 = 12;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -541,7 +541,9 @@ impl OfflineConfiguration {
         &self,
         query: &sf_core::ftn::NetworkQuery,
     ) -> Result<sf_core::ftn::NetworkPage, ApplicationError> {
-        Ok(RuntimeDatabase::open_read_only(&self.authority.database)?.network_page(query)?)
+        let mut db = RuntimeDatabase::open_read_only(&self.authority.database)?;
+        db.bind_posting_identity_configuration(&self.snapshot()?.config);
+        Ok(db.network_page(query)?)
     }
     pub fn qwk_partners(&self) -> Result<Vec<sf_core::qwk_network::LinkStatus>, ApplicationError> {
         Ok(RuntimeDatabase::open_read_only(&self.authority.database)?.qwk_network_status()?)

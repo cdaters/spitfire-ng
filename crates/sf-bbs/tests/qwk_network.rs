@@ -127,6 +127,7 @@ fn manual_network_journey_through_real_daemon() {
     for (number, wire, area) in [(2, 2001, "general"), (3, 2006, "programming")] {
         let c = db
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number,
                 name: area.into(),
                 description: "Isolated synthetic N2 area".into(),
@@ -140,6 +141,7 @@ fn manual_network_journey_through_real_daemon() {
             })
             .unwrap();
         mappings.push(Mapping {
+            posting_identity: Default::default(),
             wire_conference: wire,
             area: area.into(),
             conference_id: c.id.get(),
@@ -148,25 +150,6 @@ fn manual_network_journey_through_real_daemon() {
             outbound: true,
             version: 1,
         });
-        db.post(
-            actor,
-            NewMessage {
-                conference_id: c.id,
-                recipient_caller_id: None,
-                recipient_name: "All Callers".into(),
-                subject: format!("SPITFIRE N2 {area}").into_bytes(),
-                body: [
-                    b"Independent QWK networking acceptance: caf\x82 \xb3 \xdb\r\n".to_vec(),
-                    format!("Synthetic run {:032x}\r\n", rand::random::<u128>()).into_bytes(),
-                ]
-                .concat(),
-                created_at: 1_788_627_600,
-                parent_message_id: None,
-                visibility: MessageVisibility::Public,
-                kind: MessageKind::Standard,
-            },
-        )
-        .unwrap();
     }
     drop(db);
     let mut daemon = start(&setup.config_path, &temp.path().join("daemon.log"));
@@ -176,6 +159,7 @@ fn manual_network_journey_through_real_daemon() {
         .unwrap();
     let mut client = rt.block_on(connect(&setup.config_path));
     let mut link = Link {
+        posting_identity: Default::default(),
         id: "peer".into(),
         network: "controlled".into(),
         local_id: "LOCAL".into(),
@@ -271,10 +255,35 @@ fn manual_network_journey_through_real_daemon() {
     ));
     // Bounded authenticated native service hook; the operator cannot supply an author.
     let mut native = RuntimeDatabase::open(paths.database()).unwrap();
+    native.bind_posting_identity_configuration(&RuntimeConfig::load(&setup.config_path).unwrap());
+    for mapping in &mappings {
+        native
+            .post(
+                actor,
+                NewMessage {
+                    identity_preview: None,
+                    conference_id: ConferenceId::new(mapping.conference_id).unwrap(),
+                    recipient_caller_id: None,
+                    recipient_name: "All Callers".into(),
+                    subject: format!("SPITFIRE N2 {}", mapping.area).into_bytes(),
+                    body: [
+                        b"Independent QWK networking acceptance: caf\x82 \xb3 \xdb\r\n".to_vec(),
+                        format!("Synthetic run {:032x}\r\n", rand::random::<u128>()).into_bytes(),
+                    ]
+                    .concat(),
+                    created_at: 1_788_627_600,
+                    parent_message_id: None,
+                    visibility: MessageVisibility::Public,
+                    kind: MessageKind::Standard,
+                },
+            )
+            .unwrap();
+    }
     let private_sent = native
         .send_qwk_mail(
             actor,
             &sf_core::qwk_network::NewNetworkMail {
+                identity_preview: None,
                 network: "controlled".into(),
                 destination: "PEER".into(),
                 recipient: "Peer Recipient".into(),
@@ -560,6 +569,7 @@ fn manual_network_journey_through_real_daemon() {
         .send_qwk_mail(
             actor,
             &sf_core::qwk_network::NewNetworkMail {
+                identity_preview: None,
                 network: "controlled".into(),
                 destination: "SECOND".into(),
                 recipient: "Other Recipient".into(),

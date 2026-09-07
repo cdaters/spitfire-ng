@@ -144,6 +144,7 @@ fn native_ftn_real_daemon_journey() {
     for n in [2, 3] {
         let c = db
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: n,
                 name: format!("Synthetic {n}"),
                 description: "Synthetic FTN area".into(),
@@ -157,6 +158,7 @@ fn native_ftn_real_daemon_journey() {
             })
             .unwrap();
         mappings.push(ftn::Mapping {
+            posting_identity: Default::default(),
             domain: "synthetic".parse().unwrap(),
             area: format!("TEST{}", n - 1),
             conference_id: c.id.get(),
@@ -167,21 +169,6 @@ fn native_ftn_real_daemon_journey() {
             links: vec!["peer".into()],
             version: 1,
         });
-        db.post(
-            actor,
-            NewMessage {
-                conference_id: c.id,
-                recipient_caller_id: None,
-                recipient_name: "All Callers".into(),
-                subject: b"Native daemon EchoMail".to_vec(),
-                body: b"Daemon EchoMail body.\r\n".to_vec(),
-                created_at: 1788609600,
-                parent_message_id: None,
-                visibility: MessageVisibility::Public,
-                kind: MessageKind::Standard,
-            },
-        )
-        .unwrap();
     }
     drop(db);
     let mut daemon = start(&config, &temp.path().join("daemon.log"));
@@ -204,12 +191,12 @@ fn native_ftn_real_daemon_journey() {
         matches!(saved, ConfigurationResult::Saved { .. }),
         "{saved:?}"
     );
-    for mapping in mappings {
+    for mapping in &mappings {
         assert!(matches!(
             rt.block_on(ftn_act(
                 &mut client,
                 FtnAction::Mapping {
-                    mapping,
+                    mapping: mapping.clone(),
                     expected: 0
                 }
             )),
@@ -226,6 +213,28 @@ fn native_ftn_real_daemon_journey() {
             },
         },
     ));
+    let mut native = RuntimeDatabase::open(paths.database()).unwrap();
+    native.bind_posting_identity_configuration(&RuntimeConfig::load(&config).unwrap());
+    for mapping in &mappings {
+        native
+            .post(
+                actor,
+                NewMessage {
+                    identity_preview: None,
+                    conference_id: sf_core::ConferenceId::new(mapping.conference_id).unwrap(),
+                    recipient_caller_id: None,
+                    recipient_name: "All Callers".into(),
+                    subject: b"Native daemon EchoMail".to_vec(),
+                    body: b"Daemon EchoMail body.\r\n".to_vec(),
+                    created_at: 1788609600,
+                    parent_message_id: None,
+                    visibility: MessageVisibility::Public,
+                    kind: MessageKind::Standard,
+                },
+            )
+            .unwrap();
+    }
+    drop(native);
     assert!(matches!(
         rt.block_on(ftn_act(&mut client, FtnAction::Scan)),
         FtnResult::Scanned { messages: 2 }
@@ -236,6 +245,7 @@ fn native_ftn_real_daemon_journey() {
             actor,
             &policy,
             &ftn::NewNetMail {
+                identity_preview: None,
                 aka: "point".into(),
                 destination: "10:100/2.9@synthetic".parse().unwrap(),
                 recipient: "Sysop".into(),

@@ -526,13 +526,25 @@ impl RuntimeDatabase {
             } else {
                 "a"
             };
+            let identity_policy = crate::identity::conference_policy(
+                &self.connection,
+                &self.identity_context,
+                c.id.get(),
+            )
+            .map_err(|e| NetworkError::Message(MessageError::Identity(e)))?
+            .0;
+            let identity_flag = if identity_policy == crate::PostingIdentityPolicy::HandleAllowed {
+                "H"
+            } else {
+                ""
+            };
             let posting = if c.allows_post(&caller, actor.sysop_security()) {
                 ""
             } else {
                 "R"
             };
             reader.extend_from_slice(
-                format!("AREA {number} {mode}wLH{privacy}{posting}\r\n").as_bytes(),
+                format!("AREA {number} {mode}wL{identity_flag}{privacy}{posting}\r\n").as_bytes(),
             );
         }
         files.insert("TOREADER.EXT".into(), reader);
@@ -792,6 +804,30 @@ impl RuntimeDatabase {
         intent: &SubmissionIntent,
         now: i64,
     ) -> Result<ImportSummary, NetworkError> {
+        self.import_offline_replies_reviewed(
+            actor,
+            board_id,
+            bytes,
+            store,
+            intent,
+            now,
+            &mut |_, _| Ok(false),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_offline_replies_reviewed(
+        &mut self,
+        actor: MessageActor,
+        board_id: &str,
+        bytes: &[u8],
+        store: &dyn NetworkArtifactStore,
+        intent: &SubmissionIntent,
+        now: i64,
+        review: &mut dyn FnMut(
+            &crate::identity::PostingIdentityPreview,
+            u16,
+        ) -> Result<bool, NetworkError>,
+    ) -> Result<ImportSummary, NetworkError> {
         let _permit = store.admit_import()?;
         self.conferences(actor)?;
         let artifact = qwk::inspect(bytes)?;
@@ -867,8 +903,14 @@ impl RuntimeDatabase {
                 summary.possible_duplicates += 1;
                 continue;
             }
-            match self.import_offline_member(actor, &member.message, &mappings, board_id, &receipt)
-            {
+            match self.import_offline_member(
+                actor,
+                &member.message,
+                &mappings,
+                board_id,
+                &receipt,
+                review,
+            ) {
                 Ok(true) => summary.imported += 1,
                 Ok(false) => summary.controls += 1,
                 Err(NetworkError::Message(MessageError::ImportAlreadyRecorded)) => {
@@ -929,6 +971,7 @@ impl RuntimeDatabase {
         tx.commit()?;
         Ok(())
     }
+    #[allow(clippy::too_many_arguments)]
     fn import_offline_member(
         &mut self,
         actor: MessageActor,
@@ -936,6 +979,10 @@ impl RuntimeDatabase {
         mappings: &[NetworkAreaMapping],
         board: &str,
         receipt: &ImportReceipt,
+        review: &mut dyn FnMut(
+            &crate::identity::PostingIdentityPreview,
+            u16,
+        ) -> Result<bool, NetworkError>,
     ) -> Result<bool, NetworkError> {
         let mapping = mappings
             .iter()
@@ -999,9 +1046,16 @@ impl RuntimeDatabase {
                 }
             }
         }
+        let preview = self.preview_posting_identity(actor, c.id)?;
+        if preview.policy() == crate::PostingIdentityPolicy::RealNameRequired
+            && !review(&preview, wire.conference)?
+        {
+            return Err(MessageError::Identity(crate::IdentityError::PreviewRequired).into());
+        }
         // Original wall time remains in provenance. Native creation/sort time is the
         // local receipt instant; a reader timestamp without offset never claims UTC.
         let message = NewMessage {
+            identity_preview: Some(preview),
             conference_id: c.id,
             recipient_caller_id: target.as_ref().map(|r| r.caller_id),
             recipient_name: target.map_or_else(|| "All Callers".into(), |r| r.display_name),
@@ -1137,6 +1191,7 @@ mod tests {
         }
         let c = db
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 1,
                 name: "General".into(),
                 description: "Synthetic".into(),
@@ -1163,6 +1218,7 @@ mod tests {
         f.db.post(
             f.bob,
             NewMessage {
+                identity_preview: None,
                 conference_id: f.c,
                 recipient_caller_id: private.then_some(f.alice.caller_id()),
                 recipient_name: if private { "ALICE" } else { "All Callers" }.into(),
@@ -1284,6 +1340,79 @@ mod tests {
             )
             .is_ok());
     }
+    #[test]
+    fn identity_offline_real_name_requires_review_and_replay_does_not_republish() {
+        let mut f = fixture();
+        let mut config = crate::RuntimeConfig::synthetic_fixture();
+        config.caller.posting_identity = crate::PostingIdentityPolicy::RealNameRequired;
+        f.db.bind_posting_identity_configuration(&config);
+        let mut caller = f.db.caller_by_id(f.alice.caller_id()).unwrap().unwrap();
+        caller.profile.identity =
+            crate::PrivateIdentity::new(Some("Craig".into()), Some("Daters".into())).unwrap();
+        f.db.update_caller_profile_versioned(
+            caller.id,
+            caller.state_version,
+            caller.profile,
+            &config.caller.profile,
+            crate::identity::IdentityEditActor::Caller,
+            NOW,
+        )
+        .unwrap();
+        let rejected =
+            f.db.import_offline_replies(
+                f.alice,
+                "TEST",
+                &rep(&[reply(b"No review")]),
+                &f.store,
+                &SubmissionIntent::Retry,
+                NOW,
+            )
+            .unwrap();
+        assert_eq!((rejected.imported, rejected.rejected), (0, 1));
+        let bytes = rep(&[reply(b"Reviewed")]);
+        let mut reviews = 0;
+        let result =
+            f.db.import_offline_replies_reviewed(
+                f.alice,
+                "TEST",
+                &bytes,
+                &f.store,
+                &SubmissionIntent::Retry,
+                NOW,
+                &mut |preview, conference| {
+                    reviews += 1;
+                    assert_eq!(conference, 1);
+                    assert_eq!(preview.posted_as(), "Craig Daters");
+                    Ok(true)
+                },
+            )
+            .unwrap();
+        assert_eq!((result.imported, reviews), (1, 1));
+        let posted = f.db.message(f.alice, f.c, 1).unwrap();
+        assert_eq!(posted.author_name, "Craig Daters");
+        assert_eq!(posted.author_caller_id, Some(caller.id));
+        let again =
+            f.db.import_offline_replies_reviewed(
+                f.alice,
+                "TEST",
+                &bytes,
+                &f.store,
+                &SubmissionIntent::Retry,
+                NOW,
+                &mut |_, _| panic!("receipt replay cannot publish again"),
+            )
+            .unwrap();
+        assert_eq!(again.duplicates, 1);
+        let actor = f.alice;
+        let offline = packet(&mut f, actor);
+        let archive = qwk::inspect(&offline.bytes).unwrap();
+        let reader = String::from_utf8(archive.members["TOREADER.EXT"].clone()).unwrap();
+        assert!(!reader
+            .lines()
+            .any(|line| line.starts_with("AREA ") && line.contains('H')));
+        assert!(!String::from_utf8_lossy(&archive.members["CONTROL.DAT"]).contains("Craig Daters"));
+    }
+
     #[test]
     fn replies_native_author_permissions_and_durable_replay() {
         let mut f = fixture();

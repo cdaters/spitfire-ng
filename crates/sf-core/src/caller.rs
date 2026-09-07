@@ -233,7 +233,7 @@ impl CallerPreferences {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Caller {
     pub id: CallerId,
     /// Stable, normalized authentication label used by secure transports.
@@ -242,7 +242,7 @@ pub struct Caller {
     /// name in storage and APIs to preserve attribution compatibility.
     pub display_name: String,
     pub normalized_name: String,
-    /// Privacy-sensitive identity retained separately from public display.
+    /// Preserved, unclassified schema-27 value; never an active posting identity.
     pub real_name: Option<String>,
     pub security_level: SecurityLevel,
     pub base_security_level: SecurityLevel,
@@ -269,8 +269,19 @@ pub struct Caller {
     pub is_new_caller: bool,
 }
 
+impl std::fmt::Debug for Caller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Caller")
+            .field("id", &self.id)
+            .field("handle", &self.display_name)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CallerProfile {
+    pub identity: crate::PrivateIdentity,
     pub address: PostalAddress,
     pub phone: Option<String>,
     pub email: Option<String>,
@@ -282,6 +293,9 @@ impl CallerProfile {
         mut self,
         policy: &CallerProfilePolicy,
     ) -> Result<Self, CallerError> {
+        if policy.require_names && self.identity.real_name().is_none() {
+            return Err(CallerError::RequiredProfileField("first and last name"));
+        }
         self.address = self.address.normalized()?;
         self.phone = normalize_optional(self.phone, 40, "phone")?;
         self.email = normalize_optional(self.email, 254, "email")?;
@@ -1129,12 +1143,14 @@ mod tests {
     #[test]
     fn profile_policy_validates_private_contact_data_without_us_assumptions() {
         let policy = CallerProfilePolicy {
+            require_names: Default::default(),
             address: ProfileFieldPolicy::Required,
             phone: ProfileFieldPolicy::Optional,
             email: ProfileFieldPolicy::Required,
             birthday: ProfileFieldPolicy::Required,
         };
         let profile = CallerProfile {
+            identity: Default::default(),
             address: PostalAddress {
                 line_1: Some("  001 Harbour Road  ".to_owned()),
                 city: Some("Auckland".to_owned()),

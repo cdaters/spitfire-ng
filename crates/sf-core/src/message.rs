@@ -94,6 +94,7 @@ impl ConferenceAccessMode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Conference {
+    pub posting_identity: Option<crate::PostingIdentityPolicy>,
     pub id: ConferenceId,
     pub number: u16,
     pub name: String,
@@ -110,6 +111,7 @@ pub struct Conference {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConferenceDefinition {
+    pub posting_identity: Option<crate::PostingIdentityPolicy>,
     pub number: u16,
     pub name: String,
     pub description: String,
@@ -352,6 +354,7 @@ impl From<&Message> for MessageSummary {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct NewMessage {
+    pub identity_preview: Option<crate::identity::PostingIdentityPreview>,
     pub conference_id: ConferenceId,
     pub recipient_caller_id: Option<CallerId>,
     pub recipient_name: String,
@@ -493,6 +496,11 @@ pub trait MessageBackend {
         conferences: &[ConferenceId],
         query: &MessageDiscoveryQuery,
     ) -> Result<MessageDiscoveryResult, MessageError>;
+    fn posting_identity_preview(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+    ) -> Result<crate::identity::PostingIdentityPreview, MessageError>;
     fn post(&mut self, actor: MessageActor, message: NewMessage) -> Result<Message, MessageError>;
     fn post_with_cc(
         &mut self,
@@ -607,8 +615,8 @@ impl RuntimeDatabase {
                 INSERT INTO message_conferences (
                     conference_number, name, description, access_mode,
                     read_security, post_security, public_only, caller_deletion_enabled,
-                    maximum_lines
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                    maximum_lines, posting_identity
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                 ON CONFLICT(conference_number) DO NOTHING
                 "#,
                 params![
@@ -620,7 +628,10 @@ impl RuntimeDatabase {
                     definition.post_security.get(),
                     definition.public_only,
                     definition.caller_deletion_enabled,
-                    definition.maximum_lines
+                    definition.maximum_lines,
+                    definition
+                        .posting_identity
+                        .map(crate::PostingIdentityPolicy::key),
                 ],
             )
             .map_err(MessageError::Sqlite)?;
@@ -681,6 +692,7 @@ impl RuntimeDatabase {
                     name = ?2, description = ?3, access_mode = ?4,
                     read_security = ?5, post_security = ?6,
                     public_only = ?7, caller_deletion_enabled = ?8, maximum_lines = ?9,
+                    posting_identity=?10, identity_policy_version=identity_policy_version+1,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE conference_number = ?1
                 "#,
@@ -694,6 +706,9 @@ impl RuntimeDatabase {
                     definition.public_only,
                     definition.caller_deletion_enabled,
                     definition.maximum_lines,
+                    definition
+                        .posting_identity
+                        .map(crate::PostingIdentityPolicy::key),
                 ],
             )
             .map_err(MessageError::Sqlite)?;
@@ -754,7 +769,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       caller_deletion_enabled, maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active, posting_identity
                 FROM message_conferences ORDER BY conference_number
                 "#,
             )
@@ -843,7 +858,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       caller_deletion_enabled, maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active, posting_identity
                 FROM message_conferences WHERE conference_number = ?1 AND active = 1
                 "#,
                 params![conference_number],
@@ -867,7 +882,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       caller_deletion_enabled, maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active, posting_identity
                 FROM message_conferences WHERE conference_number = ?1
                 "#,
                 params![conference_number],
@@ -891,7 +906,7 @@ impl RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       caller_deletion_enabled, maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active, posting_identity
                 FROM message_conferences WHERE conference_id = ?1 AND active = 1
                 "#,
                 params![conference_id.get()],
@@ -937,7 +952,7 @@ impl RuntimeDatabase {
         Ok(caller)
     }
 
-    fn authorized_conference(
+    pub(crate) fn authorized_conference(
         &self,
         actor: MessageActor,
         conference_id: ConferenceId,
@@ -982,6 +997,14 @@ impl RuntimeDatabase {
 }
 
 impl MessageBackend for RuntimeDatabase {
+    fn posting_identity_preview(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+    ) -> Result<crate::identity::PostingIdentityPreview, MessageError> {
+        self.preview_posting_identity(actor, conference)
+    }
+
     fn recipient(&self, caller_name: &[u8]) -> Result<MessageRecipient, MessageError> {
         let caller = self
             .caller_by_name(caller_name)
@@ -1003,7 +1026,7 @@ impl MessageBackend for RuntimeDatabase {
                 r#"
                 SELECT conference_id, conference_number, name, description,
                        access_mode, read_security, post_security, public_only,
-                       caller_deletion_enabled, maximum_lines, active
+                       caller_deletion_enabled, maximum_lines, active, posting_identity
                 FROM message_conferences WHERE active = 1 ORDER BY conference_number
                 "#,
             )
@@ -1545,11 +1568,12 @@ impl RuntimeDatabase {
             if !unique.insert(recipient.caller_id) {
                 return Err(MessageError::DuplicateRecipient);
             }
-            validate_recipient_connection(
+            validate_post_recipient(
                 &self.connection,
                 recipient,
                 conference.id,
                 conference.number,
+                message.parent_message_id,
             )?;
         }
         if let Some(parent) = message.parent_message_id {
@@ -1574,7 +1598,22 @@ impl RuntimeDatabase {
                 return Err(MessageError::ImportAlreadyRecorded);
             }
         }
-        let (actor_name, actor_security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        let identity = crate::identity::resolve_conference(
+            &transaction,
+            &self.identity_context,
+            actor.caller_id,
+            conference.id.get(),
+        )?;
+        if let Some(preview) = &message.identity_preview {
+            if preview != &identity {
+                return Err(crate::IdentityError::PreviewChanged.into());
+            }
+        } else if identity.policy() == crate::PostingIdentityPolicy::RealNameRequired {
+            return Err(crate::IdentityError::PreviewRequired.into());
+        }
+        let identity_proof = identity.proof()?;
+        let (_, actor_security) = active_actor_snapshot(&transaction, actor.caller_id)?;
+        let actor_name = identity.posted_as();
         ensure_post_authority(
             &transaction,
             message.conference_id,
@@ -1620,11 +1659,12 @@ impl RuntimeDatabase {
             }
         }
         for recipient in &recipients {
-            validate_recipient_connection(
+            validate_post_recipient(
                 &transaction,
                 recipient,
                 conference.id,
                 conference.number,
+                message.parent_message_id,
             )?;
         }
 
@@ -1683,9 +1723,9 @@ impl RuntimeDatabase {
                         message_id, fanout_id, conference_id, message_number,
                         author_caller_id, author_name, created_at, placed_at,
                         parent_message_id, audience_kind, visibility, lifecycle_state,
-                        state_version, delivery_role, delivery_ordinal, primary_delivery_id
+                        state_version, delivery_role, delivery_ordinal, primary_delivery_id, identity_mode, identity_proof
                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8, ?9, ?10,
-                              'active', 1, ?11, ?12, ?13)
+                              'active', 1, ?11, ?12, ?13, ?14, ?15)
                     "#,
                     params![
                         id.get(),
@@ -1701,6 +1741,8 @@ impl RuntimeDatabase {
                         role.as_database_value(),
                         i64::try_from(ordinal).map_err(|_| MessageError::MessageNumberOverflow)?,
                         primary_id.map(MessageId::get),
+                        identity.evidence.mode.key(),
+                        identity_proof,
                     ],
                 )
                 .map_err(MessageError::Sqlite)?;
@@ -2070,6 +2112,19 @@ impl RuntimeDatabase {
         if destination.public_only && source.visibility == MessageVisibility::Private {
             return Err(MessageError::PrivateMessagesNotAllowed(destination.number));
         }
+        let (required, _, _, _) = crate::identity::conference_policy(
+            &transaction,
+            &self.identity_context,
+            destination.id.get(),
+        )?;
+        crate::identity::validate_stored(&transaction, source.id.get(), required, None)?;
+        let (identity_mode, identity_proof): (String, Option<String>) = transaction
+            .query_row(
+                "SELECT identity_mode,identity_proof FROM messages WHERE message_id=?1",
+                [source.id.get()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(MessageError::Sqlite)?;
         let payload_id: i64 = transaction
             .query_row(
                 "SELECT f.payload_id FROM messages AS m JOIN message_fanouts AS f ON f.fanout_id = m.fanout_id WHERE m.message_id = ?1",
@@ -2098,9 +2153,9 @@ impl RuntimeDatabase {
                     message_id, fanout_id, conference_id, message_number,
                     author_caller_id, author_name, created_at, placed_at,
                     parent_message_id, audience_kind, visibility, lifecycle_state,
-                    state_version, delivery_role, delivery_ordinal, primary_delivery_id, origin_kind
+                    state_version, delivery_role, delivery_ordinal, primary_delivery_id, origin_kind, identity_mode, identity_proof
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-                          'active', 1, ?12, 0, ?13, ?14)
+                          'active', 1, ?12, 0, ?13, ?14, ?15, ?16)
                 "#,
                 params![
                     id.get(),
@@ -2120,7 +2175,9 @@ impl RuntimeDatabase {
                         "external-network"
                     } else {
                         "native"
-                    }
+                    },
+                    identity_mode,
+                    identity_proof,
                 ],
             )
             .map_err(MessageError::Sqlite)?;
@@ -2206,6 +2263,12 @@ fn conference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conference> 
     let read_security = row.get::<_, u16>(5)?;
     let post_security = row.get::<_, u16>(6)?;
     Ok(Conference {
+        posting_identity: row
+            .get::<_, Option<String>>(11)?
+            .as_deref()
+            .map(crate::PostingIdentityPolicy::parse)
+            .transpose()
+            .map_err(|_| rusqlite::Error::InvalidQuery)?,
         id: ConferenceId::new(id).map_err(to_sql_conversion_error)?,
         number: row.get(1)?,
         name: row.get(2)?,
@@ -2558,6 +2621,33 @@ fn ensure_post_authority(
     }
 }
 
+fn validate_post_recipient(
+    conn: &rusqlite::Connection,
+    recipient: &MessageRecipient,
+    conference: ConferenceId,
+    number: u16,
+    parent: Option<MessageId>,
+) -> Result<(), MessageError> {
+    // A native reply may address the immutable author of its visible parent.
+    // Account authority comes from the stored ID, never matching a name.
+    if let Some(parent) = parent {
+        let matches:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE message_id=?1 AND author_caller_id=?2 AND author_name=?3)",params![parent.get(),recipient.caller_id.get(),recipient.display_name],|r|r.get(0)).map_err(MessageError::Sqlite)?;
+        if matches {
+            let name:String=conn.query_row("SELECT display_name FROM callers WHERE caller_id=?1 AND account_state='active'",[recipient.caller_id.get()],|r|r.get(0)).map_err(MessageError::Sqlite)?;
+            return validate_recipient_connection(
+                conn,
+                &MessageRecipient {
+                    caller_id: recipient.caller_id,
+                    display_name: name,
+                },
+                conference,
+                number,
+            );
+        }
+    }
+    validate_recipient_connection(conn, recipient, conference, number)
+}
+
 fn validate_recipient_connection(
     connection: &rusqlite::Connection,
     recipient: &MessageRecipient,
@@ -2687,6 +2777,8 @@ fn to_sql_conversion_error(
 
 #[derive(Debug, Error)]
 pub enum MessageError {
+    #[error(transparent)]
+    Identity(#[from] crate::IdentityError),
     #[error("offline reply already has a durable receipt")]
     ImportAlreadyRecorded,
     #[error("conference identifier must be positive, got {0}")]
@@ -2793,7 +2885,7 @@ pub(crate) fn check_offline_conference(
     let (_, security) = active_actor_snapshot(connection, actor.caller_id)?;
     let policy = conference_policy_snapshot(connection, id)?;
     ensure_read_authority(connection, &policy, security, actor.sysop_security)?;
-    let mut c=connection.query_row("SELECT conference_id,conference_number,name,description,access_mode,read_security,post_security,public_only,caller_deletion_enabled,maximum_lines,active FROM message_conferences WHERE conference_id=?1",[id.get()],conference_from_row).map_err(MessageError::Sqlite)?;
+    let mut c=connection.query_row("SELECT conference_id,conference_number,name,description,access_mode,read_security,post_security,public_only,caller_deletion_enabled,maximum_lines,active,posting_identity FROM message_conferences WHERE conference_id=?1",[id.get()],conference_from_row).map_err(MessageError::Sqlite)?;
     let mut s=connection.prepare("SELECT security_level FROM conference_privileged_security WHERE conference_id=?1 ORDER BY security_level").map_err(MessageError::Sqlite)?;
     let levels = s
         .query_map([id.get()], |r| r.get::<_, u16>(0))
@@ -2891,6 +2983,7 @@ mod tests {
             .unwrap();
         database
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 1,
                 name: "General".to_owned(),
                 description: "General messages".to_owned(),
@@ -2915,6 +3008,7 @@ mod tests {
 
     fn public_message(conference_id: ConferenceId) -> NewMessage {
         NewMessage {
+            identity_preview: None,
             conference_id,
             recipient_caller_id: None,
             recipient_name: "All Callers".to_owned(),
@@ -3023,6 +3117,7 @@ mod tests {
         let (temp, mut database, alice, bob, _stranger) = database();
         database
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 2,
                 name: "Queued".to_owned(),
                 description: "Queued messages".to_owned(),
@@ -3127,6 +3222,7 @@ mod tests {
         let (_temp, mut database, alice, _bob, _stranger) = database();
         database
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 2,
                 name: "Restricted".to_owned(),
                 description: "Restricted messages".to_owned(),
@@ -3202,6 +3298,7 @@ mod tests {
         let (_temp, mut database, alice, bob, _stranger) = database();
         database
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 2,
                 name: "Second".to_owned(),
                 description: "Second messages".to_owned(),
@@ -3656,6 +3753,7 @@ mod tests {
         let first = database.conference(alice, 1).unwrap();
         database
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: 2,
                 name: "Destination".to_owned(),
                 description: "Copy destination".to_owned(),

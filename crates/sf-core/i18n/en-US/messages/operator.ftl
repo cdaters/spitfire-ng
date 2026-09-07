@@ -297,7 +297,7 @@ operator-config-service-selection = Service number to edit (blank to return)
 operator-config-enabled = Enabled (yes/no)
 operator-config-bind = Bind address and port
 operator-config-conferences-title = Message Conferences (changes are immediate):
-operator-config-conference-row =   { $number } { $name } active={ $active } read={ $read } post={ $post } mode={ $mode }
+operator-config-conference-row =   { $number } { $name } active={ $active } read={ $read } post={ $post } mode={ $mode } | Identity: { $identity }
 operator-config-conference-number = Conference number
 operator-config-conference-name = Conference name
 operator-config-description = Description
@@ -1072,3 +1072,13 @@ netfiles-payload-accepted = Payload accepted
 netfiles-freq = Explicit FTN file request
 
 netfiles-transfer-name = Transfer filename
+
+# M061.1 identity configuration contains policy, never caller private names.
+sfconfig-field-posting-identity = Default posting identity (handle-allowed / real-name-required)
+sfconfig-field-require-names = Require first and last name during registration
+operator-conference-identity = Posting identity (inherit / handle-allowed / real-name-required)
+operator-first-name = First Name
+operator-last-name = Last Name
+netconfig-field-posting-identity = Posting identity requirement
+
+netconfig-effective-identity = Effective posting identity (saved policy)

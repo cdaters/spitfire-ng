@@ -221,3 +221,11 @@ protocol/routing facts; no message body or packet password is exposed. Operator
 policy/mapping/alias/directory actions use existing audit/command receipts.
 The minimum sfmonitor projection shows queued work, quarantine and directory
 counts. See [FTN core](ftn-core.md); the full Networks cockpit remains N5.
+
+## Schema 28 identity integration
+
+The [identity policy contract](identity-policy.md) defines private components,
+configuration precedence, pre-submission preview, immutable posted author and
+exact queue sender custody. Real-name requirements are configured policy, not an
+inferred property of every FTN/QWK network. Imports retain external authors without
+local name matching. Operational projections contain no private components.

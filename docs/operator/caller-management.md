@@ -9,7 +9,7 @@ original 0.1.0 Development Preview and does not contain those additions.
 On a public board, a terminal connection asks whether the person is a new
 caller. Registration collects:
 
-1. a unique case-insensitive caller name of at most 30 printable ASCII bytes;
+1. a unique case-insensitive Handle of at most 30 printable ASCII bytes;
 2. a password within the configured length range, entered twice;
 3. only the profile groups enabled by Sysop policy; and
 4. the configured new-caller security/time policy.
@@ -18,10 +18,12 @@ Optional profile fields may be blank. Required fields must validate.
 `/Q` at a profile prompt cancels the incomplete registration. Passwords are
 stored only as salted Argon2id PHC hashes.
 
-Schema 13 stores that initial caller name as the public display handle and
-compatibility real name, and derives a unique SSH-safe login identifier once.
-This preserves the familiar prompt count and gives every caller a durable
-secure-transport identity without making real name public.
+The Handle is the name callers normally see. Registration derives the existing
+SSH-safe login identifier once. It never copies the handle into a real-name field.
+First Name and Last Name are separate private profile fields. By default they
+may be completed later with Main `R`. Enable **Require first and last name** in
+board configuration to collect both during registration. Collection alone does
+not make them public, and the software does not verify legal identity.
 
 On a private board, new-caller registration is intentionally absent. Only an
 existing active caller whose verified account meets the private security
@@ -55,7 +57,8 @@ Examples:
 
 ```text
 CALLERS
-IDENTITY Example Caller|example-login|Example Handle|Example Real Name
+IDENTITY Example Caller|example-login|Example Handle
+NAMES Example Handle|Example|Person
 DISABLE Example Caller
 ENABLE Example Caller
 DELETE Example Caller
@@ -82,14 +85,18 @@ Subscription dates are inclusive board-local `YYYY-MM-DD`; `PERMANENT` clears
 the date and resolves an inapplicable expiry restriction transactionally.
 Concurrent stale updates fail instead of overwriting the newer caller state.
 
-`IDENTITY` separates the current caller into login identifier, public display
-handle, and optional private real name. Use a blank final field to clear real
-name. Login values are normalized lowercase and accept only ASCII letters,
-digits, `-`, `_`, and `.` with an alphanumeric first character. Login and
-handle collisions are rejected; stable caller/message ownership and existing
-attribution snapshots are preserved. SSH uses the login identifier,
-traditional BBS login/presentation uses the handle, and real name remains
-private unless an explicit future network policy requires it.
+`IDENTITY` changes only login identifier and Handle. Its old fourth full-name
+field is rejected. Use `NAMES caller|first|last` for an atomic private name edit;
+blank components clear them only when board collection policy permits it.
+`PROFILE` is an explicit authorized private view. `PROFILE-SET firstname` and
+`lastname` are also available for component edits.
+
+Login values retain lowercase normalization and ASCII letters, digits, `-`, `_`,
+and `.`, with an alphanumeric first character. SSH uses this identifier;
+traditional BBS login uses the Handle. Name edits never alter login. Handle/name
+changes affect future posts only; old messages and queued senders remain exactly
+as posted. Existing legacy full-name values remain preserved and unclassified,
+not a source of first/last components. See the [identity contract](../technical/identity-policy.md).
 
 The configured named Sysop cannot be locked out, tombstoned, made purge-
 eligible, lowered below the configured Sysop threshold, or denied by an

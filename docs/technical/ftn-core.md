@@ -296,3 +296,11 @@ The [FTN hub contract](ftn-hub.md) defines downstream/point configuration, separ
 ## N7 file-network extension
 
 FileEcho, TIC, native-file hatching and exact approved FREQ reuse native file authority and BinkP transport. sfconfig offers typed file policy/mapping/subscription/grant/hatch forms; sfmonitor Networks → 9 Files includes staging, history and Enter delivery detail. [File-network workflows and authority](ftn-files.md). No raw path or credential appears in projections.
+
+## Schema 28 identity integration
+
+The [identity policy contract](identity-policy.md) defines private components,
+configuration precedence, pre-submission preview, immutable posted author and
+exact queue sender custody. Real-name requirements are configured policy, not an
+inferred property of every FTN/QWK network. Imports retain external authors without
+local name matching. Operational projections contain no private components.

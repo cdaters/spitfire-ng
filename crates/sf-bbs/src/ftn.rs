@@ -13,7 +13,7 @@
 use crate::{ApplicationError, BoardRuntime};
 use serde::{Deserialize, Serialize};
 use sf_core::{ftn, LocalOperatorCapability as Capability, RuntimeDatabase};
-pub const FTN_MINOR: u16 = 7;
+pub const FTN_MINOR: u16 = 12;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Action {
@@ -189,7 +189,9 @@ pub(crate) fn dispatch(
     action: &Action,
     now: i64,
 ) -> std::result::Result<Result, ApplicationError> {
-    let policy = runtime.configuration.current()?.ftn;
+    let config = runtime.configuration.current()?;
+    db.bind_posting_identity_configuration(&config);
+    let policy = config.ftn;
     Ok(match action {
         Action::Files { request } => {
             let storage = sf_core::FileStorage::open_existing(&runtime.paths)?;

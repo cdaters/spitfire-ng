@@ -241,6 +241,7 @@ fn caller_qwk_journey_through_independent_daemon() {
     let c1 = db.conference(actors[0], 1).unwrap();
     let c2 = db
         .ensure_conference(&ConferenceDefinition {
+            posting_identity: None,
             number: 2,
             name: "Second".into(),
             description: "Synthetic conference".into(),
@@ -257,6 +258,7 @@ fn caller_qwk_journey_through_independent_daemon() {
         db.replace_queue(*actor, &[1, 2]).unwrap();
     }
     let mut base = NewMessage {
+        identity_preview: None,
         conference_id: c1.id,
         recipient_caller_id: None,
         recipient_name: "All Callers".into(),

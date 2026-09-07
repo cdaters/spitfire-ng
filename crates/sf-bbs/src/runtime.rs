@@ -943,7 +943,14 @@ impl BoardRuntime {
             .caller_by_name(name)?
             .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
         database
-            .update_caller_profile(caller.id, profile, &self.caller_config.profile)
+            .update_caller_profile_versioned(
+                caller.id,
+                caller.state_version,
+                profile,
+                &self.caller_config.profile,
+                sf_core::identity::IdentityEditActor::LocalOperator,
+                current_unix_seconds()?,
+            )
             .map_err(Into::into)
     }
 
@@ -954,17 +961,19 @@ impl BoardRuntime {
         display_handle: &[u8],
         real_name: Option<String>,
     ) -> Result<Caller, ApplicationError> {
+        if real_name.is_some() {
+            return Err(sf_core::DatabaseError::LegacyIdentityWriteRetired.into());
+        }
         let mut database = RuntimeDatabase::open(self.paths.database())?;
         let caller = database
             .caller_by_name(name)?
             .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
         database
-            .update_caller_identity(
+            .update_caller_login_handle(
                 caller.id,
                 caller.state_version,
                 login_identifier,
                 display_handle,
-                real_name,
                 &self.caller_config,
                 current_unix_seconds()?,
             )
@@ -1132,6 +1141,7 @@ impl BoardRuntime {
         // Open the per-connection database before claiming a node so an
         // operational database failure cannot strand that node as busy.
         let mut database = RuntimeDatabase::open(self.paths.database())?;
+        database.bind_posting_identity_configuration(&session_config);
 
         let connected_at = terminal_info
             .connected_at
@@ -1948,15 +1958,12 @@ mod tests {
                 b"Legacy SSH Public Name",
                 b"pixelwizard",
                 b"PixelWizard",
-                Some("SSH Acceptance Real Name".to_owned()),
+                None,
             )
             .unwrap();
         assert_eq!(identity.login_identifier, "pixelwizard");
         assert_eq!(identity.display_name, "PixelWizard");
-        assert_eq!(
-            identity.real_name.as_deref(),
-            Some("SSH Acceptance Real Name")
-        );
+        assert_eq!(identity.real_name.as_deref(), None);
         drop(runtime);
 
         let validated = RuntimeConfig::load(&config_path)
@@ -3070,6 +3077,7 @@ mod tests {
             parallelism: 1,
         };
         plan.config.caller.profile = sf_core::CallerProfilePolicy {
+            require_names: false,
             address: sf_core::ProfileFieldPolicy::Required,
             phone: sf_core::ProfileFieldPolicy::Optional,
             email: sf_core::ProfileFieldPolicy::Required,
@@ -3093,6 +3101,8 @@ mod tests {
             b"profile@example.test".to_vec(),
             b"".to_vec(),
             b"R".to_vec(),
+            b"".to_vec(),
+            b"".to_vec(),
             b"".to_vec(),
             b"-".to_vec(),
             b"Tempe".to_vec(),
@@ -3164,6 +3174,8 @@ mod tests {
             b"".to_vec(),
             b"".to_vec(),
             b"".to_vec(),
+            b"".to_vec(),
+            b"".to_vec(),
             b"/Q".to_vec(),
             b"G".to_vec(),
         ]);
@@ -3183,6 +3195,7 @@ mod tests {
             parallelism: 1,
         };
         plan.config.caller.profile = sf_core::CallerProfilePolicy {
+            require_names: false,
             address: sf_core::ProfileFieldPolicy::Optional,
             phone: sf_core::ProfileFieldPolicy::Optional,
             email: sf_core::ProfileFieldPolicy::Optional,
@@ -3231,6 +3244,7 @@ mod tests {
 
         let (birthday_required, caller) = run_registration_policy_case(
             sf_core::CallerProfilePolicy {
+                require_names: false,
                 address: disabled,
                 phone: disabled,
                 email: optional,
@@ -3258,6 +3272,7 @@ mod tests {
 
         let (email_required, caller) = run_registration_policy_case(
             sf_core::CallerProfilePolicy {
+                require_names: false,
                 address: disabled,
                 phone: disabled,
                 email: required,
@@ -3289,6 +3304,7 @@ mod tests {
 
         let (birthday_disabled, caller) = run_registration_policy_case(
             sf_core::CallerProfilePolicy {
+                require_names: false,
                 address: disabled,
                 phone: disabled,
                 email: optional,
@@ -3305,6 +3321,7 @@ mod tests {
 
         let (multiple_required, caller) = run_registration_policy_case(
             sf_core::CallerProfilePolicy {
+                require_names: false,
                 address: required,
                 phone: required,
                 email: required,
@@ -3372,6 +3389,7 @@ mod tests {
             parallelism: 1,
         };
         plan.config.caller.profile = sf_core::CallerProfilePolicy {
+            require_names: false,
             address: sf_core::ProfileFieldPolicy::Disabled,
             phone: sf_core::ProfileFieldPolicy::Disabled,
             email: sf_core::ProfileFieldPolicy::Optional,
@@ -5461,8 +5479,15 @@ mod tests {
                 b"Legacy Public Name",
                 b"private-login-id",
                 b"PublicHandle",
-                Some("Sensitive Real Name".to_owned()),
+                None,
             )
+            .unwrap();
+        let mut profile = identity.profile.clone();
+        profile.identity =
+            sf_core::PrivateIdentity::new(Some("Sensitive".into()), Some("Real Name".into()))
+                .unwrap();
+        runtime
+            .set_caller_profile(b"PublicHandle", profile)
             .unwrap();
         drop(runtime);
         let config = RuntimeConfig::load(&config_path)
@@ -6324,6 +6349,7 @@ mod tests {
             let mut database = RuntimeDatabase::open(paths.database()).unwrap();
             database
                 .ensure_conference(&sf_core::ConferenceDefinition {
+                    posting_identity: None,
                     number: 2,
                     name: "SPITFIRE".to_owned(),
                     description: "Message closure acceptance".to_owned(),
@@ -6353,6 +6379,7 @@ mod tests {
                 .post(
                     sysop_actor,
                     sf_core::NewMessage {
+                        identity_preview: None,
                         conference_id: conference.id,
                         recipient_caller_id: Some(caller.id),
                         recipient_name: caller.display_name,

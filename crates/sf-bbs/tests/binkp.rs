@@ -18,6 +18,10 @@ use std::{
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
 };
+// Each journey already runs several concurrent daemons. Serialize whole journeys
+// so host scheduling contention does not turn protocol deadlines into test flakes.
+static DAEMON_JOURNEY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct Daemon(Child);
 impl Drop for Daemon {
     fn drop(&mut self) {
@@ -147,6 +151,7 @@ fn board_in_domain(root: &Path, node: u16, listen: u16, remote_port: u16, domain
         enabled: true,
         akas,
         links: vec![Link {
+            posting_identity: Default::default(),
             id: "peer".into(),
             remote: remote.parse().unwrap(),
             aka: primary.into(),
@@ -266,6 +271,7 @@ fn board_in_domain(root: &Path, node: u16, listen: u16, remote_port: u16, domain
     for n in [2, 3] {
         let c = db
             .ensure_conference(&ConferenceDefinition {
+                posting_identity: None,
                 number: n,
                 name: format!("N4 Echo {n}"),
                 description: "Synthetic echo".into(),
@@ -282,6 +288,7 @@ fn board_in_domain(root: &Path, node: u16, listen: u16, remote_port: u16, domain
             &policy,
             "operator",
             &Mapping {
+                posting_identity: Default::default(),
                 domain: domain.parse().unwrap(),
                 area: format!("TEST{}", n - 1),
                 conference_id: c.id.get(),
@@ -311,11 +318,13 @@ fn board_in_domain(root: &Path, node: u16, listen: u16, remote_port: u16, domain
 }
 fn author(board: &Board, destination: &str) {
     let mut db = RuntimeDatabase::open(board.paths.database()).unwrap();
+    db.bind_posting_identity_configuration(&RuntimeConfig::load(&board.config).unwrap());
     let now = chrono::Utc::now().timestamp();
     db.send_ftn_mail(
         board.actor,
         &board.policy,
         &NewNetMail {
+            identity_preview: None,
             aka: "point".into(),
             destination: destination.parse().unwrap(),
             recipient: "Recipient".into(),
@@ -329,6 +338,7 @@ fn author(board: &Board, destination: &str) {
     db.post(
         board.actor,
         NewMessage {
+            identity_preview: None,
             conference_id: board.conference,
             recipient_caller_id: None,
             recipient_name: "All Callers".into(),
@@ -439,6 +449,9 @@ fn delivered(board: &Board) {
 }
 #[test]
 fn native_mailer_daemons_exchange_and_restore() {
+    let _journey = DAEMON_JOURNEY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let temp = tempfile::tempdir().unwrap();
     let one = port();
     let two = port();
@@ -707,6 +720,9 @@ fn independent_peer_outbound_and_retained_listener() {
 #[test]
 #[cfg(unix)]
 fn network_cockpit_cas_and_verified_restore_collision_journey() {
+    let _journey = DAEMON_JOURNEY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let temp = tempfile::tempdir().unwrap();
     let one = port();
     let two = port();
@@ -753,6 +769,7 @@ fn network_cockpit_cas_and_verified_restore_collision_journey() {
     ));
     // Add a QWK/DOVE-compatible partner through the same typed form authority.
     let qwk = sf_core::qwk_network::Link {
+        posting_identity: Default::default(),
         id: "qwk-peer".into(),
         network: "isolated".into(),
         local_id: "LOCAL".into(),
@@ -766,6 +783,7 @@ fn network_cockpit_cas_and_verified_restore_collision_journey() {
         version: 1,
     };
     let mapping = sf_core::qwk_network::Mapping {
+        posting_identity: Default::default(),
         wire_conference: 2001,
         area: "general".into(),
         conference_id: a.conference.get(),

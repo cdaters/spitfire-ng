@@ -40,6 +40,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(crate) const MIGRATION: &str = include_str!("schema.sql");
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    Identity(#[from] crate::IdentityError),
     #[error("invalid FTN configuration")]
     Policy,
     #[error("FTN configuration or work version changed")]
@@ -175,6 +177,8 @@ fn quarantine(
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Mapping {
+    #[serde(default)]
+    pub posting_identity: crate::PostingIdentityPolicy,
     pub domain: Domain,
     pub area: String,
     pub conference_id: i64,
@@ -184,6 +188,47 @@ pub struct Mapping {
     pub origin: String,
     pub links: Vec<String>,
     pub version: i64,
+}
+
+pub(crate) fn identity_destinations(
+    conn: &rusqlite::Connection,
+    policy: &Policy,
+    conference: i64,
+) -> Result<Vec<crate::identity::IdentityDestination>, Error> {
+    if !policy.enabled {
+        return Ok(Vec::new());
+    }
+    let rows = conn.prepare("SELECT domain,area FROM ftn_area_mappings WHERE conference_id=?1 AND send=1 ORDER BY domain,area")?
+        .query_map([conference], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?
+        .collect::<Result<Vec<_>,_>>()?;
+    let digest = policy.digest()?;
+    let mut result = Vec::new();
+    for (domain, area) in rows {
+        let m = mail::mapping(conn, &domain.parse()?, &area)?;
+        if !policy.aka(&m.aka)?.enabled {
+            continue;
+        }
+        for lid in hub::echo_links(conn, &m)? {
+            let link = policy.link(&lid)?;
+            if !link.enabled || !link.outbound {
+                continue;
+            }
+            result.push(crate::identity::IdentityDestination {
+                scope: format!("ftn:{domain}:{area}:{lid}"),
+                requirement: m.posting_identity.join(link.posting_identity),
+                revision: format!("{}:{digest}", m.version),
+                maximum_bytes: 35,
+                authority: if link.posting_identity
+                    == crate::PostingIdentityPolicy::RealNameRequired
+                {
+                    3
+                } else {
+                    2
+                },
+            });
+        }
+    }
+    Ok(result)
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MailboxAlias {
@@ -207,6 +252,7 @@ impl RuntimeDatabase {
         expected: i64,
         now: i64,
     ) -> Result<(), Error> {
+        self.identity_context.ftn = policy.clone();
         if expected.checked_add(1) != Some(m.version)
             || expected < 0
             || !wire::valid_area(&m.area)
@@ -261,7 +307,7 @@ impl RuntimeDatabase {
         if prior != expected {
             return Err(Error::Conflict);
         }
-        tx.execute("INSERT INTO ftn_area_mappings VALUES(?1,?2,?3,?4,?5,?6,?7,?8) ON CONFLICT(domain,area) DO UPDATE SET conference_id=excluded.conference_id,aka=excluded.aka,receive=excluded.receive,send=excluded.send,origin=excluded.origin,version=excluded.version",params![m.domain.as_str(),m.area,m.conference_id,m.aka,m.receive,m.send,m.origin,m.version])?;
+        tx.execute("INSERT INTO ftn_area_mappings(domain,area,conference_id,aka,receive,send,origin,version,posting_identity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(domain,area) DO UPDATE SET conference_id=excluded.conference_id,aka=excluded.aka,receive=excluded.receive,send=excluded.send,origin=excluded.origin,version=excluded.version,posting_identity=excluded.posting_identity",params![m.domain.as_str(),m.area,m.conference_id,m.aka,m.receive,m.send,m.origin,m.version,m.posting_identity.key()])?;
         tx.execute(
             "DELETE FROM ftn_area_links WHERE domain=?1 AND area=?2",
             params![m.domain.as_str(), m.area],

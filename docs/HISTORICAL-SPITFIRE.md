@@ -90,3 +90,15 @@ downloads, visit
 Those materials retain their original copyrights and licenses. The SPITFIRE
 NG `MIT OR Apache-2.0` license applies only to original NG code and
 project-authored distributable resources unless a component says otherwise.
+
+## Caller identity evidence
+
+**CONFIRMED FOR V3.4:** Buffalo Creek's retained `SPITFIRE.REC` explicitly labels
+itself V3.4 (1993) and declares one `Users.UserName: String[30]`, a matching caller
+name pointer, separate system Sysop/display names, and stored message From/To
+strings. It does not declare separate caller alias/real-name or first/last fields.
+The 3.7 manual's first/last prompts describe a combined 30-character caller name.
+V3.4 declarations must not be assumed to establish V3.7 binary packing or offsets.
+
+
+See the [modern identity contract](technical/identity-policy.md).

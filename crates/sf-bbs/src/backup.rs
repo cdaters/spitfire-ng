@@ -1326,6 +1326,7 @@ mod tests {
             SecurityLevel::new(validated.caller.sysop_security).unwrap(),
         );
         let mut mutation_message = NewMessage {
+            identity_preview: None,
             conference_id: conference.id,
             recipient_caller_id: Some(recipient.id),
             recipient_name: recipient.display_name.clone(),
@@ -1389,6 +1390,22 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
+        if connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=28)",
+                [],
+                |r| r.get::<_, bool>(0),
+            )
+            .unwrap()
+        {
+            connection.execute_batch(r#"DROP TRIGGER caller_legacy_name_immutable; DROP TRIGGER caller_name_bounds_insert; DROP TRIGGER caller_name_bounds_update;
+DROP TRIGGER message_author_immutable; DROP TABLE network_sender_snapshots; DROP TABLE caller_name_events;
+ALTER TABLE callers DROP COLUMN first_name; ALTER TABLE callers DROP COLUMN last_name;
+ALTER TABLE message_conferences DROP COLUMN posting_identity; ALTER TABLE message_conferences DROP COLUMN identity_policy_version;
+ALTER TABLE ftn_area_mappings DROP COLUMN posting_identity; ALTER TABLE qwk_link_mappings DROP COLUMN posting_identity; ALTER TABLE qwk_links DROP COLUMN posting_identity;
+ALTER TABLE messages DROP COLUMN identity_mode; ALTER TABLE messages DROP COLUMN identity_proof;
+DELETE FROM schema_migrations WHERE version=28;"#).unwrap();
+        }
         // This fixture deliberately removes later authorities before constructing an old schema.
         let later: Vec<(String, String)> = connection
             .prepare("SELECT type,name FROM sqlite_schema WHERE (name LIKE 'binkp_%' OR name LIKE 'ftn_%' OR name='qwk_queue_work' OR name='network_queue_work') AND type IN ('table','trigger') ORDER BY type DESC")
@@ -2023,13 +2040,25 @@ CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,l
             .unwrap()
             .unwrap();
         let access_caller = access_database
-            .update_caller_identity(
+            .update_caller_login_handle(
                 access_caller.id,
                 access_caller.state_version,
                 b"backup-auth",
                 b"Backup Caller",
-                Some("Backup Real Name".to_owned()),
                 &validated.caller,
+                1_777_000_099,
+            )
+            .unwrap();
+        let mut profile = access_caller.profile.clone();
+        profile.identity =
+            sf_core::PrivateIdentity::new(Some("Backup".into()), Some("Real Name".into())).unwrap();
+        let access_caller = access_database
+            .update_caller_profile_versioned(
+                access_caller.id,
+                access_caller.state_version,
+                profile,
+                &validated.caller.profile,
+                sf_core::identity::IdentityEditActor::LocalOperator,
                 1_777_000_099,
             )
             .unwrap();
@@ -2217,7 +2246,7 @@ CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,l
             );
         }
         assert_eq!(
-            restored_caller.real_name.as_deref(),
+            restored_caller.profile.identity.real_name().as_deref(),
             Some("Backup Real Name")
         );
         assert_eq!(

@@ -50,18 +50,20 @@ safe ASCII form and replacing unsupported runs with a hyphen. Deterministic
 caller-ID suffixes resolve collisions within the 32-byte bound; callers are
 never merged. Existing message attribution snapshots are not rewritten.
 
-New callers retain the compatible registration flow: the supplied caller name
-becomes the initial handle and compatibility real name, and a unique login
-identifier is derived and stored. The local operator can make the values
-independent with:
+Schema 28 retains the compatible login flow while collecting First/Last Name
+separately. New callers receive a Handle and a unique stored login identifier;
+legacy full-name data is not populated. The local operator uses:
 
 ```text
-IDENTITY Current Handle|new-login|Public Handle|Private Real Name
+IDENTITY Current Handle|new-login|Public Handle
+NAMES Public Handle|First|Last
 ```
 
-Leave the last field empty to clear the real name. `CALLERS` shows stable ID,
-login identifier, and handle, but not real name. Traditional caller-name login
-continues to accept the handle so upgraded boards do not strand callers.
+`NAMES` edits private components; blank values clear optional components. The old
+fourth IDENTITY field is rejected. `CALLERS` shows stable ID, login identifier and
+Handle, without private name components. Traditional login continues to accept
+the Handle. See the [identity contract](technical/identity-policy.md) for schema-28
+migration, preserved legacy values and immutable message authors.
 
 ## Authentication and lifecycle
 

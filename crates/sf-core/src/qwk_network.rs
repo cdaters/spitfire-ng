@@ -125,6 +125,8 @@ CREATE TRIGGER network_external_author BEFORE INSERT ON messages WHEN NEW.origin
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    Identity(#[from] crate::IdentityError),
     #[error("invalid network partner or identity")]
     InvalidPartner,
     #[error("invalid or inaccessible network mapping")]
@@ -181,6 +183,8 @@ impl PartnerRole {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Link {
+    #[serde(default)]
+    pub posting_identity: crate::PostingIdentityPolicy,
     pub id: String,
     pub network: String,
     pub local_id: String,
@@ -196,6 +200,8 @@ pub struct Link {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mapping {
+    #[serde(default)]
+    pub posting_identity: crate::PostingIdentityPolicy,
     pub wire_conference: u16,
     pub area: String,
     pub conference_id: i64,
@@ -286,10 +292,10 @@ fn mapping_policy(conn: &rusqlite::Connection, mapping: &Mapping) -> Result<Stri
     }
 }
 fn load_link(conn: &rusqlite::Connection, link: &str) -> Result<Link, Error> {
-    conn.query_row("SELECT link_id,network,local_id,remote_id,name,profile,role,enabled,inbound,outbound,version FROM qwk_links WHERE link_id=?1",[link],|r|Ok(Link{id:r.get(0)?,network:r.get(1)?,local_id:r.get(2)?,remote_id:r.get(3)?,name:r.get(4)?,profile:if r.get::<_,String>(5)?=="dove-headers"{Profile::DoveHeaders}else{Profile::QwkHeaders},role:if r.get::<_,String>(6)?=="hub"{PartnerRole::Hub}else{PartnerRole::Node},enabled:r.get(7)?,inbound:r.get(8)?,outbound:r.get(9)?,version:r.get(10)?})).optional()?.ok_or(Error::InvalidPartner)
+    conn.query_row("SELECT link_id,network,local_id,remote_id,name,profile,role,enabled,inbound,outbound,version,posting_identity FROM qwk_links WHERE link_id=?1",[link],|r|Ok(Link{id:r.get(0)?,network:r.get(1)?,local_id:r.get(2)?,remote_id:r.get(3)?,name:r.get(4)?,profile:if r.get::<_,String>(5)?=="dove-headers"{Profile::DoveHeaders}else{Profile::QwkHeaders},role:if r.get::<_,String>(6)?=="hub"{PartnerRole::Hub}else{PartnerRole::Node},enabled:r.get(7)?,inbound:r.get(8)?,outbound:r.get(9)?,version:r.get(10)?,posting_identity:if r.get::<_,String>(11)?=="real-name-required"{crate::PostingIdentityPolicy::RealNameRequired}else{crate::PostingIdentityPolicy::HandleAllowed}})).optional()?.ok_or(Error::InvalidPartner)
 }
 fn load_mappings(conn: &rusqlite::Connection, link: &str) -> Result<Vec<Mapping>, Error> {
-    Ok(conn.prepare("SELECT wire_conference,area,conference_id,enabled,inbound,outbound,version FROM qwk_link_mappings WHERE link_id=?1 ORDER BY wire_conference LIMIT 785")?.query_map([link],|r|Ok(Mapping{wire_conference:r.get(0)?,area:r.get(1)?,conference_id:r.get(2)?,enabled:r.get(3)?,inbound:r.get(4)?,outbound:r.get(5)?,version:r.get(6)?}))?.collect::<Result<_,_>>()?)
+    Ok(conn.prepare("SELECT wire_conference,area,conference_id,enabled,inbound,outbound,version,posting_identity FROM qwk_link_mappings WHERE link_id=?1 ORDER BY wire_conference LIMIT 785")?.query_map([link],|r|Ok(Mapping{wire_conference:r.get(0)?,area:r.get(1)?,conference_id:r.get(2)?,enabled:r.get(3)?,inbound:r.get(4)?,outbound:r.get(5)?,version:r.get(6)?,posting_identity: if r.get::<_,String>(7)? == "real-name-required" {crate::PostingIdentityPolicy::RealNameRequired} else {crate::PostingIdentityPolicy::HandleAllowed}}))?.collect::<Result<_,_>>()?)
 }
 
 impl RuntimeDatabase {
@@ -382,7 +388,7 @@ impl RuntimeDatabase {
                 return Err(Error::InvalidMapping);
             }
         }
-        tx.execute("INSERT INTO qwk_links VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11) ON CONFLICT(link_id) DO UPDATE SET name=excluded.name,enabled=excluded.enabled,inbound=excluded.inbound,outbound=excluded.outbound,version=excluded.version",params![link.id,link.network,link.local_id,link.remote_id,link.name,link.profile.key(),link.role.key(),link.enabled,link.inbound,link.outbound,link.version])?;
+        tx.execute("INSERT INTO qwk_links(link_id,network,local_id,remote_id,name,profile,role,enabled,inbound,outbound,version,posting_identity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT(link_id) DO UPDATE SET name=excluded.name,enabled=excluded.enabled,inbound=excluded.inbound,outbound=excluded.outbound,version=excluded.version,posting_identity=excluded.posting_identity",params![link.id,link.network,link.local_id,link.remote_id,link.name,link.profile.key(),link.role.key(),link.enabled,link.inbound,link.outbound,link.version,link.posting_identity.key()])?;
         tx.execute(
             "INSERT OR IGNORE INTO qwk_link_state(link_id) VALUES(?1)",
             [&link.id],
@@ -390,7 +396,7 @@ impl RuntimeDatabase {
         tx.execute("DELETE FROM qwk_link_mappings WHERE link_id=?1", [&link.id])?;
         for m in mappings {
             tx.execute(
-                "INSERT INTO qwk_link_mappings VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                "INSERT INTO qwk_link_mappings(link_id,wire_conference,area,conference_id,enabled,inbound,outbound,version,posting_identity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     link.id,
                     m.wire_conference,
@@ -399,7 +405,8 @@ impl RuntimeDatabase {
                     m.enabled,
                     m.inbound,
                     m.outbound,
-                    m.version
+                    m.version,
+                    m.posting_identity.key(),
                 ],
             )?;
         }
@@ -650,7 +657,7 @@ impl RuntimeDatabase {
                         let payload = tx.last_insert_rowid();
                         tx.execute("INSERT INTO message_fanouts(payload_id,created_by_caller_id,created_at) VALUES(?1,NULL,?2)",params![payload,now])?;
                         let fanout = tx.last_insert_rowid();
-                        tx.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind) VALUES(?1,?2,?3,?4,NULL,?5,?6,?8,?7,'all-callers','public','active','single',0,'external-network')",params![message_id.get(),fanout,mapping.conference_id,i64::try_from(number).map_err(|_|Error::Capacity)?,author,member.metadata.written.as_deref().and_then(wire::written_timestamp).unwrap_or(now),parent,now])?;
+                        tx.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,identity_mode) VALUES(?1,?2,?3,?4,NULL,?5,?6,?8,?7,'all-callers','public','active','single',0,'external-network','external-asserted')",params![message_id.get(),fanout,mapping.conference_id,i64::try_from(number).map_err(|_|Error::Capacity)?,author,member.metadata.written.as_deref().and_then(wire::written_timestamp).unwrap_or(now),parent,now])?;
                         let p = id();
                         tx.execute("INSERT INTO network_publications VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![p,message_id.get(),link.network,mapping.area,member.metadata.id,origin,link_id,member.metadata.reply,member.metadata.written,m.wall_time.format("%Y-%m-%dT%H:%M:%S").to_string(),m.to,wire::content_digest(member),now])?;
                         for (n, system) in path.iter().enumerate() {
@@ -727,10 +734,11 @@ fn export_member(
     queue: &str,
     link: &Link,
     mappings: &[Mapping],
+    identity_context: &crate::identity::IdentityContext,
 ) -> Result<ExportMember, Error> {
     let (publication,conference,area,version,policy,mid):(String,u16,String,i64,String,i64)=conn.query_row("SELECT p.publication_id,d.wire_conference,p.area,d.message_version,d.policy_digest,p.message_id FROM network_routing_decisions d JOIN network_publications p USING(publication_id) WHERE d.decision_id=?1 AND d.link_id=?2",params![queue,link.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?;
     if conference == 0 {
-        return private::export(conn, queue, link);
+        return private::export(conn, queue, link, identity_context);
     }
     let mapping = mappings
         .iter()
@@ -741,12 +749,31 @@ fn export_member(
         return Err(Error::Held);
     }
     let (number,author,subject,body,encoding,created,parent):(u32,String,Vec<u8>,Vec<u8>,String,i64,Option<i64>)=conn.query_row("SELECT m.message_number,m.author_name,p.subject,p.body,p.encoding,m.created_at,m.parent_message_id FROM messages m JOIN message_fanouts f USING(fanout_id) JOIN message_payloads p USING(payload_id) WHERE m.message_id=?1 AND m.conference_id=?2 AND m.visibility='public' AND m.lifecycle_state='active' AND m.state_version=?3",params![mid,mapping.conference_id,version],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?))).optional()?.ok_or(Error::Held)?;
+    crate::identity::validate_destination(
+        conn,
+        identity_context,
+        mid,
+        mapping.posting_identity.join(link.posting_identity),
+        &format!("qwk:{}:{}", link.id, conference),
+    )
+    .map_err(|_| Error::Held)?;
     let utf8 = encoding == "utf8";
     let from = if utf8 {
         author.into_bytes()
     } else {
         crate::encode_text(&author, crate::TerminalTextEncoding::Cp437).ok_or(Error::Held)?
     };
+    crate::identity::freeze_sender(
+        conn,
+        queue,
+        mid,
+        &from,
+        if utf8 {
+            "qwk-headers-utf8"
+        } else {
+            "qwk-headers-cp437"
+        },
+    )?;
     let (wire_id, reply, written, source_wall, recipient): PublicationFields = conn.query_row(
         "SELECT wire_id,reply_id,source_written,source_wall_time,recipient FROM network_publications WHERE publication_id=?1",
         [&publication],
@@ -823,7 +850,14 @@ impl RuntimeDatabase {
             let queues=self.connection.prepare("SELECT q.queue_id,q.state FROM network_outbound_queue q JOIN network_routing_decisions d ON d.decision_id=q.queue_id WHERE d.link_id=?1 AND q.artifact_id=?2")?.query_map(params![link_id,artifact],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
             if queues.iter().any(|(queue, state)| {
                 !matches!(state.as_str(), "ready" | "retry")
-                    || export_member(&self.connection, queue, &link, &mappings).is_err()
+                    || export_member(
+                        &self.connection,
+                        queue,
+                        &link,
+                        &mappings,
+                        &self.identity_context,
+                    )
+                    .is_err()
             }) {
                 // One immutable packet contains every member: holding only the
                 // stale member must never make the old bytes available again.
@@ -890,6 +924,7 @@ impl RuntimeDatabase {
                 let queue = id();
                 tx.execute("INSERT OR IGNORE INTO network_routing_decisions VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![queue,publication,link_id,link.remote_id,expected,mapping.version,mapping.wire_conference,version,policy,now])?;
                 tx.execute("INSERT OR IGNORE INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) SELECT decision_id,'pending',?2,?3 FROM network_routing_decisions WHERE decision_id=?1",params![queue,now,bytes])?;
+                crate::identity::freeze_qwk_sender(&tx, &queue, mid)?;
                 total_bytes += bytes;
                 link_bytes += bytes;
                 room -= 1;
@@ -903,7 +938,13 @@ impl RuntimeDatabase {
         let mut exports = Vec::new();
         let mut packet_bytes = 0;
         for queue in pending {
-            match export_member(&self.connection, &queue, &link, &mappings) {
+            match export_member(
+                &self.connection,
+                &queue,
+                &link,
+                &mappings,
+                &self.identity_context,
+            ) {
                 Ok(m) => {
                     let reserved = m.wire.message.body.len() + 16896;
                     if packet_bytes + reserved > 8 * 1024 * 1024 {
@@ -978,7 +1019,13 @@ impl RuntimeDatabase {
             return Err(Error::Conflict);
         }
         for m in &exports {
-            let rechecked = export_member(&tx, &m.queue, &link, &load_mappings(&tx, link_id)?)?;
+            let rechecked = export_member(
+                &tx,
+                &m.queue,
+                &link,
+                &load_mappings(&tx, link_id)?,
+                &self.identity_context,
+            )?;
             if rechecked.publication != m.publication
                 || rechecked.message_version != m.message_version
                 || rechecked.policy != m.policy
@@ -1031,7 +1078,7 @@ impl RuntimeDatabase {
             if !matches!(state.as_str(), "ready" | "retry") || next.is_some_and(|n| n > now) {
                 return Err(Error::Held);
             }
-            export_member(&tx, &queue, &link, &mappings)?;
+            export_member(&tx, &queue, &link, &mappings, &self.identity_context)?;
             let attempts = attempts + 1;
             let outcome = if accepted {
                 "accepted"
@@ -1103,7 +1150,13 @@ impl RuntimeDatabase {
         if !link.enabled || !link.outbound {
             return Err(Error::Disabled);
         }
-        export_member(&tx, queue, &link, &load_mappings(&tx, &link_id)?)?;
+        export_member(
+            &tx,
+            queue,
+            &link,
+            &load_mappings(&tx, &link_id)?,
+            &self.identity_context,
+        )?;
         tx.execute("UPDATE network_outbound_queue SET state=CASE WHEN artifact_id IS NULL THEN 'pending' ELSE 'ready' END,next_attempt=NULL,reason='manual-retry',version=version+1 WHERE queue_id=?1",[queue])?;
         audit(&tx, principal, "network.retry", queue, now)?;
         event(&tx, "retry-released", now)?;
@@ -1184,6 +1237,7 @@ mod tests {
         for number in [1, 2] {
             let c = db
                 .ensure_conference(&ConferenceDefinition {
+                    posting_identity: None,
                     number,
                     name: format!("Area {number}"),
                     description: "Synthetic test".into(),
@@ -1197,6 +1251,7 @@ mod tests {
                 })
                 .unwrap();
             mappings.push(Mapping {
+                posting_identity: Default::default(),
                 wire_conference: 2000 + number,
                 area: format!("area-{number}"),
                 conference_id: c.id.get(),
@@ -1207,6 +1262,7 @@ mod tests {
             });
         }
         let link = Link {
+            posting_identity: Default::default(),
             id: "first".into(),
             network: "testnet".into(),
             local_id: "LOCAL".into(),
@@ -1234,6 +1290,7 @@ mod tests {
         f.db.post(
             f.actor,
             NewMessage {
+                identity_preview: None,
                 conference_id: crate::ConferenceId::new(f.mappings[area].conference_id).unwrap(),
                 recipient_caller_id: None,
                 recipient_name: "All Callers".into(),
@@ -1295,6 +1352,100 @@ mod tests {
         ]))
         .unwrap()
     }
+    #[test]
+    fn identity_network_real_name_policy_freezes_sender_and_holds_new_destinations() {
+        let mut f = fixture();
+        f.link.posting_identity = crate::PostingIdentityPolicy::RealNameRequired;
+        f.link.version = 2;
+        for mapping in &mut f.mappings {
+            mapping.version = 2;
+        }
+        f.db.configure_qwk_link("synthetic-operator", &f.link, &f.mappings, 1, NOW)
+            .unwrap();
+        let c = crate::ConferenceId::new(f.mappings[0].conference_id).unwrap();
+        assert!(f.db.preview_posting_identity(f.actor, c).is_err());
+        let mut caller = f.db.caller_by_id(f.actor.caller_id()).unwrap().unwrap();
+        caller.profile.identity =
+            crate::PrivateIdentity::new(Some("Craig".into()), Some("Daters".into())).unwrap();
+        let config = crate::CallerConfig::default();
+        f.db.update_caller_profile_versioned(
+            caller.id,
+            caller.state_version,
+            caller.profile,
+            &config.profile,
+            crate::identity::IdentityEditActor::Caller,
+            NOW,
+        )
+        .unwrap();
+        let preview = f.db.preview_posting_identity(f.actor, c).unwrap();
+        assert_eq!(preview.posted_as(), "Craig Daters");
+        let posted =
+            f.db.post(
+                f.actor,
+                NewMessage {
+                    identity_preview: Some(preview),
+                    conference_id: c,
+                    recipient_caller_id: None,
+                    recipient_name: "All Callers".into(),
+                    subject: b"Identity".to_vec(),
+                    body: b"Synthetic body\r\n".to_vec(),
+                    created_at: NOW,
+                    parent_message_id: None,
+                    visibility: MessageVisibility::Public,
+                    kind: MessageKind::Standard,
+                },
+            )
+            .unwrap();
+        let artifact =
+            f.db.build_qwk_network(&f.store, "first", 2, NOW)
+                .unwrap()
+                .unwrap();
+        let mut caller = f.db.caller_by_id(caller.id).unwrap().unwrap();
+        caller.profile.identity =
+            crate::PrivateIdentity::new(Some("Changed".into()), Some("Name".into())).unwrap();
+        f.db.update_caller_profile_versioned(
+            caller.id,
+            caller.state_version,
+            caller.profile,
+            &config.profile,
+            crate::identity::IdentityEditActor::Caller,
+            NOW + 1,
+        )
+        .unwrap();
+        assert_eq!(
+            f.db.build_qwk_network(&f.store, "first", 2, NOW + 1)
+                .unwrap(),
+            Some(artifact.clone())
+        );
+        let bytes = f.store.0.lock().unwrap()[&artifact].clone();
+        assert_eq!(
+            wire::decode(&qwk::inspect(&bytes).unwrap(), Some("FIRST")).unwrap()[0]
+                .message
+                .from,
+            b"Craig Daters"
+        );
+        assert_eq!(
+            f.db.message(f.actor, c, posted.number).unwrap().author_name,
+            "Craig Daters"
+        );
+        let projection = serde_json::to_string(&f.db.qwk_network_status().unwrap()).unwrap();
+        assert!(!projection.contains("Craig"));
+        assert!(!projection.contains("Changed"));
+        let mut additional = f.link.clone();
+        additional.id = "second".into();
+        additional.remote_id = "SECOND".into();
+        additional.version = 1;
+        for mapping in &mut f.mappings {
+            mapping.version = 1;
+        }
+        f.db.configure_qwk_link("synthetic-operator", &additional, &f.mappings, 0, NOW + 2)
+            .unwrap();
+        assert!(f
+            .db
+            .build_qwk_network(&f.store, "second", 1, NOW + 2)
+            .is_err());
+    }
+
     #[test]
     fn native_export_mapping_queue_retry_restart_and_idempotence() {
         let mut f = fixture();
@@ -1843,6 +1994,7 @@ mod tests {
     }
     fn mail() -> NewNetworkMail {
         NewNetworkMail {
+            identity_preview: None,
             network: "testnet".into(),
             destination: "FIRST".into(),
             recipient: "Remote Author".into(),
@@ -1875,6 +2027,71 @@ mod tests {
         ]))
         .unwrap()
     }
+    #[test]
+    fn identity_private_qwk_requires_enrollment_and_keeps_queued_sender() {
+        let mut f = fixture();
+        f.link.posting_identity = crate::PostingIdentityPolicy::RealNameRequired;
+        f.link.version = 2;
+        for m in &mut f.mappings {
+            m.version = 2;
+        }
+        f.db.configure_qwk_link("operator", &f.link, &f.mappings, 1, NOW)
+            .unwrap();
+        let mut policy = mail_policy(&f, &f.link);
+        f.db.configure_qwk_mail("operator", &policy, 0, NOW)
+            .unwrap();
+        assert!(f.db.preview_qwk_mail_identity(f.actor, &mail()).is_err());
+        let mut caller = f.db.caller_by_id(f.actor.caller_id()).unwrap().unwrap();
+        caller.profile.identity =
+            crate::PrivateIdentity::new(Some("Craig".into()), Some("Daters".into())).unwrap();
+        let config = crate::CallerConfig::default();
+        f.db.update_caller_profile_versioned(
+            caller.id,
+            caller.state_version,
+            caller.profile,
+            &config.profile,
+            crate::identity::IdentityEditActor::Caller,
+            NOW,
+        )
+        .unwrap();
+        assert!(f.db.preview_qwk_mail_identity(f.actor, &mail()).is_err());
+        policy.aliases[0].alias = "Craig Daters".into();
+        policy.version = 2;
+        f.db.configure_qwk_mail("operator", &policy, 1, NOW)
+            .unwrap();
+        let mut message = mail();
+        assert!(f.db.send_qwk_mail(f.actor, &message, NOW).is_err());
+        message.identity_preview = Some(f.db.preview_qwk_mail_identity(f.actor, &message).unwrap());
+        let id = f.db.send_qwk_mail(f.actor, &message, NOW).unwrap();
+        let mut caller = f.db.caller_by_id(caller.id).unwrap().unwrap();
+        caller.profile.identity =
+            crate::PrivateIdentity::new(Some("Craig".into()), Some("D.".into())).unwrap();
+        f.db.update_caller_profile_versioned(
+            caller.id,
+            caller.state_version,
+            caller.profile,
+            &config.profile,
+            crate::identity::IdentityEditActor::Caller,
+            NOW + 1,
+        )
+        .unwrap();
+        let artifact =
+            f.db.build_qwk_network(&f.store, "first", 2, NOW + 1)
+                .unwrap()
+                .unwrap();
+        let bytes = f.store.0.lock().unwrap()[&artifact].clone();
+        assert_eq!(
+            wire::decode(&qwk::inspect(&bytes).unwrap(), Some("FIRST")).unwrap()[0]
+                .message
+                .from,
+            b"Craig Daters"
+        );
+        assert_eq!(
+            f.db.read_qwk_mail(f.actor, id).unwrap().author,
+            "Craig Daters"
+        );
+    }
+
     #[test]
     fn private_native_queue_recipient_access_reply_and_repacked_identity() {
         let mut f = fixture();

@@ -8,6 +8,11 @@ behaviors were established from Buffalo Creek's SPITFIRE 3.7 manual, how
 authorization and persistence work, and which historical features remain
 incomplete.
 
+Schema 28 implements [posting identity policy](technical/identity-policy.md)
+over the existing author snapshots. Composition resolves the strongest configured
+requirement, displays it, and freezes author text/mode/evidence transactionally.
+FTN/QWK use immutable sender authority; profile changes never rewrite history.
+
 The broader multi-backend direction remains in [Message System
 Design](07-message-system.md). Exact historical file findings remain in
 [Legacy Data and File Formats](06-legacy-file-formats.md) and the

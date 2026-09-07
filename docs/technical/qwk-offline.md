@@ -12,9 +12,11 @@ particularly its N1, encoding, duplicate, transfer and recovery contracts.
 [Native messages](../sfng-message-system.md) retain MessageId, ConferenceId,
 immutable CP437 subject/body bytes, per-delivery identity/version, authorization,
 number allocation, mutation and read receipts. Existing payloads are not silently
-converted to Unicode. Public caller handles are Unicode and undergo explicit
-CP437 encoding at the adapter boundary. Login names and private real names do not
-enter packets.
+converted to Unicode. Public caller handles are stored as strings but currently
+validated as printable ASCII; they undergo explicit CP437 encoding at the adapter
+boundary. Login identifiers and private profile components do not enter packet
+account metadata. Message From is the immutable posted identity, including a
+real name intentionally published under the effective posting policy.
 
 `sf-net::qwk` owns pure, bounded ZIP inspection, record decoding/encoding, CONTROL
 serialization, CP437 framing, QWKE long headers and Microsoft binary index
@@ -220,3 +222,11 @@ small-member compression floor for real peer advisory files; larger members stil
 use the 100:1 ratio cap. N2-only network header markers and metadata do not enable
 those profiles for caller reply upload. Native UTF-8 imported content is exported
 to the offline CP437 profile only when exactly representable.
+
+## Schema 28 identity integration
+
+The [identity policy contract](identity-policy.md) defines private components,
+configuration precedence, pre-submission preview, immutable posted author and
+exact queue sender custody. Real-name requirements are configured policy, not an
+inferred property of every FTN/QWK network. Imports retain external authors without
+local name matching. Operational projections contain no private components.

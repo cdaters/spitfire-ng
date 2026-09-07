@@ -213,6 +213,7 @@ pub(crate) fn seed_fixture_messages(
     let read = sf_core::SecurityLevel::new(5).map_err(sf_core::DatabaseError::from)?;
     let post = sf_core::SecurityLevel::new(5).map_err(sf_core::DatabaseError::from)?;
     database.ensure_conference(&ConferenceDefinition {
+        posting_identity: None,
         number: 1,
         name: "General".to_owned(),
         description: "General fixture-board discussion".to_owned(),
@@ -225,6 +226,7 @@ pub(crate) fn seed_fixture_messages(
         privileged_security_levels: Vec::new(),
     })?;
     database.ensure_conference(&ConferenceDefinition {
+        posting_identity: None,
         number: 2,
         name: "SPITFIRE".to_owned(),
         description: "SPITFIRE NG development discussion".to_owned(),

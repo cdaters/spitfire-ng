@@ -16,6 +16,12 @@ access; M042.5 adds schema-13 durable login/handle/real-name separation and
 SSH authentication. It does not import `SFUSERS.DAT` or
 implement the Category-B `SFNEWU.QUE` questionnaire engine.
 
+Schema 28 implements the [identity contract](technical/identity-policy.md):
+private first/last components, derived Real Name, explicit posting policy and
+immutable historical/export sender evidence. New registration leaves legacy
+`real_name` unset. Earlier copied or supplied legacy values remain unclassified
+and immutable; they cannot satisfy a real-name posting requirement.
+
 Primary historical evidence is Buffalo Creek's SPITFIRE 3.7 manual, held
 outside this public repository, especially sections 3.2, 5.4, 5.9, 7, 8.2,
 9.2, and the `DAILYLMT.DAT` description. The current
@@ -72,7 +78,8 @@ The native record currently stores:
 | Stable caller ID | Preserved directly in a modern form | Future messages, files, and revisions need identity independent of a mutable name. |
 | Login identifier | Modern schema-13 authentication identity | Unique normalized SSH-safe value; not public attribution or real name. |
 | Display handle (`display_name`) | Preserved stock identity and modern public handle | Traditional login and existing public attribution remain compatible. |
-| Optional real name | Preserved separately and private by default | Available only to explicit board/operator or future-network policy. |
+| First Name / Last Name | Explicit private components, derived Real Name | Schema 28; own profile or authorized operator entry; publication only under resolved policy. |
+| Legacy `real_name` | Unclassified compatibility data | Preserved unchanged; not authentication or posting authority. |
 | Normalized lookup name | Derived | Enforces case-insensitive uniqueness without changing display spelling. |
 | Password | Modernized into a separate Argon2id PHC credential | Stock plaintext/viewable handling is unsafe. |
 | Numerical security level | Preserved directly | Stock menu/conference/file/Sysop access depends on it. |

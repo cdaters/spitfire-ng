@@ -41,3 +41,12 @@ Original LAKOTA pointer files are not supported.
 Packets can contain private mail. Protect your local downloads and use the board's
 secure connection when available. **?** shows help; **Q** returns to Messages.
 QWK here is caller offline mail; it does not connect this board to a mail network.
+
+## Reply posting identity
+
+A reply's From field cannot choose a local account or override posting policy.
+Handle areas use your Handle. For each reply in a real-name-required area, the BBS
+shows the resolved name and asks you to review it before saving. Missing private
+name components or declined review rejects that reply. Re-uploading an already
+accepted reply does not publish it again. Ordinary packet account metadata remains
+handle based.

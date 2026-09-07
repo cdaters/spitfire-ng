@@ -185,3 +185,16 @@ The [FTN hub manual](ftn-hub.md) defines downstream/point configuration, separat
 ## N7 file-network extension
 
 FileEcho, TIC, native-file hatching and exact approved FREQ reuse native file authority and BinkP transport. sfconfig offers typed file policy/mapping/subscription/grant/hatch forms; sfmonitor Networks → 9 Files includes staging, history and Enter delivery detail. [File-network workflows and authority](ftn-files.md). No raw path or credential appears in projections.
+
+## Posting names
+
+A network mapping or link can require **Real name required** while the local
+conference ordinarily allows handles. The caller sees the resulting name before
+submission. Missing First Name or Last Name prevents a required-name post. Handle
+allowed remains the default; FTN and QWK do not acquire a universal real-name rule.
+Queued senders remain frozen through profile edits. A stricter requirement holds
+unsuitable old work; it never substitutes a current profile name. Configuration
+and queue summaries do not show private account names.
+
+See [posting identity](../technical/identity-policy.md) and
+[caller management](../operator/caller-management.md).

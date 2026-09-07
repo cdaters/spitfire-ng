@@ -293,6 +293,13 @@ fn freq_schema_26_migration_preserves_acknowledged_request_and_is_atomic() {
     let mut b = board();
     let id = request(&mut b, &["WANT.TXT"]);
     ack(&mut b, NOW);
+    b.db.connection.execute_batch(r#"DROP TRIGGER caller_legacy_name_immutable; DROP TRIGGER caller_name_bounds_insert; DROP TRIGGER caller_name_bounds_update;
+DROP TRIGGER message_author_immutable; DROP TABLE network_sender_snapshots; DROP TABLE caller_name_events;
+ALTER TABLE callers DROP COLUMN first_name; ALTER TABLE callers DROP COLUMN last_name;
+ALTER TABLE message_conferences DROP COLUMN posting_identity; ALTER TABLE message_conferences DROP COLUMN identity_policy_version;
+ALTER TABLE ftn_area_mappings DROP COLUMN posting_identity; ALTER TABLE qwk_link_mappings DROP COLUMN posting_identity; ALTER TABLE qwk_links DROP COLUMN posting_identity;
+ALTER TABLE messages DROP COLUMN identity_mode; ALTER TABLE messages DROP COLUMN identity_proof;
+DELETE FROM schema_migrations WHERE version=28;"#).unwrap();
     b.db.connection.execute_batch("DROP TRIGGER ftn_freq_receipt_truth; DROP TRIGGER ftn_freq_receipt_delete; DROP TABLE ftn_freq_attempts; DROP TABLE ftn_freq_recovery; DELETE FROM schema_migrations WHERE version=27;").unwrap();
     assert_eq!(b.db.schema_version().unwrap(), 26);
     b.db.connection.execute_batch("CREATE TABLE ftn_freq_attempts(sentinel TEXT); INSERT INTO ftn_freq_attempts VALUES('retained');").unwrap();
@@ -311,8 +318,8 @@ fn freq_schema_26_migration_preserves_acknowledged_request_and_is_atomic() {
         .execute_batch("DROP TABLE ftn_freq_attempts;")
         .unwrap();
     let result = b.db.migrate().unwrap();
-    assert_eq!(result.applied, 1);
-    assert_eq!(result.ending_version, 27);
+    assert_eq!(result.applied, 2);
+    assert_eq!(result.ending_version, crate::SCHEMA_VERSION);
     let restored = state(&b);
     assert_eq!(restored.request, id);
     assert_eq!(restored.created_at, NOW);

@@ -1,6 +1,30 @@
 # SPITFIRE NG Roadmap
 
-> Current checkpoint: **FTN interoperability and bounded FREQ recovery COMPLETE / ACCEPTED**.
+## Coordinated account and posting identity — schema 28
+
+Login, Handle and private First/Last Name remain distinct. Posting identity
+resolves before submission from board, conference and configured network
+requirements. Historical authors and queued senders never follow later profile
+changes. FTN does not universally force real names. Migration preserves legacy
+values without splitting names; backup/restore preserves identity authority.
+
+See the [identity contract](docs/technical/identity-policy.md),
+[caller management](docs/operator/caller-management.md) and
+[conference settings](docs/operator/messages.md).
+
+**COMPLETE / ACCEPTED.** Publication gates pass **679 tests / 0 failed / 7
+existing ignored**, including all six doctest suites, 119 source headers,
+formatting, all-target Clippy with warnings denied, documentation links/fences
+and privacy/provenance checks. The disposable native macOS identity journey
+covers posting, profile changes, immutable history/sender, restart and cold restore.
+en-US is **1.25.0 / 1,308 messages**. cargo-audit remains unavailable.
+
+No production changes or public FidoNet traffic. Exact next action: stop this
+completed identity pass. The next separately scoped major milestone is
+**CircuitNET archaeology/resurrection**. No CircuitNET implementation, release,
+tag or binary is included. Earlier sections below retain their historical scope.
+
+> Previous checkpoint: **FTN interoperability and bounded FREQ recovery COMPLETE / ACCEPTED**.
 > Schema 27. See [current status](STATUS.md) and the [file-network contract](docs/technical/ftn-files.md).
 
 ## N6 FTN hub and operator semantics — M050

@@ -133,3 +133,17 @@ restore recovery. Same-root replacement retains proven later FTN serial floors
 and matching peer acknowledgements. New-root recovery uses a stopped surviving
 source, retires its origination, and keeps uncertain work held. No live public
 FidoNet participation or N6/N7 functionality is claimed.
+
+## Identity data in schema 28
+
+Cold backups preserve private First/Last Name fields, unclassified legacy full
+names, immutable message authors, identity policy, queue sender snapshots and
+name-change audit metadata along with existing configuration/artifacts. Backup
+contents remain private; the manifest does not list caller names. Restore keeps
+old posted and queued names even when the profile now differs.
+
+A schema-27 upgrade preserves legacy name values exactly and leaves new components
+unset. It never splits a Handle or assumes a copied full-name field is reliable.
+Complete components through caller or authorized operator profile entry. The
+migration is transactional; a failure leaves schema 27 unchanged. See the
+[identity migration contract](../technical/identity-policy.md).

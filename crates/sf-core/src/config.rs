@@ -317,6 +317,9 @@ pub struct StorageConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CallerConfig {
+    /// Default posting policy; conferences may override this local default.
+    #[serde(default)]
+    pub posting_identity: crate::PostingIdentityPolicy,
     /// Offline QWK identity; unset disables packet exchange. Restart after changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qwk_board_id: Option<String>,
@@ -359,6 +362,7 @@ pub struct CallerConfig {
 impl Default for CallerConfig {
     fn default() -> Self {
         Self {
+            posting_identity: crate::PostingIdentityPolicy::HandleAllowed,
             qwk_board_id: None,
             sysop_caller_name: default_sysop_caller_name(),
             new_caller_security: default_new_caller_security(),
@@ -408,6 +412,9 @@ pub enum PostLoginJourney {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CallerProfilePolicy {
+    /// Collect both name components at registration; does not publish them.
+    #[serde(default)]
+    pub require_names: bool,
     #[serde(default)]
     pub address: ProfileFieldPolicy,
     #[serde(default)]
@@ -1728,6 +1735,7 @@ database_file = "spitfire-ng.sqlite3"
         config.board.private_security_level = 25;
         config.caller.inactivity_minutes = 7;
         config.caller.profile = CallerProfilePolicy {
+            require_names: Default::default(),
             address: ProfileFieldPolicy::Optional,
             phone: ProfileFieldPolicy::Disabled,
             email: ProfileFieldPolicy::Required,

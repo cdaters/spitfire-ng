@@ -87,6 +87,7 @@ pub struct MailPolicy {
 }
 /// Caller-authenticated native input, never an operator request impersonating a caller.
 pub struct NewNetworkMail {
+    pub identity_preview: Option<crate::identity::PostingIdentityPreview>,
     pub network: String,
     pub destination: String,
     pub recipient: String,
@@ -255,6 +256,25 @@ impl RuntimeDatabase {
     }
     /// The existing native payload/fanout/delivery tables own private content.
     /// Publication and durable pending queue intent commit atomically with the delivery.
+    pub fn preview_qwk_mail_identity(
+        &self,
+        actor: crate::MessageActor,
+        mail: &NewNetworkMail,
+    ) -> Result<crate::identity::PostingIdentityPreview, Error> {
+        let (link, version, _) = next_hop(&self.connection, &mail.network, &mail.destination)?;
+        let alias:String=self.connection.query_row("SELECT a.alias FROM qwk_mailbox_aliases a JOIN callers c USING(caller_id) WHERE a.link_id=?1 AND c.caller_id=?2 AND c.account_state='active'",params![link.id,actor.caller_id().get()],|r|r.get(0)).optional()?.ok_or(Error::Rejected)?;
+        Ok(crate::identity::resolve_private(
+            &self.connection,
+            &self.identity_context,
+            actor.caller_id(),
+            format!("qwk-private:{}", link.id),
+            link.posting_identity,
+            format!("{}:{version}", link.version),
+            alias,
+            128,
+            sf_net::ftn::Charset::Cp437,
+        )?)
+    }
     pub fn send_qwk_mail(
         &mut self,
         actor: crate::MessageActor,
@@ -283,6 +303,19 @@ impl RuntimeDatabase {
             )
             .optional()?
             .ok_or(Error::Rejected)?;
+        let identity = crate::identity::resolve_private(
+            &tx,
+            &self.identity_context,
+            actor.caller_id(),
+            format!("qwk-private:{}", link.id),
+            link.posting_identity,
+            format!("{}:{version}", link.version),
+            author,
+            128,
+            sf_net::ftn::Charset::Cp437,
+        )?;
+        crate::identity::check_preview(&identity, mail.identity_preview.as_ref())?;
+        let author = identity.posted_as();
         let wall_time = chrono::DateTime::from_timestamp(now, 0)
             .ok_or(Error::Rejected)?
             .naive_utc();
@@ -294,7 +327,8 @@ impl RuntimeDatabase {
                 private: true,
                 received: false,
                 to: mail.recipient.as_bytes().to_vec(),
-                from: author.as_bytes().to_vec(),
+                from: crate::encode_text(author, crate::TerminalTextEncoding::Cp437)
+                    .ok_or(Error::Rejected)?,
                 subject: mail.subject.clone(),
                 body: mail.body.clone(),
                 wall_time,
@@ -333,6 +367,7 @@ impl RuntimeDatabase {
             false,
             parent,
             now,
+            Some(&identity),
         )?;
         tx.execute(
             "INSERT INTO network_private_envelopes VALUES(?1,?2,?3,?4,?5,?6,?7,NULL)",
@@ -418,6 +453,7 @@ fn validate_member(member: &wire::NetworkMessage) -> Result<(), Error> {
     }
     Ok(())
 }
+#[allow(clippy::too_many_arguments)]
 fn insert_native(
     tx: &Transaction<'_>,
     member: &wire::NetworkMessage,
@@ -426,6 +462,7 @@ fn insert_native(
     transit: bool,
     parent: Option<i64>,
     now: i64,
+    identity: Option<&crate::identity::PostingIdentityPreview>,
 ) -> Result<i64, Error> {
     let mid = crate::message::next_message_id(tx)?.get();
     let m = &member.message;
@@ -436,7 +473,7 @@ fn insert_native(
         params![payload, author, now],
     )?;
     let fanout = tx.last_insert_rowid();
-    tx.execute("INSERT INTO messages(message_id,fanout_id,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'private','active','single',0,?9,?10)",params![mid,fanout,author,native_text(&m.from,member.metadata.utf8)?,member.metadata.written.as_deref().and_then(wire::written_timestamp).unwrap_or(now),now,parent,if recipient.is_some(){"local-recipient"}else{"external-recipient"},if author.is_some(){"native"}else{"external-network"},if transit{"network-transit"}else{"local-network-mailbox"}])?;
+    tx.execute("INSERT INTO messages(message_id,fanout_id,author_caller_id,author_name,created_at,placed_at,parent_message_id,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind,identity_mode,identity_proof) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'private','active','single',0,?9,?10,?11,?12)",params![mid,fanout,author,native_text(&m.from,member.metadata.utf8)?,member.metadata.written.as_deref().and_then(wire::written_timestamp).unwrap_or(now),now,parent,if recipient.is_some(){"local-recipient"}else{"external-recipient"},if author.is_some(){"native"}else{"external-network"},if transit{"network-transit"}else{"local-network-mailbox"},identity.map_or("external-asserted",|p|p.evidence.mode.key()),identity.map(|p|p.proof()).transpose()?])?;
     if let Some((caller, name)) = recipient {
         tx.execute(
             "INSERT INTO message_delivery_recipients VALUES(?1,?2,?3,?4,?5)",
@@ -517,6 +554,7 @@ fn queue(
         ],
     )?;
     tx.execute("INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES(?1,'pending',?2,?3)",params![q,now,reserve])?;
+    crate::identity::freeze_qwk_sender(tx, &q, mid)?;
     Ok(())
 }
 
@@ -627,7 +665,7 @@ pub(super) fn ingest(
     } else {
         None
     };
-    let mid = insert_native(tx, member, None, local, next.is_some(), parent, now)?;
+    let mid = insert_native(tx, member, None, local, next.is_some(), parent, now, None)?;
     tx.execute(
         "INSERT INTO network_private_envelopes VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
@@ -669,6 +707,7 @@ pub(super) fn export(
     conn: &rusqlite::Connection,
     queue: &str,
     link: &Link,
+    identity_context: &crate::identity::IdentityContext,
 ) -> Result<ExportMember, Error> {
     let (publication,mid,version,policy_version,link_version):(String,i64,i64,i64,i64)=conn.query_row("SELECT d.publication_id,p.message_id,d.message_version,d.mapping_version,d.link_version FROM network_routing_decisions d JOIN network_publications p USING(publication_id) WHERE d.decision_id=?1 AND d.link_id=?2 AND d.wire_conference=0",params![queue,link.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
     let (destination,recipient,ingress):(String,String,Option<String>)=conn.query_row("SELECT e.destination_system,e.recipient,e.ingress_link FROM network_private_envelopes e JOIN messages m USING(message_id) WHERE m.message_id=?1 AND e.next_link=?2 AND e.policy_version=?3 AND e.network=?4 AND m.state_version=?5 AND m.visibility='private' AND m.lifecycle_state='active' AND m.container_kind IN ('local-network-mailbox','network-transit')",params![mid,link.id,policy_version,link.network,version],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(Error::Held)?;
@@ -692,6 +731,14 @@ pub(super) fn export(
             return Err(Error::Held);
         }
     }
+    crate::identity::validate_destination(
+        conn,
+        identity_context,
+        mid,
+        link.posting_identity,
+        &format!("qwk-private:{}", link.id),
+    )
+    .map_err(|_| Error::Held)?;
     let path = publication_path(conn, &publication)?;
     if path.contains(&link.remote_id)
         || path.contains(&link.local_id)
@@ -707,6 +754,17 @@ pub(super) fn export(
     } else {
         crate::encode_text(&author, crate::TerminalTextEncoding::Cp437).ok_or(Error::Held)?
     };
+    crate::identity::freeze_sender(
+        conn,
+        queue,
+        mid,
+        &from,
+        if utf8 {
+            "qwk-headers-utf8"
+        } else {
+            "qwk-headers-cp437"
+        },
+    )?;
     let fields = if destination == link.remote_id {
         Vec::new()
     } else {
@@ -716,6 +774,7 @@ pub(super) fn export(
         queue: queue.into(),
         publication,
         mapping: Mapping {
+            posting_identity: link.posting_identity,
             wire_conference: 0,
             area: "@private".into(),
             conference_id: 0,

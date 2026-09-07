@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 27;
+pub const SCHEMA_VERSION: u32 = 28;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -47,7 +47,7 @@ SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.rea
        c.postal_code, c.country, c.phone, c.email, c.birthday, c.is_new_caller,
        c.security_level, c.state_version, c.subscription_expires_on,
        c.purge_protected, c.lifecycle_prior_state,
-       c.public_directory_listed, c.publicity_state_version
+       c.public_directory_listed, c.publicity_state_version, c.first_name, c.last_name
   FROM callers AS c
 "#;
 
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 27] = [
+const MIGRATIONS: [Migration; 28] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1527,6 +1527,11 @@ const MIGRATIONS: [Migration; 27] = [
         name: "ftn_freq_recovery",
         sql: crate::ftn::FREQ_MIGRATION,
     },
+    Migration {
+        version: 28,
+        name: "posting_identity_authority",
+        sql: include_str!("identity.sql"),
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1537,6 +1542,7 @@ pub struct MigrationReport {
 }
 
 pub struct RuntimeDatabase {
+    pub(crate) identity_context: crate::identity::IdentityContext,
     pub(crate) connection: Connection,
     path: PathBuf,
 }
@@ -1565,6 +1571,7 @@ impl RuntimeDatabase {
         Ok(Self {
             connection,
             path: path.to_path_buf(),
+            identity_context: crate::identity::IdentityContext::default(),
         })
     }
 
@@ -1593,6 +1600,7 @@ impl RuntimeDatabase {
         Ok(Self {
             connection,
             path: path.to_path_buf(),
+            identity_context: crate::identity::IdentityContext::default(),
         })
     }
 
@@ -1904,7 +1912,7 @@ impl RuntimeDatabase {
             return Err(DatabaseError::DuplicateCaller(display_name));
         }
         let login_identifier = self.available_login_identifier(&normalized_name)?;
-        let real_name = Some(display_name.clone());
+        let real_name: Option<String> = None;
         let transaction = self
             .connection
             .transaction()
@@ -1916,8 +1924,8 @@ impl RuntimeDatabase {
                     login_identifier, display_name, normalized_name, real_name,
                     security_level, account_state,
                     is_new_caller, first_call_at, address_line_1, address_line_2,
-                    city, region, postal_code, country, phone, email, birthday
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+                    city, region, postal_code, country, phone, email, birthday, first_name, last_name
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
                 "#,
                 params![
                     login_identifier,
@@ -1937,6 +1945,8 @@ impl RuntimeDatabase {
                     profile.phone,
                     profile.email,
                     profile.birthday_iso(),
+                    profile.identity.first_name(),
+                    profile.identity.last_name(),
                 ],
             )
             .map_err(DatabaseError::Sqlite)?;
@@ -2070,6 +2080,8 @@ impl RuntimeDatabase {
             Option<String>,
             bool,
             i64,
+            Option<String>,
+            Option<String>,
         );
         let stored: Option<StoredCaller> = self
             .connection
@@ -2115,6 +2127,8 @@ impl RuntimeDatabase {
                     row.get(37)?,
                     row.get(38)?,
                     row.get(39)?,
+                    row.get(40)?,
+                    row.get(41)?,
                 ))
             })
             .optional()
@@ -2162,6 +2176,8 @@ impl RuntimeDatabase {
                     lifecycle_prior_state,
                     public_directory_listed,
                     publicity_state_version,
+                    first_name,
+                    last_name,
                 )| {
                     Ok(Caller {
                         id: CallerId::new(caller_id).map_err(DatabaseError::InvalidStoredCaller)?,
@@ -2213,6 +2229,11 @@ impl RuntimeDatabase {
                         .validate()
                         .map_err(DatabaseError::InvalidStoredCaller)?,
                         profile: CallerProfile {
+                            identity: crate::PrivateIdentity::new(first_name, last_name).map_err(
+                                |_| {
+                                    DatabaseError::InvalidStoredCaller(CallerError::InvalidRealName)
+                                },
+                            )?,
                             address: PostalAddress {
                                 line_1: address_line_1,
                                 line_2: address_line_2,
@@ -2664,64 +2685,102 @@ impl RuntimeDatabase {
         let existing = self
             .caller_by_id(caller_id)?
             .ok_or(DatabaseError::MissingCaller(caller_id.get()))?;
+        self.update_caller_profile_versioned(
+            caller_id,
+            existing.state_version,
+            profile,
+            policy,
+            crate::identity::IdentityEditActor::Caller,
+            chrono::Utc::now().timestamp(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_caller_profile_versioned(
+        &self,
+        caller_id: CallerId,
+        expected: u64,
+        profile: CallerProfile,
+        policy: &CallerProfilePolicy,
+        actor: crate::identity::IdentityEditActor,
+        now: i64,
+    ) -> Result<Caller, DatabaseError> {
+        let tx =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)
+                .map_err(DatabaseError::Sqlite)?;
+        let existing = self
+            .caller_by_id(caller_id)?
+            .ok_or(DatabaseError::MissingCaller(caller_id.get()))?;
+        if existing.state_version != expected {
+            return Err(DatabaseError::CallerStateConflict {
+                expected,
+                actual: existing.state_version,
+            });
+        }
         let profile = profile
             .validate_update_for_policy(&existing.profile, policy)
             .map_err(DatabaseError::InvalidStoredCaller)?;
-        let changed = self
-            .connection
-            .execute(
-                r#"
-                UPDATE callers SET
-                    address_line_1 = ?2, address_line_2 = ?3, city = ?4,
-                    region = ?5, postal_code = ?6, country = ?7, phone = ?8,
-                    email = ?9, birthday = ?10, updated_at = CURRENT_TIMESTAMP
-                WHERE caller_id = ?1
-                "#,
-                params![
-                    caller_id.get(),
-                    profile.address.line_1,
-                    profile.address.line_2,
-                    profile.address.city,
-                    profile.address.region,
-                    profile.address.postal_code,
-                    profile.address.country,
-                    profile.phone,
-                    profile.email,
-                    profile.birthday_iso(),
-                ],
-            )
-            .map_err(DatabaseError::Sqlite)?;
-        if changed != 1 {
-            return Err(DatabaseError::MissingCaller(caller_id.get()));
+        let changed_identity = profile.identity != existing.profile.identity;
+        let version = expected
+            .checked_add(u64::from(changed_identity))
+            .ok_or(DatabaseError::CounterOverflow(expected))?;
+        tx.execute(
+            "UPDATE callers SET address_line_1=?2,address_line_2=?3,city=?4,region=?5,
+            postal_code=?6,country=?7,phone=?8,email=?9,birthday=?10,first_name=?11,last_name=?12,
+            state_version=?13,updated_at=CURRENT_TIMESTAMP WHERE caller_id=?1",
+            params![
+                caller_id.get(),
+                profile.address.line_1,
+                profile.address.line_2,
+                profile.address.city,
+                profile.address.region,
+                profile.address.postal_code,
+                profile.address.country,
+                profile.phone,
+                profile.email,
+                profile.birthday_iso(),
+                profile.identity.first_name(),
+                profile.identity.last_name(),
+                sqlite_i64(version)?
+            ],
+        )
+        .map_err(DatabaseError::Sqlite)?;
+        if changed_identity {
+            tx.execute("INSERT INTO caller_name_events(caller_id,occurred_at,prior_state_version,new_state_version,actor_kind)
+                VALUES(?1,?2,?3,?4,?5)",params![caller_id.get(),now,sqlite_i64(expected)?,sqlite_i64(version)?,actor.key()])
+                .map_err(DatabaseError::Sqlite)?;
         }
+        tx.commit().map_err(DatabaseError::Sqlite)?;
         self.caller_by_id(caller_id)?
             .ok_or(DatabaseError::MissingCaller(caller_id.get()))
     }
 
+    /// Schema-27 combined-name writes are retired. Use explicit login/handle and profile operations.
     #[allow(clippy::too_many_arguments)]
     pub fn update_caller_identity(
+        &mut self,
+        _caller_id: CallerId,
+        _expected: u64,
+        _login: &[u8],
+        _handle: &[u8],
+        _real_name: Option<String>,
+        _config: &CallerConfig,
+        _now: i64,
+    ) -> Result<Caller, DatabaseError> {
+        Err(DatabaseError::LegacyIdentityWriteRetired)
+    }
+
+    pub fn update_caller_login_handle(
         &mut self,
         caller_id: CallerId,
         expected_state_version: u64,
         login_identifier: &[u8],
         display_handle: &[u8],
-        real_name: Option<String>,
         caller_config: &CallerConfig,
         now: i64,
     ) -> Result<Caller, DatabaseError> {
         let login_identifier = canonicalize_login_identifier(login_identifier)?;
         let (display_name, normalized_name) = canonicalize_caller_name(display_handle)?;
-        let real_name = real_name
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty());
-        if real_name
-            .as_ref()
-            .is_some_and(|value| value.len() > 120 || value.chars().any(char::is_control))
-        {
-            return Err(DatabaseError::InvalidStoredCaller(
-                CallerError::InvalidRealName,
-            ));
-        }
         let (_, normalized_sysop) =
             canonicalize_caller_name(caller_config.sysop_caller_name.as_bytes())?;
         let transaction = self
@@ -2764,8 +2823,8 @@ impl RuntimeDatabase {
             .ok_or(DatabaseError::CounterOverflow(current_version))?;
         transaction
             .execute(
-                "UPDATE callers SET login_identifier=?2, display_name=?3, normalized_name=?4, real_name=?5, state_version=?6, updated_at=CURRENT_TIMESTAMP WHERE caller_id=?1 AND state_version=?7",
-                params![caller_id.get(), login_identifier, display_name, normalized_name, real_name, sqlite_i64(new_version)?, sqlite_i64(expected_state_version)?],
+                "UPDATE callers SET login_identifier=?2, display_name=?3, normalized_name=?4, state_version=?5, updated_at=CURRENT_TIMESTAMP WHERE caller_id=?1 AND state_version=?6",
+                params![caller_id.get(), login_identifier, display_name, normalized_name, sqlite_i64(new_version)?, sqlite_i64(expected_state_version)?],
             )
             .map_err(DatabaseError::Sqlite)?;
         transaction
@@ -3820,6 +3879,8 @@ fn validate_message_mutation_migration(transaction: &Transaction<'_>) -> Result<
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
+    #[error("Combined real-name writes are retired. Use LOGIN/HANDLE maintenance and explicit First Name / Last Name profile fields.")]
+    LegacyIdentityWriteRetired,
     #[error("database path has no parent directory: {0}")]
     MissingParent(PathBuf),
     #[error("database directory does not exist: {0}")]
@@ -5277,6 +5338,7 @@ mod tests {
         assert_eq!(caller.call_count, 7);
         assert_eq!(caller.profile, CallerProfile::default());
         let policy = CallerProfilePolicy {
+            require_names: Default::default(),
             address: crate::ProfileFieldPolicy::Optional,
             phone: crate::ProfileFieldPolicy::Optional,
             email: crate::ProfileFieldPolicy::Optional,
@@ -5286,6 +5348,7 @@ mod tests {
             .update_caller_profile(
                 caller.id,
                 CallerProfile {
+                    identity: Default::default(),
                     address: PostalAddress {
                         city: Some("Phoenix".to_owned()),
                         region: Some("Arizona".to_owned()),
@@ -5612,19 +5675,30 @@ mod tests {
             ..CallerConfig::default()
         };
         let updated = database
-            .update_caller_identity(
+            .update_caller_login_handle(
                 caller.id,
                 caller.state_version,
                 b"pixelwizard",
                 b"PixelWizard",
-                Some("Craig Identity Fixture".to_owned()),
                 &config,
                 200,
             )
             .unwrap();
         assert_eq!(updated.login_identifier, "pixelwizard");
         assert_eq!(updated.display_name, "PixelWizard");
-        assert_eq!(updated.real_name.as_deref(), Some("Craig Identity Fixture"));
+        assert_eq!(updated.real_name, None);
+        assert!(matches!(
+            database.update_caller_identity(
+                caller.id,
+                updated.state_version,
+                b"pixelwizard",
+                b"PixelWizard",
+                Some("Unclassified".into()),
+                &config,
+                201
+            ),
+            Err(DatabaseError::LegacyIdentityWriteRetired)
+        ));
         assert_eq!(updated.state_version, caller.state_version + 1);
         assert!(matches!(
             database.authenticate_login_identifier(
@@ -5635,24 +5709,22 @@ mod tests {
             AuthenticationResult::Valid(found) if found.id == caller.id
         ));
         assert!(matches!(
-            database.update_caller_identity(
+            database.update_caller_login_handle(
                 other.id,
                 other.state_version,
                 b"pixelwizard",
                 b"Different Handle",
-                None,
                 &config,
                 201,
             ),
             Err(DatabaseError::DuplicateCallerIdentity)
         ));
         assert!(matches!(
-            database.update_caller_identity(
+            database.update_caller_login_handle(
                 caller.id,
                 caller.state_version,
                 b"renamed-login",
                 b"Renamed Handle",
-                None,
                 &config,
                 202,
             ),
@@ -6191,30 +6263,21 @@ mod qwk_migration_tests {
             apply_migration(&mut c, m).unwrap();
         }
         let mut db = RuntimeDatabase {
+            identity_context: Default::default(),
             connection: c,
             path: PathBuf::from("synthetic.db"),
         };
-        let conference = db
-            .ensure_conference(&crate::ConferenceDefinition {
-                number: 1,
-                name: "Synthetic".into(),
-                description: "Migration test".into(),
-                access_mode: crate::ConferenceAccessMode::AtLeast,
-                read_security: crate::SecurityLevel::new(1).unwrap(),
-                post_security: crate::SecurityLevel::new(1).unwrap(),
-                public_only: true,
-                caller_deletion_enabled: true,
-                maximum_lines: 99,
-                privileged_security_levels: vec![],
-            })
-            .unwrap();
+        // Construct the schema-22 fixture through its historical SQL contract;
+        // current conference APIs deliberately require the current schema.
+        db.connection.execute("INSERT INTO message_conferences(conference_id,conference_number,name,description,access_mode,read_security,post_security,public_only,caller_deletion_enabled,maximum_lines,active) VALUES(1,1,'Synthetic','Migration test','at-least',1,1,1,1,99,1)",[]).unwrap();
+        let conference = crate::ConferenceId::new(1).unwrap();
         db.connection.execute("INSERT INTO message_payloads(subject,body,content_kind,encoding) VALUES(?1,?2,'standard','utf8')",params![b"Subject".as_slice(),b"Body".as_slice()]).unwrap();
         db.connection
             .execute_batch(
                 "INSERT INTO message_fanouts(fanout_id,payload_id,created_at) VALUES(1,1,0);",
             )
             .unwrap();
-        db.connection.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_name,created_at,placed_at,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind) VALUES(1,1,?1,1,'External',0,0,'all-callers','public','active','single',0,'external-network','conference')",[conference.id.get()]).unwrap();
+        db.connection.execute("INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_name,created_at,placed_at,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal,origin_kind,container_kind) VALUES(1,1,?1,1,'External',0,0,'all-callers','public','active','single',0,'external-network','conference')",[conference.get()]).unwrap();
         db.connection.execute_batch("INSERT INTO qwk_links VALUES('peer','synthetic','LOCAL','PEER','Synthetic','qwk-headers','node',1,1,1,1); INSERT INTO network_publications(publication_id,message_id,network,area,wire_id,origin,created_at) VALUES('publication',1,'synthetic','test','wire-id','PEER',0); INSERT INTO network_routing_decisions VALUES('queue','publication','peer','PEER',1,1,1,1,'digest',0); INSERT INTO network_outbound_queue(queue_id,state,version,attempts,next_attempt,reason,created_at,reserved_bytes) VALUES('queue','retry',7,2,400,'retry',10,2048);").unwrap();
         apply_migration(&mut db.connection, &MIGRATIONS[22]).unwrap();
         let row:(String,i64,i64,i64,i64)=db.connection.query_row("SELECT state,version,attempts,next_attempt,reserved_bytes FROM network_outbound_queue WHERE queue_id='queue'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).unwrap();
@@ -6245,5 +6308,134 @@ mod qwk_migration_tests {
                 .unwrap(),
             0
         );
+    }
+}
+
+#[cfg(test)]
+mod identity_migration_tests {
+    use super::*;
+
+    fn schema27() -> Connection {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for m in MIGRATIONS.iter().take(27) {
+            apply_migration(&mut c, m).unwrap();
+        }
+        for (id, handle, legacy) in [
+            (1, "PixelWizard", Some("PixelWizard")),
+            (2, "DifferentHandle", Some("Craig Daters")),
+            (3, "HandleOnly", None),
+            (4, "Historical Caller", Some("Historical Caller")),
+        ] {
+            c.execute("INSERT INTO callers(caller_id,display_name,normalized_name,login_identifier,real_name,security_level,account_state,is_new_caller,first_call_at) VALUES(?1,?2,lower(?2),?3,?4,10,'active',0,1)",params![id,handle,format!("login{id}"),legacy]).unwrap();
+        }
+        c.execute_batch("INSERT INTO message_conferences(conference_id,conference_number,name,description,access_mode,read_security,post_security,public_only,maximum_lines) VALUES(1,1,'General','','at-least',0,0,1,99);
+            INSERT INTO message_payloads(payload_id,subject,body,content_kind) VALUES(1,X'53616665',X'426F6479','standard');
+            INSERT INTO message_fanouts(fanout_id,payload_id,created_by_caller_id,created_at) VALUES(1,1,1,1);
+            INSERT INTO messages(message_id,fanout_id,conference_id,message_number,author_caller_id,author_name,created_at,placed_at,audience_kind,visibility,lifecycle_state,delivery_role,delivery_ordinal) VALUES(1,1,1,1,1,'Original Posted Name',1,1,'all-callers','public','active','single',0);
+            INSERT INTO qwk_links VALUES('peer','isolated','LOCAL','PEER','Synthetic','qwk-headers','hub',1,1,1,1);
+            INSERT INTO qwk_link_mappings VALUES('peer',1,'general',1,1,1,1,1);
+            INSERT INTO network_publications(publication_id,message_id,network,area,wire_id,origin,created_at) VALUES('publication',1,'isolated','general','<synthetic@local.qwk>','LOCAL',1);
+            INSERT INTO network_routing_decisions VALUES('queue','publication','peer','PEER',1,1,1,1,'preserved-policy',1);
+            INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES('queue','pending',1,1024);").unwrap();
+        c
+    }
+
+    #[test]
+    fn schema27_upgrade_preserves_unclassified_names_historical_author_and_queued_work() {
+        let mut c = schema27();
+        apply_migration(&mut c, &MIGRATIONS[27]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 28);
+        let rows=c.prepare("SELECT display_name,real_name,first_name,last_name FROM callers ORDER BY caller_id").unwrap().query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+        assert_eq!(
+            rows[0],
+            ("PixelWizard".into(), Some("PixelWizard".into()), None, None)
+        );
+        assert_eq!(
+            rows[1],
+            (
+                "DifferentHandle".into(),
+                Some("Craig Daters".into()),
+                None,
+                None
+            )
+        );
+        assert_eq!(rows[2], ("HandleOnly".into(), None, None, None));
+        assert_eq!(
+            rows[3],
+            (
+                "Historical Caller".into(),
+                Some("Historical Caller".into()),
+                None,
+                None
+            )
+        );
+        let author: (String, String, Option<String>) = c
+            .query_row(
+                "SELECT author_name,identity_mode,identity_proof FROM messages WHERE message_id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            author,
+            (
+                "Original Posted Name".into(),
+                "legacy-unclassified".into(),
+                None
+            )
+        );
+        assert!(crate::identity::validate_stored(
+            &c,
+            1,
+            crate::PostingIdentityPolicy::RealNameRequired,
+            None
+        )
+        .is_err());
+        crate::identity::validate_stored(&c, 1, crate::PostingIdentityPolicy::HandleAllowed, None)
+            .unwrap();
+        let queue: (String, i64) = c
+            .query_row(
+                "SELECT state,version FROM network_outbound_queue WHERE queue_id='queue'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(queue, ("pending".into(), 1));
+        assert!(c
+            .execute("UPDATE callers SET real_name='Lost legacy value'", [])
+            .is_err());
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn schema28_failure_rolls_back_every_identity_column_and_preserves_legacy_truth() {
+        let mut c = schema27();
+        let broken=Migration{version:28,name:MIGRATIONS[27].name,sql:"ALTER TABLE callers ADD COLUMN first_name TEXT; UPDATE callers SET real_name='must roll back'; CREATE TABLE messages(failure INTEGER);"};
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 27);
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('callers') WHERE name='first_name'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT real_name FROM callers WHERE caller_id=1", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "PixelWizard"
+        );
+        apply_migration(&mut c, &MIGRATIONS[27]).unwrap();
     }
 }

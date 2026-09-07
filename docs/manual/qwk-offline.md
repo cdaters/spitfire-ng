@@ -41,3 +41,12 @@ reader misattribution; native content and pointers remain intact. MultiMail 0.52
 pointer interoperability remains evidence-qualified. Windows live QWK acceptance
 is deferred until a real Windows environment is available; no Windows interactive
 compatibility claim is made by the macOS acceptance.
+
+## Reply posting identity
+
+A reply's From field cannot choose a local account or override posting policy.
+Handle areas use your Handle. For each reply in a real-name-required area, the BBS
+shows the resolved name and asks you to review it before saving. Missing private
+name components or declined review rejects that reply. Re-uploading an already
+accepted reply does not publish it again. Ordinary packet account metadata remains
+handle based.

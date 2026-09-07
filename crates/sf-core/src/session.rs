@@ -1367,7 +1367,8 @@ fn register_new_caller(
     let now = unix_seconds()?;
     let mut profile = CallerProfile::default();
     let caller = loop {
-        let Some(collected) = collect_caller_profile(terminal, &config.profile, profile)? else {
+        let Some(collected) = collect_caller_profile(terminal, &config.profile, profile, false)?
+        else {
             write_line(
                 terminal,
                 "New caller registration canceled. Returning to caller login.",
@@ -1539,15 +1540,30 @@ fn collect_caller_profile(
     terminal: &mut dyn Terminal,
     policy: &crate::CallerProfilePolicy,
     current: CallerProfile,
+    collect_optional_names: bool,
 ) -> Result<Option<CallerProfile>, SessionError> {
     write_line(
         terminal,
         "Enter /Q at any profile prompt to cancel registration.",
     )?;
+    write_key_line(
+        terminal,
+        "caller-name-privacy",
+        &crate::LocalizationArgs::new(),
+    )?;
     let original = current.clone();
     let mut profile = current;
     loop {
         for field in PROFILE_COLLECTION_ORDER {
+            if !collect_optional_names
+                && !policy.require_names
+                && matches!(
+                    field,
+                    ProfileCollectionField::FirstName | ProfileCollectionField::LastName
+                )
+            {
+                continue;
+            }
             let field_policy = field.policy(policy);
             if !field_policy.enabled() {
                 continue;
@@ -1572,13 +1588,17 @@ fn collect_caller_profile(
 
 #[derive(Clone, Copy)]
 enum ProfileCollectionField {
+    FirstName,
+    LastName,
     Address,
     Phone,
     Email,
     Birthday,
 }
 
-const PROFILE_COLLECTION_ORDER: [ProfileCollectionField; 4] = [
+const PROFILE_COLLECTION_ORDER: [ProfileCollectionField; 6] = [
+    ProfileCollectionField::FirstName,
+    ProfileCollectionField::LastName,
     ProfileCollectionField::Address,
     ProfileCollectionField::Phone,
     ProfileCollectionField::Email,
@@ -1588,6 +1608,13 @@ const PROFILE_COLLECTION_ORDER: [ProfileCollectionField; 4] = [
 impl ProfileCollectionField {
     const fn policy(self, policy: &crate::CallerProfilePolicy) -> ProfileFieldPolicy {
         match self {
+            Self::FirstName | Self::LastName => {
+                if policy.require_names {
+                    ProfileFieldPolicy::Required
+                } else {
+                    ProfileFieldPolicy::Optional
+                }
+            }
             Self::Address => policy.address,
             Self::Phone => policy.phone,
             Self::Email => policy.email,
@@ -1603,6 +1630,87 @@ fn collect_profile_field(
     profile: &mut CallerProfile,
 ) -> Result<bool, SessionError> {
     match field {
+        ProfileCollectionField::FirstName | ProfileCollectionField::LastName => {
+            let first = matches!(field, ProfileCollectionField::FirstName);
+            let current = if first {
+                profile.identity.first_name()
+            } else {
+                profile.identity.last_name()
+            };
+            loop {
+                let key = if first {
+                    "caller-first-name-prompt"
+                } else {
+                    "caller-last-name-prompt"
+                };
+                write_key(
+                    terminal,
+                    key,
+                    &crate::LocalizationArgs::new().with("current", current.unwrap_or("")),
+                )?;
+                let input = match terminal.read_line(60) {
+                    Ok(Some(input)) => input,
+                    Ok(None) => return Ok(false),
+                    Err(TerminalError::InputTooLong { .. }) => {
+                        write_key_line(
+                            terminal,
+                            "caller-name-invalid",
+                            &crate::LocalizationArgs::new(),
+                        )?;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                if input.eq_ignore_ascii_case(b"/Q") {
+                    return Ok(false);
+                }
+                let charset = if terminal.info().capabilities.cp437 {
+                    sf_net::ftn::Charset::Cp437
+                } else {
+                    sf_net::ftn::Charset::Utf8
+                };
+                let Ok(text) = charset.decode(&input) else {
+                    write_key_line(
+                        terminal,
+                        "caller-name-invalid",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    continue;
+                };
+                let value = if text.is_empty() {
+                    current.map(str::to_owned)
+                } else if text == "-" && !policy.required() {
+                    None
+                } else {
+                    Some(text)
+                };
+                if policy.required() && value.as_ref().is_none_or(|v| v.trim().is_empty()) {
+                    write_key_line(
+                        terminal,
+                        "caller-registration-required",
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                    continue;
+                }
+                let (a, b) = if first {
+                    (value, profile.identity.last_name().map(str::to_owned))
+                } else {
+                    (profile.identity.first_name().map(str::to_owned), value)
+                };
+                match crate::PrivateIdentity::new(a, b) {
+                    Ok(identity) => {
+                        profile.identity = identity;
+                        break;
+                    }
+                    Err(_) => write_key_line(
+                        terminal,
+                        "caller-name-invalid",
+                        &crate::LocalizationArgs::new(),
+                    )?,
+                }
+            }
+        }
+
         ProfileCollectionField::Address => {
             write_key_line(
                 terminal,
@@ -1843,28 +1951,55 @@ fn prompt_profile_text(
     }
 }
 
+fn show_profile_identity(
+    terminal: &mut dyn Terminal,
+    caller: &Caller,
+) -> Result<(), TerminalError> {
+    write_key_line(
+        terminal,
+        "caller-profile-handle",
+        &crate::LocalizationArgs::new().with("name", caller.display_name.clone()),
+    )?;
+    let encoding = crate::terminal_text_encoding(&terminal.info());
+    let name = caller
+        .profile
+        .identity
+        .real_name()
+        .unwrap_or_default()
+        .chars()
+        .map(|c| {
+            let text = c.to_string();
+            if crate::encode_text(&text, encoding).is_some() {
+                text
+            } else {
+                format!("[U+{:04X}]", u32::from(c))
+            }
+        })
+        .collect::<String>();
+    write_key_line(
+        terminal,
+        "caller-profile-real-name",
+        &crate::LocalizationArgs::new().with("name", name),
+    )
+}
+
 fn edit_caller_profile(
     terminal: &mut dyn Terminal,
     database: &mut RuntimeDatabase,
     authenticated: &mut AuthenticatedCaller,
     config: &CallerConfig,
 ) -> Result<(), SessionError> {
-    if config.profile.all_disabled() {
-        return write_line(
-            terminal,
-            "The Sysop has disabled optional caller-profile fields.",
-        )
-        .map_err(Into::into);
-    }
     write_key_line(
         terminal,
         "caller-profile-title",
         &crate::LocalizationArgs::new(),
     )?;
+    show_profile_identity(terminal, &authenticated.caller)?;
     let Some(profile) = collect_caller_profile(
         terminal,
         &config.profile,
         authenticated.caller.profile.clone(),
+        true,
     )?
     else {
         write_key_line(
@@ -1874,8 +2009,15 @@ fn edit_caller_profile(
         )?;
         return Ok(());
     };
-    authenticated.caller =
-        database.update_caller_profile(authenticated.caller.id, profile, &config.profile)?;
+    authenticated.caller = database.update_caller_profile_versioned(
+        authenticated.caller.id,
+        authenticated.caller.state_version,
+        profile,
+        &config.profile,
+        crate::identity::IdentityEditActor::Caller,
+        unix_seconds()?,
+    )?;
+    show_profile_identity(terminal, &authenticated.caller)?;
     info!(
         caller_id = authenticated.caller.id.get(),
         "caller profile updated"

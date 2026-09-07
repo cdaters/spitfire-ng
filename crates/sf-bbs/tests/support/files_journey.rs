@@ -159,6 +159,9 @@ fn copies(b: &HubBoard, name: &str) -> usize {
 }
 #[test]
 fn four_daemon_fileecho_hatch_freq_and_cold_restore() {
+    let _journey = DAEMON_JOURNEY_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let temp = tempfile::tempdir().unwrap();
     let hp = port();
     let up = port();

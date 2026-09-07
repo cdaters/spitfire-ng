@@ -371,7 +371,16 @@ pub(super) fn areafix(
             attributes: 1,
             cost: 0,
         };
-        let mid = insert_native(tx, &response, None, None, None, None, now)?;
+        let mid = insert_native(
+            tx,
+            &response,
+            None,
+            None,
+            None,
+            None,
+            now,
+            super::mail::NativeIdentity::System,
+        )?;
         let pid = publish(tx, &response, mid, None, now)?;
         queue_target(
             tx,
@@ -429,6 +438,7 @@ mod rescan_context_tests {
     #[test]
     fn missing_or_inconsistent_message_domain_is_never_guessed() {
         let link = Link {
+            posting_identity: Default::default(),
             id: "peer".into(),
             remote: "90:100/1@interop".parse().unwrap(),
             aka: "local".into(),

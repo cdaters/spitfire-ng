@@ -13,7 +13,7 @@
 use crate::{ApplicationError, BoardRuntime};
 use serde::{Deserialize, Serialize};
 use sf_core::{ftn, RuntimeDatabase};
-pub const NETWORKS_MINOR: u16 = 9;
+pub const NETWORKS_MINOR: u16 = 12;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub page: ftn::NetworkPage,
@@ -30,7 +30,8 @@ pub(crate) fn snapshot(
     query: &ftn::NetworkQuery,
 ) -> Result<Snapshot, ApplicationError> {
     let config = runtime.configuration.current()?;
-    let db = RuntimeDatabase::open_read_only(runtime.database_path())?;
+    let mut db = RuntimeDatabase::open_read_only(runtime.database_path())?;
+    db.bind_posting_identity_configuration(&config);
     let result = Snapshot {
         page: db.network_page(query)?,
         ftn: config.ftn,

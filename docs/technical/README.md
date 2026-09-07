@@ -5,7 +5,7 @@ Current source implements N1–N6 networking and [N7 FTN file networking](ftn-fi
 
 <!-- help-topic: technical.reference -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 23)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 28)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -258,4 +258,6 @@ See [hub authority contract](ftn-hub.md) for downstreams, subscriptions, AreaFix
 
 ## FTN file networking — N7
 
-See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 27; en-US 1.24.0 / 1,291 messages.
+See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 28; en-US 1.25.0 / 1,308 messages.
+
+See the [account and posting identity contract](identity-policy.md) for schema 28 name privacy and sender stability.

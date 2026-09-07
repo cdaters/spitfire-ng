@@ -67,6 +67,7 @@ fn board() -> Board {
         links: [("up", 2), ("a", 3), ("b", 4)]
             .into_iter()
             .map(|(id, node)| Link {
+                posting_identity: Default::default(),
                 id: id.into(),
                 remote: format!("10:100/{node}@synthetic").parse().unwrap(),
                 aka: "local".into(),
