@@ -15,6 +15,7 @@ mod admin;
 mod backup;
 mod board_lock;
 pub mod circuitnet;
+pub mod circuitnet_live;
 mod configuration;
 pub use configuration::{
     configuration_version, current_operator_identity, ConfigurationDomainSummary,

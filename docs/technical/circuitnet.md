@@ -3,8 +3,8 @@
 C2 defines an independent, development/offline public-conference adapter around
 native SPITFIRE messages. The interface gate was written before implementation. C1/M063 remains
 private historical authority; this independently authored contract contains no
-legacy packet layout or proprietary implementation. No legacy or live-transport
-compatibility is claimed.
+legacy packet layout or proprietary implementation. No legacy compatibility is claimed. C3 supplies the additional
+[live transport boundary](circuitnet-transport.md) without replacing this foundation.
 
 ## Interface gate
 
@@ -44,7 +44,7 @@ are never implicitly bridged. Native messages remain the sole payload store.
 The codec in sf-net has no database/filesystem authority. The service in sf-core
 owns validated policy, native import, identity/provenance, queue and receipts.
 The host owns bounded file I/O and the existing restricted artifact store.
-A future transport invokes the same prepare/import/acknowledge boundary with
+C3 live transport invokes the same prepare/import/acknowledge boundary with
 independently established neighbor authority. C2 explicitly requires operator-trusted
 offline custody and exact expected neighbor; files carry assertions, not credentials.
 This is suitable for isolated development exchange, not admission of Internet files.
@@ -78,13 +78,13 @@ preserves acknowledged truth and holds uncertain outbound work for explicit retr
 random message IDs avoid restored counters reusing identities. An old snapshot
 cannot invent later acknowledgements; replay to the receiver safely recovers them.
 
-Future native transport must define authenticated enrollment, version/capability
-negotiation, bounded batches, acknowledgement/retry state and channel protection.
+C3 defines authenticated enrollment, version/capability negotiation, bounded
+batches, acknowledgement/retry state and channel protection in its separate wire contract.
 Legacy codecs are a separate deferred compatibility boundary, with no empty codec
 or speculative C3 tables. Third-party adapters can implement this envelope without
 SPITFIRE database knowledge. Conference Health remains future native analytics
 across all conferences. Private/directed mail, files, governance, catalog creation,
-remote Dossier commands and live transport are outside C2.
+remote Dossier commands and live transport are outside C2; live transport is C3.
 
 ## Schema 29 and implementation map
 
@@ -150,3 +150,19 @@ and `sf-bbs/tests/circuitnet.rs`. The last test creates independent boards and r
 actual operator processes, file handoffs and native cold backup/restore. Set
 `SPITFIRE_C2_EVIDENCE` to a nonexistent disposable directory to retain that journey's
 private board/artifact evidence. This test opens no CircuitNET or caller listeners.
+
+## C3 transport addition
+
+Schema 30 adds live configuration and bounded health only; see the
+[wire contract](circuitnet-transport.md#durable-implementation-authority).
+The original offline `prepare/import/acknowledge` APIs still require the profile's
+explicit trusted-offline opt-in. Their shared `*_neighbor` implementations accept
+host-established neighbor authority and apply identical topology, Dossier,
+identity, native-storage and receipt policy. Live TLS admission occurs in sf-bbs,
+never in this core. Native scanning also works for a live-only profile.
+
+Daemon networking owns profile listeners, finite outbound workers and protected
+operator actions. sfconfig preserves the cold C2 interface and adds live commands;
+sfmonitor adds the CircuitNET Networks section. C2 atomic batch and restore-held
+semantics remain accepted. Test names and acceptance details for the live layer
+are documented with C3, while the original offline journey remains a regression.

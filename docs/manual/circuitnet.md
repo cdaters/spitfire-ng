@@ -1,16 +1,14 @@
-# CircuitNET NG: offline public conferences
+# CircuitNET NG public conferences
 
 CircuitNET NG is SPITFIRE NG's native conference-networking service. It preserves
 CircuitNET's Node IDs, END/HOST/ROOT tree, conference codenames and Dossiers.
 SPITFIRE messages remain ordinary native messages. There is no FTN or QWK
 translation and no separate CircuitNET message base.
 
-**Development Preview — C2 offline exchange only.** There is no CircuitNET
-Internet listener, TCP/TLS transport, legacy packet reader/writer, private mail,
-file networking or remote administration. Use isolated disposable boards. Do not
-import files obtained from untrusted sources: this profile relies on an operator
-who has established custody of each configured neighbor's files. Names inside a
-file do not authenticate its producer.
+C3 adds native encrypted, authenticated live exchange. Use explicitly configured
+neighbors; no public port or automatic discovery is assigned. C2 offline exchange
+remains available when explicitly enabled. Private mail, file networking, legacy
+packets and remote network administration remain outside this implementation.
 
 ## Identity and the tree
 
@@ -28,7 +26,7 @@ hostnames, native node slots, telephone area codes and filenames.
 C2 configures the whole small tree explicitly on each participating board. Cycles,
 missing parents, duplicate IDs, multiple top nodes, ROOT parents and END children
 are rejected. The bounded tree also checks whether an asserted origin can arrive
-through that neighbor. Enrollment and live topology moves remain future work;
+through that neighbor. Topology moves remain future work;
 a node's identity/tree cannot be changed after it has retained message history.
 
 ## Conferences and Dossiers
@@ -51,7 +49,7 @@ Previously accepted messages and receipts remain. A file already offered to a
 neighbor may still be acknowledged after removal. Re-subscribing permits future
 traffic; it does not automatically replay history or release held work.
 
-## Operator commands
+## Offline operator commands
 
 Stop the board first. The commands acquire the normal cold-board operation lock;
 they fail if a daemon or another cold operation owns it. The local operator needs
@@ -149,3 +147,154 @@ when recovering a replacement with the same identity. See
 The [technical contract](../technical/circuitnet.md) defines exact bounds and
 ownership. C2 stops at this offline slice; live transport, enrollment, governance,
 revived catalogs and third-party adapters require subsequent review.
+
+## Live setup: END, HOST and ROOT
+
+Create four disposable boards with their own native public conferences. Use the
+same profile name and full tree on each board. The local Node ID differs:
+
+```sh
+sfconfig circuitnet BOARD init circuitnet-test END00001 "CircuitNET Test" --live ROOT0001:ROOT:- HOST0001:HOST:ROOT0001 END00001:END:HOST0001 END00002:END:HOST0001
+```
+
+For the HOST use `HOST0001` as the local ID; for the ROOT use `ROOT0001`;
+for the other END use `END00002`. `--live` does not enable offline file trust.
+Use `--trusted-offline` instead when the same isolated profile should support both
+transports. Map the appropriate local conference numbers to `CNTEST` and `CNTECH`
+using the earlier `map` command. END1 carries both, END2 only CNTEST. Configure
+HOST/ROOT mappings to both codenames. Run `subscribe` for both ends of each direct
+relationship: ROOT/HOST, HOST/END1, HOST/END2. Only grant END2 CNTEST.
+
+### Certificates and credentials
+
+Each board/profile owns a unique TLS certificate and private key. A neighbor's
+public certificate is its enrollment credential. Transfer and verify that public
+certificate through an operator-controlled channel before enrollment. Never copy
+a node's private key to a neighbor. There is no additional shared password.
+
+For isolated acceptance, OpenSSL can generate a self-signed certificate without
+a public CA. Save this as `certificate.conf`, replacing the Node ID and DNS name
+for each board:
+
+```ini
+[req]
+prompt=no
+distinguished_name=dn
+x509_extensions=ext
+[dn]
+CN=END00001
+[ext]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:end00001.circuitnet.invalid
+```
+
+```sh
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 30 -outform DER -config certificate.conf -keyout identity.key -out identity.der
+openssl pkcs8 -topk8 -nocrypt -outform DER -in identity.key -out identity-private.der
+sfconfig circuitnet BOARD identity circuitnet-test identity.der identity-private.der
+```
+
+Keep source key files private; the host imports the matching key into its existing
+restricted SYSTEM custody boundary. Status exposes only credential presence.
+The certificate must be valid for both TLS server/client use and its configured
+server name. Expiry, invalid signatures, missing credentials and wrong server
+names fail closed. To rotate, stop the affected daemons, install the new identity,
+and update the certificate enrolled at each direct neighbor before restarting.
+Old public receipts and native messages do not change. Production automation for
+certificate issuance/renewal is deferred.
+
+### Listener and neighbor enrollment
+
+Choose distinct non-privileged localhost ports, for example ROOT 36401, HOST
+36402, END1 36403, END2 36404. These are examples, not assigned protocol ports.
+While each board is stopped:
+
+```sh
+sfconfig circuitnet HOST_BOARD listener circuitnet-test 127.0.0.1:36402
+sfconfig circuitnet END1_BOARD peer circuitnet-test HOST0001 127.0.0.1 36402 host0001.circuitnet.invalid host-identity.der yes yes
+sfconfig circuitnet HOST_BOARD peer circuitnet-test END00001 127.0.0.1 36403 end00001.circuitnet.invalid end1-identity.der yes yes
+```
+
+The last two values grant inbound and outbound connections, respectively. Add the
+ROOT/HOST and HOST/END2 links in the same way. Certificate assignment must be unique
+among a profile's neighbors. Only topology-adjacent nodes can be enrolled. Use
+`peer-enabled PROFILE NODE no` to disable a peer while stopped. Re-running `peer`
+updates its endpoint, certificate and direction flags. `listener PROFILE off`
+disables incoming connections. An END with its listener off can still initiate
+polls to retrieve queued HOST traffic; give the HOST inbound permission for it.
+Connection initiation never changes END/HOST/ROOT role.
+
+Start the ordinary `spitfire run BOARD` daemon on each board. A CircuitNET-only
+board does not require a caller listener. Listener/identity/endpoint changes are
+cold-board operations and take effect on the next start. Each profile has its own
+listener and local identity, so incoming profile selection is unambiguous.
+
+### Test, exchange, hold and retry
+
+These commands require the running daemon and protected operator connection:
+
+```sh
+sfconfig circuitnet END1_BOARD test-link circuitnet-test HOST0001
+sfconfig circuitnet END1_BOARD poll circuitnet-test HOST0001
+sfconfig circuitnet END1_BOARD live-status circuitnet-test
+sfconfig circuitnet HOST_BOARD hold circuitnet-test END00002
+sfconfig circuitnet HOST_BOARD release circuitnet-test END00002
+```
+
+Test Link checks TCP, TLS, protocol, Node ID, profile and role without preparing or
+transferring messages. Poll starts an asynchronous bounded exchange: at most one
+32-message batch in each direction. Inspect `live-status` for completion. Repeat
+polls to drain larger backlogs. The worker retries transient failures up to three
+times; there is no unattended polling scheduler. Sender preparation scans eligible
+native posts, while HOST import immediately creates eligible onward queue intent.
+
+Hold applies to both connection directions and leaves durable work intact. It also
+blocks later batch admission/preparation on an already authenticated session;
+a receipt for a batch already committed can still complete delivery. Release
+permits catch-up. Dossiers are rechecked for new work. Online operator-managed
+changes use `live-subscribe` or `live-unsubscribe` followed by profile, neighbor,
+codename and expected Dossier revision. These are local operator commands, never
+remote Dossier administration.
+
+After restore, review held queue rows with the cold `queue` command, then use
+`retry PROFILE QUEUE_ID REVISION` while stopped, or
+`live-retry PROFILE QUEUE_ID REVISION` while running. Dossier/identity policy must
+still permit the delivery. Receipt loss is safe to retry: the receiver recognizes
+the original identity/artifact and returns durable acceptance without importing
+or forwarding it twice. Twelve failed delivery attempts require operator review;
+there is no silent reset of that admission ceiling.
+
+The operator needs `network-status` to inspect live state, `network-test` for
+Test Link, `network-run` for Poll, `network-queue` for Hold/Release/live Retry,
+and `change-sensitive-configuration` for Dossiers. Enrollment retains the cold
+configuration grants documented above. Commands report admission/start separately
+from eventual link success.
+
+### Networks view and troubleshooting
+
+Open Networks in sfmonitor and select CircuitNET Networks. Each profile shows its
+local ID/role, listener and credential status. Neighbor rows show endpoint, held
+and active state, queued work, last attempt, last success and safe result. Select
+a neighbor and use `t` Test Link, `p` Poll, `h` Hold, `r` Release; the normal
+operator confirmation/capability controls apply.
+
+- `connect`: check the configured address/port and whether the daemon is running.
+- `tls`: verify the enrolled certificate, matching private key, certificate expiry,
+  server name, TLS 1.3 and mutual authentication on both ends.
+- `unknown-node`, `wrong-network`, `topology-mismatch`: compare the exact profile,
+  local IDs, roles and full tree. Do not relax admission to make a test pass.
+- `unsupported-version`: the peer needs a common CircuitNET NG major/minor range
+  and required capabilities.
+- `held` or `unauthorized-codename`: inspect neighbor hold, permissions and Dossiers.
+- `conflicting-message`: preserve queue/artifact evidence for review. Do not edit
+  accepted identities or discard receipts.
+- `timeout` or `interrupted`: retry after the link is available; ambiguous delivery
+  is resolved through the receiver's durable receipt.
+
+A rejected batch is atomic. A valid member remains pending if another member
+conflicts or is unauthorized. Existing duplicate history remains intact. Native
+backup/restore preserves config, credentials, Dossiers, queue/artifact custody and
+receipts; it never restores an active socket. See the
+[wire specification](../technical/circuitnet-transport.md) for exact protocol rules.

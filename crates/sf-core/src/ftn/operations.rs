@@ -24,9 +24,10 @@ pub enum NetworkSection {
     Recovery,
     Hub,
     Files,
+    Circuitnet,
 }
 impl NetworkSection {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Overview,
         Self::Links,
         Self::Queues,
@@ -36,6 +37,7 @@ impl NetworkSection {
         Self::Recovery,
         Self::Hub,
         Self::Files,
+        Self::Circuitnet,
     ];
     pub const fn key(self) -> &'static str {
         match self {
@@ -48,6 +50,7 @@ impl NetworkSection {
             Self::Recovery => "networks-recovery",
             Self::Hub => "networks-hub",
             Self::Files => "networks-files",
+            Self::Circuitnet => "circuitnet-networks",
         }
     }
 }

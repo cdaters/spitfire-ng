@@ -1,12 +1,15 @@
 # CircuitNet Preservation and Modernization Specification
 
-## Current status — C2 native/offline foundation
+## Current status — C2 foundation and C3 live transport
 
 CircuitNET NG now implements a modern native public-conference adapter with
 network/Node identity, END/HOST/ROOT, configured tree validation, codenames,
 Dossiers, durable per-neighbor queues/receipts and offline JSON exchange.
 [Operator manual](manual/circuitnet.md); [technical contract](technical/circuitnet.md).
-Native messages remain canonical. No legacy codec, live transport, private mail,
+C3 adds native TLS 1.3 authenticated direct-neighbor transport, symmetric polls,
+live tree/Dossier routing and durable acknowledgement/reconnect recovery. See the
+[wire specification](technical/circuitnet-transport.md).
+Native messages remain canonical. No legacy codec, private mail,
 file networking, governance automation or historical catalog is implemented.
 The older aspirational sections below do not define current functionality.
 C1 remains historical authority; legacy archaeology is deferred.

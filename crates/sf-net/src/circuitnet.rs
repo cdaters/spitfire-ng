@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Development/offline CircuitNET NG envelope; no legacy codec or I/O authority.
+pub mod transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;

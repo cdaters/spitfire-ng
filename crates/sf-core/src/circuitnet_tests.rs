@@ -575,3 +575,137 @@ fn admission_failure_after_first_message_rolls_back_entire_batch() {
     assert_eq!(count(&host), 0);
     assert_eq!(host.db.circuitnet_status(&net()).unwrap().pending, 0);
 }
+
+#[test]
+fn live_config_binding_cas_and_health_survive_reopen() {
+    let mut b = board("HOST");
+    let mut config = live::Config {
+        listener: Some("127.0.0.1:34567".parse().unwrap()),
+        certificate: vec![1],
+        peers: vec![live::Peer {
+            node: node("END1"),
+            host: "127.0.0.1".into(),
+            port: 34568,
+            server_name: "end1.invalid".into(),
+            certificate: vec![2],
+            enabled: true,
+            inbound: true,
+            outbound: true,
+            held: false,
+        }],
+    };
+    b.db.circuitnet_configure_live("operator", &net(), &config, 0, 10)
+        .unwrap();
+    assert!(b
+        .db
+        .circuitnet_configure_live("operator", &net(), &config, 0, 11)
+        .is_err());
+    let mut bad = config.clone();
+    bad.peers[0].node = node("UNKNOWN");
+    assert!(bad
+        .validate(&b.db.circuitnet_status(&net()).unwrap().profile)
+        .is_err());
+    let mut bad = config.clone();
+    bad.peers.push(bad.peers[0].clone());
+    assert!(bad
+        .validate(&b.db.circuitnet_status(&net()).unwrap().profile)
+        .is_err());
+    let mut bad = config.clone();
+    let mut duplicate = bad.peers[0].clone();
+    duplicate.node = node("END2");
+    bad.peers.push(duplicate);
+    assert!(bad
+        .validate(&b.db.circuitnet_status(&net()).unwrap().profile)
+        .is_err());
+    config.peers[0].held = true;
+    b.db.circuitnet_configure_live("operator", &net(), &config, 1, 12)
+        .unwrap();
+    assert!(config.peer(&node("END1"), false).is_err());
+    let health = live::Health {
+        last_attempt: 12,
+        result: "auth-failed".into(),
+        ..Default::default()
+    };
+    b.db.circuitnet_record_link(&net(), &node("END1"), &health)
+        .unwrap();
+    let mut bad = health.clone();
+    bad.result = "private message or credential".into();
+    assert!(b
+        .db
+        .circuitnet_record_link(&net(), &node("END1"), &bad)
+        .is_err());
+    let reopened = RuntimeDatabase::open(&b._temp.path().join("native.sqlite3")).unwrap();
+    assert_eq!(reopened.circuitnet_live(&net()).unwrap().0, config);
+    assert_eq!(
+        reopened
+            .circuitnet_link_health(&net(), &node("END1"))
+            .unwrap()
+            .unwrap()
+            .result,
+        "auth-failed"
+    );
+}
+#[test]
+fn live_authority_is_separate_from_offline_opt_in() {
+    let mut b = board("HOST");
+    let mut s = b.db.circuitnet_status(&net()).unwrap();
+    s.profile.trusted_offline = false;
+    b.db.circuitnet_configure("operator", &s.profile, s.version, 2)
+        .unwrap();
+    post(&mut b, "Live only", None);
+    scan(&mut b);
+    assert!(matches!(
+        b.db.circuitnet_prepare(&b.store, &net(), &node("END1"), 3),
+        Err(Error::Policy)
+    ));
+    assert!(b
+        .db
+        .circuitnet_prepare_neighbor(&b.store, &net(), &node("END1"), 3)
+        .is_ok());
+}
+#[test]
+fn atomic_mixed_valid_duplicate_conflict_preserves_exact_truth() {
+    let (mut source, mut receiver) = (board("END1"), board("HOST"));
+    post(&mut source, "B duplicate", None);
+    scan(&mut source);
+    let old = transfer(&mut source, &mut receiver);
+    post(&mut source, "A valid", None);
+    post(&mut source, "C conflict", None);
+    scan(&mut source);
+    let pending = prepare(&mut source, "HOST");
+    let mut batch = Batch::decode(&pending.bytes).unwrap();
+    let old = Batch::decode(&old.bytes).unwrap();
+    // C has a valid distinct identity but unauthorized codename; B is an exact duplicate.
+    batch.messages.insert(1, old.messages[0].clone());
+    batch.messages[2].codename = code("DENIED");
+    assert!(receiver
+        .db
+        .circuitnet_import_neighbor(
+            &receiver.store,
+            &net(),
+            &node("END1"),
+            &batch.encode().unwrap(),
+            30
+        )
+        .is_err());
+    assert_eq!(count(&receiver), 1);
+    let accepted = receiver
+        .db
+        .circuitnet_import_neighbor(&receiver.store, &net(), &node("END1"), &pending.bytes, 31)
+        .unwrap();
+    assert_eq!(accepted.imported, 2);
+    assert_eq!(count(&receiver), 3);
+    let mut conflicting = Batch::decode(&pending.bytes).unwrap();
+    conflicting.messages[0].body = "conflicting body".into();
+    assert!(matches!(
+        receiver.db.circuitnet_import_neighbor(
+            &receiver.store,
+            &net(),
+            &node("END1"),
+            &conflicting.encode().unwrap(),
+            32
+        ),
+        Err(Error::Conflict)
+    ));
+    assert_eq!(count(&receiver), 3);
+}

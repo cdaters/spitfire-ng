@@ -1,5 +1,38 @@
 # SPITFIRE NG Roadmap
 
+## CircuitNET NG C3 — authenticated live conference exchange
+
+Schema **30** adds native CircuitNET NG TCP/TLS 1.3 links to the accepted C2
+native-message/offline foundation. Explicit certificates bind direct neighbors to
+Node IDs and profiles. Configured END/HOST/ROOT trees and current Dossiers route
+public conferences upstream, downstream and between siblings. SPITFIRE messages
+remain canonical; CircuitNET uses its own protocol, without BinkP/FTN/QWK translation.
+
+Symmetric finite polls carry the existing bounded C2 envelopes and exact durable
+receipts. Lost acknowledgements recover through replay without a second import or
+fanout. Hold/release, explicit retry, restart and native backup/restore preserve
+queue truth. sfconfig adds live setup/actions, and sfmonitor adds CircuitNET Networks.
+en-US is **1.27.0 / 1,328 messages**.
+
+See the [operator manual](docs/manual/circuitnet.md),
+[native contract](docs/technical/circuitnet.md) and
+[wire specification](docs/technical/circuitnet-transport.md).
+**C3 COMPLETE / ACCEPTED.** Sanitized public acceptance: **707 tests passed /
+0 failed / 7 existing ignored**, including all six doctest groups. Headers (129),
+fmt, all-target Clippy with warnings denied, diff, 127 Markdown documents / 934
+local links and privacy/provenance checks pass. The real Apple Silicon four-board
+TLS journey, automatic lost-ACK reconnect and C2 offline regression all pass.
+cargo-audit is unavailable. The reviewed public delta is 7 added / 25 updated files.
+
+C1 remains historical authority. C2 remains the native/offline foundation. C3 adds
+live native transport only, with third-party-friendly wire boundaries and SPITFIRE
+NG as the reference implementation. No legacy CNP/CND work, private mail, file
+networking, remote Dossier commands, directed routing or governance automation.
+No production systems changed or external live CircuitNET traffic occurred.
+Stop after C3 for review; **do not begin C4**. No binary release or public port assignment.
+
+Earlier sections retain their historical checkpoint scope.
+
 ## CircuitNET NG C2 — native offline conference exchange
 
 Schema **29** implements CircuitNET as a first-class service around native SPITFIRE

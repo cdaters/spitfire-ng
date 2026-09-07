@@ -20,6 +20,9 @@ pub const NETWORK_MINOR: u16 = 12;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
+    Circuitnet {
+        request: crate::circuitnet_live::Action,
+    },
     Hold {
         queue: String,
         expected: i64,
@@ -60,6 +63,9 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
+        if matches!(self, Self::Circuitnet { .. }) {
+            return crate::OperatorFeature::Circuitnet;
+        }
         if matches!(
             self,
             Self::Ftn {
@@ -96,6 +102,7 @@ impl NetworkAction {
     }
     pub fn capability(&self) -> Capability {
         match self {
+            Self::Circuitnet { request } => request.capability(),
             Self::Binkp { request } => request.capability(),
             Self::Ftn { request } => request.capability(),
             Self::Configure { .. } | Self::ConfigureMail { .. } => {
@@ -151,6 +158,7 @@ pub(crate) fn dispatch(
     let mut db = RuntimeDatabase::open(runtime.database_path())?;
     db.bind_posting_identity_configuration(&runtime.configuration.current()?);
     let operation = match action {
+        NetworkAction::Circuitnet { request } => request.operation(),
         NetworkAction::Binkp { request } => request.operation(),
         NetworkAction::Ftn { request } => request.operation(),
         NetworkAction::Configure { .. } => "network.configure",
@@ -207,6 +215,9 @@ pub(crate) fn dispatch(
     }
     let result = (|| -> Result<NetworkResult, ApplicationError> {
         Ok(match action {
+            NetworkAction::Circuitnet { request } => {
+                crate::circuitnet_live::dispatch(runtime, principal, request)?
+            }
             NetworkAction::Hold { queue, expected } => {
                 db.hold_qwk_network(principal, queue, *expected, now)?;
                 NetworkResult::Updated
@@ -278,7 +289,9 @@ pub(crate) fn dispatch(
                 now,
                 sf_core::EventCategory::Message,
                 sf_core::EventSeverity::Warning,
-                if matches!(action, NetworkAction::Ftn { .. }) {
+                if matches!(action, NetworkAction::Circuitnet { .. }) {
+                    "message.circuitnet.operation-failed"
+                } else if matches!(action, NetworkAction::Ftn { .. }) {
                     "message.ftn.operation-failed"
                 } else {
                     "message.qwk-network.exchange-failed"

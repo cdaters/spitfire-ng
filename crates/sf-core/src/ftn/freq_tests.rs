@@ -312,7 +312,7 @@ fn freq_schema_26_migration_preserves_acknowledged_request_and_is_atomic() {
             .unwrap();
     }
     b.db.connection
-        .execute_batch("DELETE FROM schema_migrations WHERE version=29; PRAGMA foreign_keys=ON;")
+        .execute_batch("DELETE FROM schema_migrations WHERE version>=29; PRAGMA foreign_keys=ON;")
         .unwrap();
     b.db.connection.execute_batch(r#"DROP TRIGGER caller_legacy_name_immutable; DROP TRIGGER caller_name_bounds_insert; DROP TRIGGER caller_name_bounds_update;
 DROP TRIGGER message_author_immutable; DROP TABLE network_sender_snapshots; DROP TABLE caller_name_events;

@@ -1086,6 +1086,26 @@ netconfig-field-posting-identity = Posting identity requirement
 netconfig-effective-identity = Effective posting identity (saved policy)
 
 # CircuitNET C2 explicitly uses cold-board operator custody.
-circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <init|enable|map|subscribe|unsubscribe|status|queue|scan|export|import|ack|retry> <network> [arguments]. See the CircuitNET manual. Stop the board first.
+circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. See the CircuitNET manual for offline exchange and full syntax.
 circuitnet-file-error = Offline Exchange file unavailable, oversized, unsafe, or output already exists. Retained delivery work can be retried.
 circuitnet-completed = CircuitNET operation completed. Export is pending until the neighbor's durable receipt is acknowledged.
+
+# Native CircuitNET live links
+circuitnet-networks = CircuitNET Networks
+circuitnet-listener = Listener
+circuitnet-peer = Neighbor
+circuitnet-test-link = Test Link
+circuitnet-poll = Exchange / Poll
+circuitnet-authentication = Certificate credential
+circuitnet-tls = TLS 1.3
+circuitnet-protocol-version = Protocol version
+circuitnet-held = Held
+circuitnet-last-contact = Last success
+circuitnet-last-attempt = Last attempt
+circuitnet-active = Link active
+circuitnet-link-failure = Link failure
+
+circuitnet-dossiers = Dossier codenames
+circuitnet-keys = t Test Link · p Exchange/Poll · h Hold · r Release · Enter details · Tab section
+circuitnet-hold = Hold neighbor
+circuitnet-release = Release neighbor

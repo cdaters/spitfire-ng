@@ -74,13 +74,105 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
         return Err(usage());
     };
     let network = codec(NetworkId::new(network))?;
+    if matches!(
+        *action,
+        "test-link"
+            | "poll"
+            | "live-status"
+            | "hold"
+            | "release"
+            | "live-retry"
+            | "live-subscribe"
+            | "live-unsubscribe"
+    ) {
+        return live_command(config, action, &network, rest);
+    }
     let authority = OfflineConfiguration::open(config)?;
     let now = chrono::Utc::now().timestamp();
     let config_cap = LocalOperatorCapability::ChangeSensitiveConfiguration;
     let run_cap = LocalOperatorCapability::NetworkRun;
     let read_cap = LocalOperatorCapability::ReadConfiguration;
     match (*action, rest) {
-        ("init", [local, name, trust, nodes @ ..]) if *trust == "--trusted-offline" => {
+        ("identity", [certificate, key]) => {
+            let certificate = read(certificate)?;
+            let secret = read(key)?;
+            let cfg = sf_core::RuntimeConfig::load(config)?;
+            let paths = sf_core::LogicalPaths::resolve(
+                config.parent().ok_or_else(usage)?,
+                &cfg.validate()?,
+            )?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let (mut c, v) = db.circuitnet_live(&network)?;
+                crate::circuitnet_live::install_identity(
+                    paths.get(sf_core::LogicalPath::System),
+                    &certificate,
+                    secret,
+                )
+                .map_err(|_| Error::Policy)?;
+                c.certificate = certificate;
+                db.circuitnet_configure_live(actor, &network, &c, v, now)
+            })?;
+        }
+        ("listener", [address]) => {
+            let address = if *address == "off" {
+                None
+            } else {
+                Some(address.parse().map_err(|_| usage())?)
+            };
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let (mut c, v) = db.circuitnet_live(&network)?;
+                c.listener = address;
+                db.circuitnet_configure_live(actor, &network, &c, v, now)
+            })?;
+        }
+        ("peer", [node, host, port, server_name, certificate, inbound, outbound]) => {
+            let node = codec(NodeId::new(node))?;
+            let port = port.parse().map_err(|_| usage())?;
+            let certificate = read(certificate)?;
+            let flag = |s: &str| match s {
+                "yes" => Ok(true),
+                "no" => Ok(false),
+                _ => Err(usage()),
+            };
+            let inbound = flag(inbound)?;
+            let outbound = flag(outbound)?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let (mut c, v) = db.circuitnet_live(&network)?;
+                c.peers.retain(|p| p.node != node);
+                c.peers.push(live::Peer {
+                    node,
+                    host: (*host).into(),
+                    port,
+                    server_name: (*server_name).into(),
+                    certificate,
+                    enabled: true,
+                    inbound,
+                    outbound,
+                    held: false,
+                });
+                db.circuitnet_configure_live(actor, &network, &c, v, now)
+            })?;
+        }
+        ("peer-enabled", [node, enabled]) => {
+            let node = codec(NodeId::new(node))?;
+            let enabled = match *enabled {
+                "yes" => true,
+                "no" => false,
+                _ => return Err(usage()),
+            };
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let (mut c, v) = db.circuitnet_live(&network)?;
+                c.peers
+                    .iter_mut()
+                    .find(|p| p.node == node)
+                    .ok_or(Error::Policy)?
+                    .enabled = enabled;
+                db.circuitnet_configure_live(actor, &network, &c, v, now)
+            })?;
+        }
+        ("init", [local, name, trust, nodes @ ..])
+            if matches!(*trust, "--trusted-offline" | "--live") =>
+        {
             let topology = Topology {
                 nodes: nodes
                     .iter()
@@ -106,7 +198,7 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
                 display_name: (*name).into(),
                 local: codec(NodeId::new(local))?,
                 enabled: true,
-                trusted_offline: true,
+                trusted_offline: *trust == "--trusted-offline",
                 topology,
             };
             authority.circuitnet(config_cap, |db, _, actor| {
@@ -230,4 +322,76 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
         _ => return Err(usage()),
     }
     Ok(crate::op("circuitnet-completed"))
+}
+
+fn live_command(
+    config: &Path,
+    action: &str,
+    network: &NetworkId,
+    rest: &[&str],
+) -> Result<String, ApplicationError> {
+    use crate::circuitnet_live::Action;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| usage())?;
+    rt.block_on(async {
+        let mut client = crate::OperatorClient::connect(config).await?;
+        client.describe_operator_controls().await?;
+        let snapshot = client
+            .networks(sf_core::ftn::NetworkQuery {
+                section: sf_core::ftn::NetworkSection::Circuitnet,
+                offset: 0,
+            })
+            .await?;
+        let status = snapshot
+            .circuitnet
+            .iter()
+            .find(|n| &n.network == network)
+            .ok_or_else(usage)?;
+        if action == "live-status" && rest.is_empty() {
+            return serde_json::to_string_pretty(status).map_err(|_| usage());
+        }
+        let request = match (action, rest) {
+            ("test-link", [node]) => Action::Test {
+                network: network.clone(),
+                node: codec(NodeId::new(node))?,
+            },
+            ("poll", [node]) => Action::Poll {
+                network: network.clone(),
+                node: codec(NodeId::new(node))?,
+            },
+            ("hold" | "release", [node]) => Action::Hold {
+                network: network.clone(),
+                node: codec(NodeId::new(node))?,
+                held: action == "hold",
+                expected: status.version,
+            },
+            ("live-retry", [queue, version]) => Action::Retry {
+                network: network.clone(),
+                queue: (*queue).into(),
+                expected: version.parse().map_err(|_| usage())?,
+            },
+            ("live-subscribe" | "live-unsubscribe", [node, code, version]) => Action::Subscribe {
+                network: network.clone(),
+                node: codec(NodeId::new(node))?,
+                codename: codec(Codename::new(code))?,
+                subscribed: action == "live-subscribe",
+                expected: version.parse().map_err(|_| usage())?,
+            },
+            _ => return Err(usage()),
+        };
+        let result = client
+            .qwk_network_action(
+                crate::operator_control::random_token(),
+                crate::NetworkAction::Circuitnet { request },
+            )
+            .await?;
+        if matches!(result, crate::NetworkResult::Rejected { .. }) {
+            return Err(ApplicationError::Transport(
+                "CircuitNET operator action rejected".into(),
+            ));
+        }
+        serde_json::to_string_pretty(&result).map_err(|_| usage())
+    })
 }

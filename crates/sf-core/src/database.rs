@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 29;
+pub const SCHEMA_VERSION: u32 = 30;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 29] = [
+const MIGRATIONS: [Migration; 30] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1536,6 +1536,11 @@ const MIGRATIONS: [Migration; 29] = [
         version: 29,
         name: "circuitnet_native_foundation",
         sql: include_str!("circuitnet.sql"),
+    },
+    Migration {
+        version: 30,
+        name: "circuitnet_live_links",
+        sql: include_str!("circuitnet_live.sql"),
     },
 ];
 
@@ -6478,6 +6483,33 @@ mod circuitnet_migration_tests {
         )
         .unwrap();
         assert!(c.execute("INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES('missing','pending',1,1)",[]).is_err());
+    }
+    #[test]
+    fn circuitnet_schema_29_to_30_has_no_live_sessions_or_governance() {
+        let mut c = old();
+        apply_migration(&mut c, &MIGRATIONS[28]).unwrap();
+        apply_migration(&mut c, &MIGRATIONS[29]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 30);
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM circuitnet_live", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM circuitnet_link_health", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert!(c
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .next()
+            .unwrap()
+            .is_none());
     }
     #[test]
     fn circuitnet_schema_failure_rolls_back_rebuild_and_restores_fk_checks() {

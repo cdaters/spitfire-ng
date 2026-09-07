@@ -215,6 +215,7 @@ pub struct BoardRuntime {
     file_storage: FileStorage,
     pub(crate) network_artifacts: crate::DiskArtifactStore,
     pub(crate) network_lock: Mutex<()>,
+    pub(crate) circuitnet_live: crate::circuitnet_live::State,
     pub(crate) binkp_sessions: Arc<std::sync::atomic::AtomicUsize>,
     pub(crate) binkp_credentials_generation: AtomicU64,
     interaction: InteractionHub,
@@ -438,6 +439,7 @@ impl BoardRuntime {
             file_storage,
             network_artifacts,
             network_lock: Mutex::new(()),
+            circuitnet_live: Default::default(),
             binkp_sessions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             binkp_credentials_generation: AtomicU64::new(0),
             interaction: InteractionHub::new(),
@@ -1525,7 +1527,11 @@ fn serve_with_operator(
             }
         }
     }
-    if network.is_empty() && ssh_network.is_empty() && devices.is_empty() {
+    if network.is_empty()
+        && ssh_network.is_empty()
+        && devices.is_empty()
+        && !crate::circuitnet_live::configured(&runtime)?
+    {
         return Err(ApplicationError::Transport(
             "no listener or device transports are configured".to_owned(),
         ));
@@ -1545,7 +1551,7 @@ fn serve_with_operator(
     for listener in &listeners {
         info!(name = listener.name, transport = ?listener.transport, listen = %listener.address, "transport listener ready");
     }
-    let mut handles = Vec::new();
+    let mut handles = crate::circuitnet_live::listeners(runtime.clone())?;
     if let Some(handle) = crate::binkp::listener(runtime.clone())? {
         handles.push(handle);
     }

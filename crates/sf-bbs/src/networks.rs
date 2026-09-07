@@ -16,6 +16,8 @@ use sf_core::{ftn, RuntimeDatabase};
 pub const NETWORKS_MINOR: u16 = 12;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
+    #[serde(default)]
+    pub circuitnet: Vec<crate::circuitnet_live::Status>,
     pub page: ftn::NetworkPage,
     pub ftn: ftn::Policy,
     pub transport: ftn::BinkpPolicy,
@@ -33,6 +35,7 @@ pub(crate) fn snapshot(
     let mut db = RuntimeDatabase::open_read_only(runtime.database_path())?;
     db.bind_posting_identity_configuration(&config);
     let result = Snapshot {
+        circuitnet: crate::circuitnet_live::status(runtime)?,
         page: db.network_page(query)?,
         ftn: config.ftn,
         transport: config.binkp,

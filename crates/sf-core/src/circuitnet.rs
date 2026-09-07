@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Native CircuitNET NG policy, publication, queue and offline receipt authority.
+pub mod live;
 use crate::{network::NetworkArtifactStore, RuntimeDatabase};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -63,7 +64,7 @@ impl Profile {
         Ok(())
     }
     fn neighbor(&self, id: &NodeId) -> Result<(), Error> {
-        if !self.trusted_offline || !self.topology.neighbors(&self.local)?.contains(id) {
+        if !self.topology.neighbors(&self.local)?.contains(id) {
             return Err(Error::Policy);
         }
         Ok(())
@@ -486,7 +487,7 @@ impl RuntimeDatabase {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (p, _) = profile(&tx, network)?;
-        if !p.enabled || !p.trusted_offline {
+        if !p.enabled {
             return Err(Error::Policy);
         }
         let rows=tx.prepare("SELECT m.message_id,a.codename,m.author_name,p.subject,p.body,p.encoding,m.created_at,m.parent_message_id FROM messages m JOIN message_fanouts f USING(fanout_id) JOIN message_payloads p USING(payload_id) JOIN message_conferences c USING(conference_id) JOIN circuitnet_mappings a USING(conference_id) WHERE a.network=?1 AND a.send=1 AND c.active=1 AND c.public_only=1 AND m.origin_kind='native' AND m.visibility='public' AND m.audience_kind='all-callers' AND m.lifecycle_state='active' AND p.content_kind='standard' AND m.message_id>?2 AND NOT EXISTS(SELECT 1 FROM circuitnet_messages n WHERE n.network=?1 AND n.message_id=m.message_id) ORDER BY m.message_id LIMIT 100")?.query_map(params![network.as_str(),after],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Vec<u8>>(3)?,r.get::<_,Vec<u8>>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?,r.get::<_,Option<i64>>(7)?)))?.collect::<Result<Vec<_>,_>>()?;
@@ -542,6 +543,19 @@ impl RuntimeDatabase {
         Ok((count, cursor))
     }
     pub fn circuitnet_prepare(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        neighbor: &NodeId,
+        now: i64,
+    ) -> Result<Prepared, Error> {
+        if !profile(&self.connection, network)?.0.trusted_offline {
+            return Err(Error::Policy);
+        }
+        self.circuitnet_prepare_neighbor(store, network, neighbor, now)
+    }
+    /// The host must establish authenticated direct-neighbor authority before calling.
+    pub fn circuitnet_prepare_neighbor(
         &mut self,
         store: &dyn NetworkArtifactStore,
         network: &NetworkId,
@@ -626,6 +640,20 @@ impl RuntimeDatabase {
     }
     /// Only an operator who has established offline custody supplies expected_neighbor.
     pub fn circuitnet_import(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        expected_neighbor: &NodeId,
+        bytes: &[u8],
+        now: i64,
+    ) -> Result<Imported, Error> {
+        if !profile(&self.connection, network)?.0.trusted_offline {
+            return Err(Error::Policy);
+        }
+        self.circuitnet_import_neighbor(store, network, expected_neighbor, bytes, now)
+    }
+    /// The host must establish authenticated direct-neighbor authority before calling.
+    pub fn circuitnet_import_neighbor(
         &mut self,
         store: &dyn NetworkArtifactStore,
         network: &NetworkId,
@@ -725,6 +753,20 @@ impl RuntimeDatabase {
         })
     }
     pub fn circuitnet_acknowledge(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        expected_neighbor: &NodeId,
+        bytes: &[u8],
+        now: i64,
+    ) -> Result<u32, Error> {
+        if !profile(&self.connection, network)?.0.trusted_offline {
+            return Err(Error::Policy);
+        }
+        self.circuitnet_acknowledge_neighbor(store, network, expected_neighbor, bytes, now)
+    }
+    /// The host must establish authenticated direct-neighbor authority before calling.
+    pub fn circuitnet_acknowledge_neighbor(
         &mut self,
         store: &dyn NetworkArtifactStore,
         network: &NetworkId,

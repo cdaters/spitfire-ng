@@ -850,7 +850,8 @@ fn copy_reader(input: &mut File, destination: &Path) -> Result<(u64, String), Bo
     options.write(true).create_new(true);
     #[cfg(unix)]
     if destination.components().any(|c| {
-        c.as_os_str() == "binkp-credentials"
+        c.as_os_str() == "circuitnet-credentials"
+            || c.as_os_str() == "binkp-credentials"
             || c.as_os_str() == "areafix-credentials"
             || c.as_os_str() == "tic-credentials"
     }) {

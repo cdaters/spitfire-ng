@@ -213,10 +213,53 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
                 }
             }
         }
-        KeyCode::Char('s') => {
+        KeyCode::Char('s') if model.networks.query.section != Section::Circuitnet => {
             model.networks.pending = Some(NetworkAction::Ftn {
                 request: sf_bbs::ftn::Action::Scan,
             })
+        }
+        KeyCode::Char(c @ ('t' | 'p' | 'h' | 'r'))
+            if model.networks.query.section == Section::Circuitnet =>
+        {
+            if let Some(s) = &model.snapshot.networks {
+                let mut index = model.networks.selected;
+                for n in &s.circuitnet {
+                    if index == 0 {
+                        break;
+                    }
+                    index -= 1;
+                    if let Some(p) = n.peers.get(index) {
+                        use sf_bbs::circuitnet_live::Action;
+                        let request = match c {
+                            't' => Action::Test {
+                                network: n.network.clone(),
+                                node: p.node.clone(),
+                            },
+                            'p' => Action::Poll {
+                                network: n.network.clone(),
+                                node: p.node.clone(),
+                            },
+                            _ => Action::Hold {
+                                network: n.network.clone(),
+                                node: p.node.clone(),
+                                held: c == 'h',
+                                expected: n.version,
+                            },
+                        };
+                        if model
+                            .snapshot
+                            .authorized_capabilities
+                            .contains(&request.capability())
+                        {
+                            model.networks.pending = Some(NetworkAction::Circuitnet { request });
+                        } else {
+                            model.networks.status = t("sfmonitor-action-denied");
+                        }
+                        break;
+                    }
+                    index = index.saturating_sub(n.peers.len());
+                }
+            }
         }
         KeyCode::Char(c @ ('t' | 'p' | 'h' | 'r')) => {
             if let Some(s) = &model.snapshot.networks {
@@ -299,6 +342,14 @@ fn rows(model: &MonitorModel) -> Vec<String> {
         return vec![t("sfmonitor-loading")];
     }
     match model.networks.query.section {
+        Section::Circuitnet => s.circuitnet.iter().flat_map(|n| {
+            let mut lines=vec![format!("{} / {} / {:?} | {}: {} | {}: {}",n.network,n.local,n.role,t("circuitnet-listener"),n.listening,t("circuitnet-authentication"),n.credential)];
+            lines.extend(n.peers.iter().map(|p|format!("{} {:?} / {}:{} | {}: {} | {}: {} | {}: {} | {}: {} | {}: {} | {}",
+                p.node,p.role,p.host,p.port,t("circuitnet-held"),p.held,t("networks-queues"),p.queued,
+                t("circuitnet-last-attempt"),time(p.health.as_ref().map(|h|h.last_attempt)),t("circuitnet-last-contact"),time(p.health.as_ref().and_then(|h|h.last_success)),
+                t("circuitnet-active"),p.active,p.health.as_ref().map_or("—",|h|h.result.as_str()))));
+            lines
+        }).collect(),
         Section::Overview => vec![
             format!(
                 "QWK: {} | FTN: {} ({}) | BinkP {}: {}",
@@ -601,6 +652,54 @@ fn details(model: &MonitorModel) -> Vec<String> {
         ];
     }
     match model.networks.query.section {
+        Section::Circuitnet => {
+            let mut index = i;
+            for n in &s.circuitnet {
+                if index == 0 {
+                    return vec![
+                        format!("{} / {} / {:?}", n.network, n.local, n.role),
+                        format!(
+                            "{}: {:?} / {}",
+                            t("circuitnet-listener"),
+                            n.listener,
+                            n.listening
+                        ),
+                    ];
+                }
+                index -= 1;
+                if let Some(p) = n.peers.get(index) {
+                    return vec![
+                        format!("{} / {} / {:?}", n.network, p.node, p.role),
+                        format!("{}:{} / {}", p.host, p.port, p.server_name),
+                        format!(
+                            "{} / {}: {}",
+                            t("circuitnet-tls"),
+                            t("circuitnet-protocol-version"),
+                            p.health
+                                .as_ref()
+                                .and_then(|h| h.protocol_minor)
+                                .map_or_else(|| "—".into(), |v| format!("1.{v}"))
+                        ),
+                        format!(
+                            "{}: {} / {}: {} / {}: {}",
+                            t("networks-queues"),
+                            p.queued,
+                            t("circuitnet-dossiers"),
+                            p.dossiers,
+                            t("circuitnet-held"),
+                            p.held
+                        ),
+                        format!(
+                            "{}: {}",
+                            t("circuitnet-last-contact"),
+                            time(p.health.as_ref().and_then(|h| h.last_success))
+                        ),
+                    ];
+                }
+                index = index.saturating_sub(n.peers.len());
+            }
+            vec![]
+        }
         Section::Links => {
             if let Some(l) = s.ftn.links.get(i) {
                 let tr = s.transport.links.iter().find(|t| t.link == l.id);
@@ -836,6 +935,8 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
             .map(safe)
             .collect::<Vec<_>>()
             .join("\n")
+    } else if model.networks.query.section == Section::Circuitnet {
+        t("circuitnet-keys")
     } else {
         t("networks-keys")
     };
@@ -844,7 +945,30 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
         regions[2],
     );
     let status = if let Some(action) = &model.networks.pending {
+        let circuitnet_label = if let NetworkAction::Circuitnet { request } = action {
+            use sf_bbs::circuitnet_live::Action;
+            Some(t(match request {
+                Action::Test { .. } => "circuitnet-test-link",
+                Action::Poll { .. } => "circuitnet-poll",
+                Action::Hold { held: true, .. } => "circuitnet-hold",
+                Action::Hold { held: false, .. } => "circuitnet-release",
+                _ => "circuitnet-networks",
+            }))
+        } else {
+            None
+        };
         let (operation, target) = match action {
+            NetworkAction::Circuitnet { request } => {
+                use sf_bbs::circuitnet_live::Action;
+                let target = match request {
+                    Action::Test { node, .. }
+                    | Action::Poll { node, .. }
+                    | Action::Hold { node, .. }
+                    | Action::Subscribe { node, .. } => node.as_str(),
+                    Action::Retry { queue, .. } => queue.as_str(),
+                };
+                (circuitnet_label.as_deref().unwrap_or(""), target)
+            }
             NetworkAction::Binkp { request } => match request {
                 sf_bbs::binkp::Action::Test { link, .. } => ("Test Link", link.as_str()),
                 sf_bbs::binkp::Action::Poll { link, .. } => ("Poll Link", link.as_str()),
