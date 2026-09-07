@@ -1,6 +1,18 @@
 # CircuitNet Preservation and Modernization Specification
 
-## Current status and approved research direction — N5
+## Current status — C2 native/offline foundation
+
+CircuitNET NG now implements a modern native public-conference adapter with
+network/Node identity, END/HOST/ROOT, configured tree validation, codenames,
+Dossiers, durable per-neighbor queues/receipts and offline JSON exchange.
+[Operator manual](manual/circuitnet.md); [technical contract](technical/circuitnet.md).
+Native messages remain canonical. No legacy codec, live transport, private mail,
+file networking, governance automation or historical catalog is implemented.
+The older aspirational sections below do not define current functionality.
+C1 remains historical authority; legacy archaeology is deferred.
+
+
+## Historical N5 research agenda
 
 CircuitNET preservation/revival is planned. **No CircuitNET adapter or packet
 codec is implemented, and compatibility is not yet claimed.** The speculative

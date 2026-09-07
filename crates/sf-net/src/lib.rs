@@ -15,3 +15,5 @@ pub mod ftn;
 pub mod qwk;
 pub mod qwk_network;
 pub mod tic;
+
+pub mod circuitnet;

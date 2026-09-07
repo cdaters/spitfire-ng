@@ -142,3 +142,5 @@ pub use transfer_runtime::{
 };
 
 pub mod ftn;
+
+pub mod circuitnet;

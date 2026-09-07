@@ -196,3 +196,12 @@ caller names. Draft changes take effect only after the existing review/save flow
 
 Use [caller management](../operator/caller-management.md) for the private profile
 commands. See [identity precedence](../technical/identity-policy.md) for exact rules.
+
+## CircuitNET C2 cold-board commands
+
+`sfconfig circuitnet <board-config> <action> <network> [arguments]` exposes typed
+identity/tree setup, codename mapping, manual Dossiers and safe offline status.
+The same host service performs explicit scan/export/import/acknowledgement/retry.
+It requires a stopped board, the existing operation lock and the applicable
+operator grants. It is not an online TUI cockpit. See the complete
+[CircuitNET journey](circuitnet.md) before enabling trusted offline custody.

@@ -16,6 +16,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ApplicationError {
     #[error(transparent)]
+    CircuitNet(#[from] sf_core::circuitnet::Error),
+    #[error(transparent)]
     Ftn(#[from] sf_core::ftn::Error),
     #[error("file-network operation failed")]
     FtnFiles(#[from] sf_core::ftn::files::FileNetworkError),

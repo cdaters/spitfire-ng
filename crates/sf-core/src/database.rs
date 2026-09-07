@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 28;
+pub const SCHEMA_VERSION: u32 = 29;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 28] = [
+const MIGRATIONS: [Migration; 29] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1531,6 +1531,11 @@ const MIGRATIONS: [Migration; 28] = [
         version: 28,
         name: "posting_identity_authority",
         sql: include_str!("identity.sql"),
+    },
+    Migration {
+        version: 29,
+        name: "circuitnet_native_foundation",
+        sql: include_str!("circuitnet.sql"),
     },
 ];
 
@@ -3074,7 +3079,7 @@ fn apply_migration(
     connection: &mut Connection,
     migration: &Migration,
 ) -> Result<(), DatabaseError> {
-    let rebuilds_referenced_file_table = matches!(migration.version, 17 | 22 | 23);
+    let rebuilds_referenced_file_table = matches!(migration.version, 17 | 22 | 23 | 29);
     if rebuilds_referenced_file_table {
         connection
             .execute_batch("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;")
@@ -3103,7 +3108,7 @@ fn run_migration(
     transaction
         .execute_batch(migration.sql)
         .map_err(DatabaseError::Sqlite)?;
-    if matches!(migration.version, 22 | 23 | 25) {
+    if matches!(migration.version, 22 | 23 | 25 | 29) {
         let invalid: bool = transaction
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
@@ -6437,5 +6442,62 @@ mod identity_migration_tests {
             "PixelWizard"
         );
         apply_migration(&mut c, &MIGRATIONS[27]).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod circuitnet_migration_tests {
+    use super::*;
+    fn old() -> Connection {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for m in MIGRATIONS.iter().take(28) {
+            apply_migration(&mut c, m).unwrap();
+        }
+        c
+    }
+    #[test]
+    fn circuitnet_schema_28_to_29_preserves_generic_work_and_foreign_keys() {
+        let mut c = old();
+        c.execute_batch("INSERT INTO network_queue_work VALUES('retained-qwk','qwk'); INSERT INTO network_outbound_queue(queue_id,state,attempts,version,created_at,reserved_bytes) VALUES('retained-qwk','accepted',2,7,1,4096);").unwrap();
+        apply_migration(&mut c, &MIGRATIONS[28]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 29);
+        let row:(String,i64,i64)=c.query_row("SELECT state,attempts,version FROM network_outbound_queue WHERE queue_id='retained-qwk'",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        assert_eq!(row, ("accepted".into(), 2, 7));
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+        c.execute(
+            "INSERT INTO network_queue_work VALUES('new-circuitnet','circuitnet')",
+            [],
+        )
+        .unwrap();
+        assert!(c.execute("INSERT INTO network_outbound_queue(queue_id,state,created_at,reserved_bytes) VALUES('missing','pending',1,1)",[]).is_err());
+    }
+    #[test]
+    fn circuitnet_schema_failure_rolls_back_rebuild_and_restores_fk_checks() {
+        let mut c = old();
+        c.execute_batch("CREATE TABLE circuitnet_profiles(collision TEXT);")
+            .unwrap();
+        assert!(apply_migration(&mut c, &MIGRATIONS[28]).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 28);
+        assert!(c
+            .execute(
+                "INSERT INTO network_queue_work VALUES('new','circuitnet')",
+                []
+            )
+            .is_err());
+        assert_eq!(
+            c.query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        c.execute("DROP TABLE circuitnet_profiles", []).unwrap();
+        apply_migration(&mut c, &MIGRATIONS[28]).unwrap();
     }
 }

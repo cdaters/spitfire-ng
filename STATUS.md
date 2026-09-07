@@ -1,6 +1,37 @@
 # SPITFIRE NG Status
 
-## Coordinated account and posting identity — schema 28
+## CircuitNET NG C2 — native offline conference exchange
+
+Schema **29** implements CircuitNET as a first-class service around native SPITFIRE
+messages. Network profiles, 1–8 character Node IDs, END/HOST/ROOT, configured trees,
+conference codenames and per-neighbor Dossiers retain CircuitNET identity. Durable
+queue/receipt/provenance authority preserves threading, suppresses replay/reflection
+and keeps each recipient's completion independent. No FTN/QWK translation or
+second message base is used.
+
+The development/offline UTF-8 JSON profile requires explicit trusted operator
+custody and expected-neighbor binding. Commands in sfconfig and spitfire operate
+stopped boards under existing locks/capabilities. The independent three-board
+macOS journey proves sibling distribution, filtering, replies, Dossier changes,
+partial delivery/retry, restart, native cold backup/restore and frozen sender privacy.
+
+See the [operator manual](docs/manual/circuitnet.md) and
+[technical contract](docs/technical/circuitnet.md). en-US is **1.26.0 / 1,311 messages**.
+Sanitized public acceptance: **697 tests passed / 0 failed / 7 existing ignored**;
+all six doctest groups complete. The required headers, fmt, Clippy, diff,
+Markdown/local links and privacy/provenance gates pass. cargo-audit is unavailable.
+
+C1 remains historical authority; C2 is an independent modern implementation, not a
+port. Legacy packet archaeology is deferred. No live CircuitNET transport, private
+mail, file networking, governance automation, production changes or external
+CircuitNET traffic. SPITFIRE NG is the reference implementation; the exchange
+boundary permits future third-party native adapters. Stop after C2 for review;
+**do not begin C3**. No new binary release, tag or website deployment.
+
+Earlier sections below retain their historical checkpoint scope.
+
+
+## Previous checkpoint — account and posting identity, schema 28
 
 Login, Handle and private First/Last Name remain distinct. Posting identity
 resolves before submission from board, conference and configured network

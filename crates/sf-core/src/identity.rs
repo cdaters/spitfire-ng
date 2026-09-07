@@ -126,8 +126,13 @@ pub(crate) fn resolve_conference(
         ),
     };
     for destination in &destinations {
-        let encoded = crate::encode_text(&posted_as, crate::TerminalTextEncoding::Cp437)
-            .ok_or(IdentityError::Unrepresentable)?;
+        let encoding = if destination.scope.starts_with("circuitnet:") {
+            crate::TerminalTextEncoding::Utf8
+        } else {
+            crate::TerminalTextEncoding::Cp437
+        };
+        let encoded =
+            crate::encode_text(&posted_as, encoding).ok_or(IdentityError::Unrepresentable)?;
         if encoded.len() > destination.maximum_bytes {
             return Err(IdentityError::Unrepresentable);
         }
@@ -191,6 +196,17 @@ pub(crate) fn conference_policy(
             } else {
                 2
             },
+        });
+    }
+    let circuitnet = conn.prepare("SELECT m.network,m.codename,m.version,p.version FROM circuitnet_mappings m JOIN circuitnet_profiles p USING(network) WHERE conference_id=?1 AND send=1 AND json_extract(p.configuration,'$.enabled')=1 ORDER BY m.network,m.codename")?
+        .query_map([conference], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,i64>(3)?)))?.collect::<Result<Vec<_>,_>>()?;
+    for (network, code, mv, pv) in circuitnet {
+        destinations.push(IdentityDestination {
+            scope: format!("circuitnet:{network}:{code}"),
+            requirement: PostingIdentityPolicy::HandleAllowed,
+            revision: format!("{mv}:{pv}"),
+            maximum_bytes: 120,
+            authority: 2,
         });
     }
     destinations.sort_by(|a, b| a.scope.cmp(&b.scope));

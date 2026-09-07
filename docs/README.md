@@ -237,3 +237,5 @@ See [FileEcho, TIC, hatching and FREQ](manual/ftn-files.md) for implemented auth
 ## Account and posting identity — schema 28
 
 See the [identity contract](technical/identity-policy.md), [caller instructions](caller-guide/README.md#first-name-last-name-and-posting-identity), [caller administration](operator/caller-management.md) and [conference settings](operator/messages.md#posting-identity).
+
+- [CircuitNET native/offline foundation](manual/circuitnet.md) — C2 development/offline public-conference exchange.

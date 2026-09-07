@@ -537,6 +537,27 @@ impl OfflineConfiguration {
     pub fn snapshot(&self) -> Result<ConfigurationSnapshot, ApplicationError> {
         self.authority.snapshot(&self.principal, true)
     }
+    /// CircuitNET C2 is explicitly cold-board/operator mediated. No online fallback.
+    pub fn circuitnet<T>(
+        &self,
+        capability: LocalOperatorCapability,
+        operation: impl FnOnce(
+            &mut RuntimeDatabase,
+            &crate::DiskArtifactStore,
+            &str,
+        ) -> Result<T, sf_core::circuitnet::Error>,
+    ) -> Result<T, ApplicationError> {
+        let snapshot = self.snapshot()?;
+        if !snapshot.capabilities.contains(&capability) {
+            return Err(failure());
+        }
+        let root = self.authority.path.parent().ok_or_else(failure)?;
+        let paths = LogicalPaths::resolve(root, &snapshot.config.validate()?)?;
+        let store = crate::DiskArtifactStore::new(paths.get(sf_core::LogicalPath::System))?;
+        let mut db = RuntimeDatabase::open(&self.authority.database)?;
+        db.bind_posting_identity_configuration(&snapshot.config);
+        Ok(operation(&mut db, &store, &self.principal)?)
+    }
     pub fn network_page(
         &self,
         query: &sf_core::ftn::NetworkQuery,

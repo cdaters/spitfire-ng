@@ -597,6 +597,13 @@ fn stage_restored_board(
             })?;
     }
 
+    if restored_database.schema_version()? >= 29 {
+        restored_database.hold_restored_circuitnet().map_err(|_| {
+            BoardBackupError::ResourceValidation(
+                "CircuitNET restore state could not be held".into(),
+            )
+        })?;
+    }
     if restored_database.schema_version()? >= 24 {
         restored_database
             .recover_binkp(chrono::Utc::now().timestamp())
@@ -1408,7 +1415,7 @@ DELETE FROM schema_migrations WHERE version=28;"#).unwrap();
         }
         // This fixture deliberately removes later authorities before constructing an old schema.
         let later: Vec<(String, String)> = connection
-            .prepare("SELECT type,name FROM sqlite_schema WHERE (name LIKE 'binkp_%' OR name LIKE 'ftn_%' OR name='qwk_queue_work' OR name='network_queue_work') AND type IN ('table','trigger') ORDER BY type DESC")
+            .prepare("SELECT type,name FROM sqlite_schema WHERE (name LIKE 'circuitnet_%' OR name LIKE 'binkp_%' OR name LIKE 'ftn_%' OR name='qwk_queue_work' OR name='network_queue_work') AND type IN ('table','trigger') ORDER BY type DESC")
             .unwrap().query_map([], |r| Ok((r.get(0)?,r.get(1)?))).unwrap()
             .collect::<Result<_,_>>().unwrap();
         connection

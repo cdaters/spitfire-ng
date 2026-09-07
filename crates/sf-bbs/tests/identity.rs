@@ -259,5 +259,8 @@ fn disposable_daemon_identity_post_profile_history_queue_restart_and_restore() {
         .unwrap(),
         "Craig Daters"
     );
-    assert_eq!(restored_db.schema_version().unwrap(), 28);
+    assert_eq!(
+        restored_db.schema_version().unwrap(),
+        sf_core::SCHEMA_VERSION
+    );
 }

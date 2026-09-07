@@ -192,3 +192,14 @@ See [caller management](../operator/caller-management.md),
 [message administration](../operator/messages.md),
 [FTN](ftn-core.md), [QWK](qwk-networking.md), and
 [backup/restore](../operator/backup-restore.md).
+
+## CircuitNET C2 extension in schema 29
+
+The [CircuitNET service](circuitnet.md) contributes a UTF-8, network/codename
+destination scope and mapping/profile revision to the same native posting preview.
+Its initial test profile requires HandleAllowed; stronger board/conference policy
+continues to apply. Scanner admission requires that destination in the immutable
+posting proof. Queue admission freezes exact UTF-8 author bytes through the shared
+sender snapshot authority. Export revalidates lifecycle, scope and policy without
+reading private components. Imported authors remain external assertions, with no
+local account matching. No historical real-name-body disclosure is automated.

@@ -261,3 +261,5 @@ See [hub authority contract](ftn-hub.md) for downstreams, subscriptions, AreaFix
 See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 28; en-US 1.25.0 / 1,308 messages.
 
 See the [account and posting identity contract](identity-policy.md) for schema 28 name privacy and sender stability.
+
+- [CircuitNET native adapter](circuitnet.md) — C2 development/offline public-conference exchange.

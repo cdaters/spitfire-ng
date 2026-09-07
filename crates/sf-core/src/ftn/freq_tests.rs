@@ -293,6 +293,27 @@ fn freq_schema_26_migration_preserves_acknowledged_request_and_is_atomic() {
     let mut b = board();
     let id = request(&mut b, &["WANT.TXT"]);
     ack(&mut b, NOW);
+    // Construct an actual old-schema fixture, without later C2 authorities.
+    b.db.connection
+        .execute_batch("PRAGMA foreign_keys=OFF;")
+        .unwrap();
+    let c2: Vec<String> = b
+        .db
+        .connection
+        .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name LIKE 'circuitnet_%'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    for table in c2 {
+        b.db.connection
+            .execute_batch(&format!("DROP TABLE {table};"))
+            .unwrap();
+    }
+    b.db.connection
+        .execute_batch("DELETE FROM schema_migrations WHERE version=29; PRAGMA foreign_keys=ON;")
+        .unwrap();
     b.db.connection.execute_batch(r#"DROP TRIGGER caller_legacy_name_immutable; DROP TRIGGER caller_name_bounds_insert; DROP TRIGGER caller_name_bounds_update;
 DROP TRIGGER message_author_immutable; DROP TABLE network_sender_snapshots; DROP TABLE caller_name_events;
 ALTER TABLE callers DROP COLUMN first_name; ALTER TABLE callers DROP COLUMN last_name;
@@ -318,7 +339,7 @@ DELETE FROM schema_migrations WHERE version=28;"#).unwrap();
         .execute_batch("DROP TABLE ftn_freq_attempts;")
         .unwrap();
     let result = b.db.migrate().unwrap();
-    assert_eq!(result.applied, 2);
+    assert_eq!(result.applied, crate::SCHEMA_VERSION as usize - 26);
     assert_eq!(result.ending_version, crate::SCHEMA_VERSION);
     let restored = state(&b);
     assert_eq!(restored.request, id);

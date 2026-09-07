@@ -13,6 +13,7 @@ operator-usage = Usage:
     spitfire [--locale <BCP47>] shell <CONFIG-FILE>
     spitfire [--locale <BCP47>] console <CONFIG-FILE>
     spitfire [--locale <BCP47>] run <CONFIG-FILE> [--max-sessions <COUNT>]
+    spitfire circuitnet <CONFIG-FILE> <ACTION> <NETWORK> [arguments]
     spitfire binkp-status <CONFIG-FILE>
     spitfire binkp-poll <CONFIG-FILE> <LINK>
     spitfire binkp-test <CONFIG-FILE> <LINK>
@@ -558,6 +559,7 @@ sfmonitor-help-operator-shutdown = Dashboard Actions offers Shutdown SPITFIRE NG
 ## sfconfig typed configuration (configuration.* help topics)
 
 sfconfig-usage = Usage: sfconfig --board <board/spitfire.toml> [--offline] [--apply-ftn <policy.json> | --apply-binkp <transport.json>] [--binkp-password <link> | --clear-binkp-password <link>]
+    CircuitNET offline commands: sfconfig circuitnet <board-config> <action> <network> [arguments]
 sfconfig-online = ONLINE — attached to daemon
 sfconfig-offline = OFFLINE — exclusive board ownership
 sfconfig-version = Revision
@@ -1082,3 +1084,8 @@ operator-last-name = Last Name
 netconfig-field-posting-identity = Posting identity requirement
 
 netconfig-effective-identity = Effective posting identity (saved policy)
+
+# CircuitNET C2 explicitly uses cold-board operator custody.
+circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <init|enable|map|subscribe|unsubscribe|status|queue|scan|export|import|ack|retry> <network> [arguments]. See the CircuitNET manual. Stop the board first.
+circuitnet-file-error = Offline Exchange file unavailable, oversized, unsafe, or output already exists. Retained delivery work can be retried.
+circuitnet-completed = CircuitNET operation completed. Export is pending until the neighbor's durable receipt is acknowledged.

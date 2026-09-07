@@ -7,7 +7,38 @@
 
 # SPITFIRE NG
 
-Current source implements [account and posting identity policy](docs/technical/identity-policy.md)
+## CircuitNET NG C2 — native offline conference exchange
+
+Schema **29** implements CircuitNET as a first-class service around native SPITFIRE
+messages. Network profiles, 1–8 character Node IDs, END/HOST/ROOT, configured trees,
+conference codenames and per-neighbor Dossiers retain CircuitNET identity. Durable
+queue/receipt/provenance authority preserves threading, suppresses replay/reflection
+and keeps each recipient's completion independent. No FTN/QWK translation or
+second message base is used.
+
+The development/offline UTF-8 JSON profile requires explicit trusted operator
+custody and expected-neighbor binding. Commands in sfconfig and spitfire operate
+stopped boards under existing locks/capabilities. The independent three-board
+macOS journey proves sibling distribution, filtering, replies, Dossier changes,
+partial delivery/retry, restart, native cold backup/restore and frozen sender privacy.
+
+See the [operator manual](docs/manual/circuitnet.md) and
+[technical contract](docs/technical/circuitnet.md). en-US is **1.26.0 / 1,311 messages**.
+Sanitized public acceptance: **697 tests passed / 0 failed / 7 existing ignored**;
+all six doctest groups complete. The required headers, fmt, Clippy, diff,
+Markdown/local links and privacy/provenance gates pass. cargo-audit is unavailable.
+
+C1 remains historical authority; C2 is an independent modern implementation, not a
+port. Legacy packet archaeology is deferred. No live CircuitNET transport, private
+mail, file networking, governance automation, production changes or external
+CircuitNET traffic. SPITFIRE NG is the reference implementation; the exchange
+boundary permits future third-party native adapters. Stop after C2 for review;
+**do not begin C3**. No new binary release, tag or website deployment.
+
+Earlier sections below retain their historical checkpoint scope.
+
+
+The earlier identity milestone introduced [account and posting identity policy](docs/technical/identity-policy.md)
 on schema **28**. Handle remains the normal public name; First and Last Name are
 private by default. Callers see the posting identity before submission. Historical
 authors and queued network senders retain the name originally used, even after
@@ -27,8 +58,7 @@ en-US 1.23.0 / 1,249 messages. No live public FidoNet traffic or new binary rele
 The [N5 Networks cockpit and recovery](docs/manual/network-operations.md) operate
 accepted QWK/DOVE-compatible networking, native FTN and BinkP through sfmonitor
 and named sfconfig forms. Verified restore protects origin identity and accepted
-queue receipts. CircuitNET preservation/revival is planned as a future independent
-adapter. No live public FidoNet participation is claimed.
+queue receipts. CircuitNET now has the independent offline adapter described above. No live public FidoNet participation is claimed.
 
 Native BinkP client/listener and controlled independent NetMail/EchoMail exchange
 are implemented on schema 24, including point/AKA identity and safe queue recovery.

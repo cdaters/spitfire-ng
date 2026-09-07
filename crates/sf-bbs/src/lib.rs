@@ -14,6 +14,7 @@
 mod admin;
 mod backup;
 mod board_lock;
+pub mod circuitnet;
 mod configuration;
 pub use configuration::{
     configuration_version, current_operator_identity, ConfigurationDomainSummary,
@@ -106,6 +107,9 @@ where
 
 fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
     match arguments.as_slice() {
+        [command, config, rest @ ..] if command == "circuitnet" => {
+            circuitnet::run(&PathBuf::from(config), rest)
+        }
         [command] if command == "--version" || command == "-V" => Ok(op_args(
             "operator-version",
             sf_core::LocalizationArgs::new().with("version", sf_core::PRODUCT_VERSION),
