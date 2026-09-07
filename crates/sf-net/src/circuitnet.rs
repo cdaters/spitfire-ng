@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Development/offline CircuitNET NG envelope; no legacy codec or I/O authority.
+pub mod control;
 pub mod transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -174,6 +175,8 @@ impl Topology {
     }
     pub fn path(&self, from: &NodeId, to: &NodeId) -> Result<Vec<NodeId>, Error> {
         self.validate()?;
+        self.node(from)?;
+        self.node(to)?;
         let mut pending = vec![(from.clone(), vec![from.clone()])];
         while let Some((id, path)) = pending.pop() {
             if &id == to {
@@ -202,6 +205,8 @@ pub struct Message {
     pub timestamp: i64,
     pub reply: Option<MessageId>,
     pub path: Vec<NodeId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<NodeId>,
 }
 fn text_valid(s: &str, max: usize, body: bool) -> bool {
     s.len() <= max
@@ -359,6 +364,56 @@ mod tests {
         }
     }
     #[test]
+    fn six_node_unique_routes_and_end_transit_prohibition() {
+        let nodes = [
+            ("ROOT1", Role::Root, None),
+            ("HOST1", Role::Host, Some("ROOT1")),
+            ("HOST2", Role::Host, Some("ROOT1")),
+            ("END1", Role::End, Some("HOST1")),
+            ("END2", Role::End, Some("HOST1")),
+            ("END3", Role::End, Some("HOST2")),
+        ];
+        let t = Topology {
+            nodes: nodes
+                .into_iter()
+                .map(|(id, role, parent)| Node {
+                    id: NodeId::new(id).unwrap(),
+                    role,
+                    parent: parent.map(|p| NodeId::new(p).unwrap()),
+                })
+                .collect(),
+        };
+        for (from, to, expected) in [
+            ("END1", "END2", vec!["END1", "HOST1", "END2"]),
+            (
+                "END1",
+                "END3",
+                vec!["END1", "HOST1", "ROOT1", "HOST2", "END3"],
+            ),
+            ("ROOT1", "END1", vec!["ROOT1", "HOST1", "END1"]),
+            ("END3", "ROOT1", vec!["END3", "HOST2", "ROOT1"]),
+            ("HOST1", "HOST1", vec!["HOST1"]),
+        ] {
+            assert_eq!(
+                t.path(&NodeId::new(from).unwrap(), &NodeId::new(to).unwrap())
+                    .unwrap()
+                    .iter()
+                    .map(NodeId::as_str)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        assert!(t
+            .path(
+                &NodeId::new("UNKNOWN").unwrap(),
+                &NodeId::new("UNKNOWN").unwrap()
+            )
+            .is_err());
+        let mut bad = t;
+        bad.nodes[2].parent = Some(NodeId::new("END1").unwrap());
+        assert!(bad.validate().is_err());
+    }
+    #[test]
     fn node_codename_network_normalization_and_bounds() {
         assert_eq!(NodeId::new("end00001").unwrap().as_str(), "END00001");
         assert_eq!(Codename::new("sci-fi").unwrap().as_str(), "SCI-FI");
@@ -436,6 +491,7 @@ mod tests {
                 timestamp: 1,
                 reply: None,
                 path: vec![NodeId::new("END1").unwrap()],
+                destination: None,
             }],
         }
     }

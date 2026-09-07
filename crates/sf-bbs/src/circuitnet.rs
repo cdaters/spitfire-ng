@@ -84,6 +84,15 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
             | "live-retry"
             | "live-subscribe"
             | "live-unsubscribe"
+            | "remote-subscribe"
+            | "remote-unsubscribe"
+            | "query-subscriptions"
+            | "approve"
+            | "deny"
+            | "control-policy"
+            | "control-retry"
+            | "route-test"
+            | "direct"
     ) {
         return live_command(config, action, &network, rest);
     }
@@ -258,6 +267,14 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
                 )
             })?;
         }
+        ("control-history", after) if after.len() <= 1 => {
+            return authority.circuitnet(read_cap, |db, _, _| {
+                Ok(serde_json::to_string_pretty(&db.circuitnet_controls(
+                    &network,
+                    after.first().copied().unwrap_or(""),
+                )?)?)
+            })
+        }
         ("status", []) => {
             return authority.circuitnet(read_cap, |db, _, _| {
                 Ok(serde_json::to_string_pretty(
@@ -341,7 +358,14 @@ fn live_command(
         let snapshot = client
             .networks(sf_core::ftn::NetworkQuery {
                 section: sf_core::ftn::NetworkSection::Circuitnet,
-                offset: 0,
+                offset: if action == "live-status" && rest.len() == 1 {
+                    rest[0]
+                        .parse::<u32>()
+                        .map_err(|_| usage())?
+                        .saturating_mul(16)
+                } else {
+                    0
+                },
             })
             .await?;
         let status = snapshot
@@ -349,10 +373,66 @@ fn live_command(
             .iter()
             .find(|n| &n.network == network)
             .ok_or_else(usage)?;
-        if action == "live-status" && rest.is_empty() {
+        if action == "live-status" && rest.len() <= 1 {
             return serde_json::to_string_pretty(status).map_err(|_| usage());
         }
+        if action == "route-test" {
+            let [destination] = rest else {
+                return Err(usage());
+            };
+            let destination = codec(NodeId::new(destination))?;
+            if status.topology.node(&destination).is_err() {
+                return Err(ApplicationError::Usage(crate::op("circuitnet-unknown-node")));
+            }
+            let path = codec(status.topology.path(&status.local, &destination))?;
+            return serde_json::to_string_pretty(&control::Route {
+                network: network.clone(),
+                local: status.local.clone(),
+                destination,
+                next_hop: path.get(1).cloned(),
+                path,
+            })
+            .map_err(|_| usage());
+        }
         let request = match (action, rest) {
+            ("control-policy", [policy]) => Action::ControlPolicy {
+                network: network.clone(),
+                policy: match *policy {
+                    "require-approval" => control::Policy::RequireApproval,
+                    "auto-approve" => control::Policy::AutoApprove,
+                    "deny" => control::Policy::Deny,
+                    _ => return Err(usage()),
+                },
+                expected: status.control_policy.1,
+            },
+            ("remote-subscribe" | "remote-unsubscribe", [code]) => Action::RequestSubscription {
+                network: network.clone(),
+                change: if action == "remote-subscribe" {
+                    control::Operation::Subscribe
+                } else {
+                    control::Operation::Unsubscribe
+                },
+                codename: Some(codec(Codename::new(code))?),
+            },
+            ("query-subscriptions", []) => Action::RequestSubscription {
+                network: network.clone(),
+                change: control::Operation::QuerySubscriptions,
+                codename: None,
+            },
+            ("approve" | "deny", [id]) => Action::DecideControl {
+                network: network.clone(),
+                id: codec(sf_net::circuitnet::MessageId::new(id))?,
+                approve: action == "approve",
+            },
+            ("control-retry", [id]) => Action::RetryControl {
+                network: network.clone(),
+                id: codec(sf_net::circuitnet::MessageId::new(id))?,
+            },
+            ("direct", [mid, node]) => Action::Direct {
+                network: network.clone(),
+                message: mid.parse().map_err(|_| usage())?,
+                destination: codec(NodeId::new(node))?,
+            },
             ("test-link", [node]) => Action::Test {
                 network: network.clone(),
                 node: codec(NodeId::new(node))?,
@@ -381,6 +461,7 @@ fn live_command(
             },
             _ => return Err(usage()),
         };
+        let unknown_destination=matches!(&request,Action::Direct{destination,..} if status.topology.node(destination).is_err());
         let result = client
             .qwk_network_action(
                 crate::operator_control::random_token(),
@@ -388,6 +469,9 @@ fn live_command(
             )
             .await?;
         if matches!(result, crate::NetworkResult::Rejected { .. }) {
+            if unknown_destination {
+                return Err(ApplicationError::Usage(crate::op("circuitnet-unknown-node")));
+            }
             return Err(ApplicationError::Transport(
                 "CircuitNET operator action rejected".into(),
             ));

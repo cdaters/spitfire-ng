@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 30;
+pub const SCHEMA_VERSION: u32 = 31;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 30] = [
+const MIGRATIONS: [Migration; 31] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1541,6 +1541,11 @@ const MIGRATIONS: [Migration; 30] = [
         version: 30,
         name: "circuitnet_live_links",
         sql: include_str!("circuitnet_live.sql"),
+    },
+    Migration {
+        version: 31,
+        name: "circuitnet_controls_routes",
+        sql: include_str!("circuitnet_controls.sql"),
     },
 ];
 
@@ -6510,6 +6515,42 @@ mod circuitnet_migration_tests {
             .next()
             .unwrap()
             .is_none());
+    }
+    #[test]
+    fn circuitnet_schema_30_to_31_preserves_profiles_and_rolls_back_failed_migration() {
+        let mut c = old();
+        apply_migration(&mut c, &MIGRATIONS[28]).unwrap();
+        apply_migration(&mut c, &MIGRATIONS[29]).unwrap();
+        c.execute(
+            "INSERT INTO circuitnet_profiles VALUES('synthetic','retained',7)",
+            [],
+        )
+        .unwrap();
+        let broken=Migration{version:31,name:MIGRATIONS[30].name,sql:"ALTER TABLE circuitnet_messages ADD COLUMN destination TEXT; CREATE TABLE circuitnet_profiles(collision TEXT);"};
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 30);
+        apply_migration(&mut c, &MIGRATIONS[30]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 31);
+        assert_eq!(
+            c.query_row("SELECT version FROM circuitnet_profiles", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            7
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM circuitnet_controls", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
     }
     #[test]
     fn circuitnet_schema_failure_rolls_back_rebuild_and_restores_fk_checks() {

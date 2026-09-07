@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Native CircuitNET NG policy, publication, queue and offline receipt authority.
+pub mod control;
 pub mod live;
 use crate::{network::NetworkArtifactStore, RuntimeDatabase};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -87,6 +88,8 @@ pub struct Dossier {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueueItem {
+    pub destination: Option<NodeId>,
+    pub reason: Option<String>,
     pub id: String,
     pub identity: MessageId,
     pub neighbor: NodeId,
@@ -145,7 +148,7 @@ fn audit(
     Ok(())
 }
 fn capacity(conn: &Connection) -> Result<(), Error> {
-    let rows:i64=conn.query_row("SELECT (SELECT COUNT(*) FROM circuitnet_messages)+(SELECT COUNT(*) FROM circuitnet_receipts)+(SELECT COUNT(*) FROM circuitnet_changes)+(SELECT COUNT(*) FROM circuitnet_deliveries)+(SELECT COUNT(*) FROM circuitnet_imports)+(SELECT COUNT(*) FROM circuitnet_batches)",[],|r|r.get(0))?;
+    let rows:i64=conn.query_row("SELECT (SELECT COUNT(*) FROM circuitnet_messages)+(SELECT COUNT(*) FROM circuitnet_receipts)+(SELECT COUNT(*) FROM circuitnet_changes)+(SELECT COUNT(*) FROM circuitnet_deliveries)+(SELECT COUNT(*) FROM circuitnet_imports)+(SELECT COUNT(*) FROM circuitnet_batches)+(SELECT COUNT(*) FROM circuitnet_controls)",[],|r|r.get(0))?;
     if rows >= 100_000 {
         return Err(Error::Capacity);
     }
@@ -207,7 +210,7 @@ impl RuntimeDatabase {
                     return Err(Error::Conflict);
                 }
                 let retained: bool = tx.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM circuitnet_messages WHERE network=?1)",
+                    "SELECT EXISTS(SELECT 1 FROM circuitnet_messages WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_controls WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_destinations WHERE network=?1)",
                     [value.network.as_str()],
                     |r| r.get(0),
                 )?;
@@ -300,7 +303,7 @@ impl RuntimeDatabase {
         }
         tx.execute("INSERT INTO circuitnet_dossiers VALUES(?1,?2,?3,?4,1) ON CONFLICT(network,neighbor,codename) DO UPDATE SET subscribed=excluded.subscribed,version=version+1",params![network.as_str(),value.neighbor.as_str(),value.codename.as_str(),value.subscribed])?;
         if !value.subscribed {
-            tx.execute("UPDATE network_outbound_queue SET state='held',reason='circuitnet-unsubscribed',version=version+1 WHERE state NOT IN('accepted','cancelled') AND queue_id IN (SELECT d.queue_id FROM circuitnet_deliveries d JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND m.codename=?3)",params![network.as_str(),value.neighbor.as_str(),value.codename.as_str()])?;
+            tx.execute("UPDATE network_outbound_queue SET state='held',reason='circuitnet-unsubscribed',version=version+1 WHERE state NOT IN('accepted','cancelled') AND queue_id IN (SELECT d.queue_id FROM circuitnet_deliveries d JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND m.codename=?3 AND m.destination IS NULL)",params![network.as_str(),value.neighbor.as_str(),value.codename.as_str()])?;
         }
         audit(
             &tx,
@@ -341,7 +344,7 @@ impl RuntimeDatabase {
         network: &NetworkId,
         after: &str,
     ) -> Result<Vec<QueueItem>, Error> {
-        self.connection.prepare("SELECT q.queue_id,d.identity,d.neighbor,q.state,q.attempts,q.version FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) WHERE d.network=?1 AND q.queue_id>?2 ORDER BY q.queue_id LIMIT 100")?.query_map(params![network.as_str(),after],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get(3)?,r.get(4)?,r.get(5)?)))?.collect::<Result<Vec<_>,_>>()?.into_iter().map(|(id,i,n,state,attempts,version)|Ok(QueueItem{id,identity:MessageId::new(&i)?,neighbor:NodeId::new(&n)?,state,attempts,version})).collect()
+        self.connection.prepare("SELECT q.queue_id,d.identity,d.neighbor,q.state,q.attempts,q.version,m.destination,q.reason FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND q.queue_id>?2 ORDER BY q.queue_id LIMIT 100")?.query_map(params![network.as_str(),after],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get::<_,Option<String>>(6)?,r.get(7)?)))?.collect::<Result<Vec<_>,_>>()?.into_iter().map(|(id,i,n,state,attempts,version,destination,reason)|Ok(QueueItem{destination:destination.map(|s|NodeId::new(&s)).transpose()?,reason,id,identity:MessageId::new(&i)?,neighbor:NodeId::new(&n)?,state,attempts,version})).collect()
     }
 }
 
@@ -381,6 +384,14 @@ fn load_message(
             timestamp,
             reply: reply.map(|r| MessageId::new(&r)).transpose()?,
             path: serde_json::from_str(&path)?,
+            destination: conn
+                .query_row(
+                    "SELECT destination FROM circuitnet_messages WHERE network=?1 AND identity=?2",
+                    params![p.network.as_str(), identity.as_str()],
+                    |r| r.get::<_, Option<String>>(0),
+                )?
+                .map(|v| NodeId::new(&v))
+                .transpose()?,
         },
         mid,
     ))
@@ -400,7 +411,7 @@ fn publish(
         |r| r.get(0),
     )?;
     conn.execute(
-        "INSERT INTO circuitnet_messages VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        "INSERT INTO circuitnet_messages VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
         params![
             p.network.as_str(),
             m.id.as_str(),
@@ -412,13 +423,38 @@ fn publish(
             serde_json::to_string(&m.path)?,
             m.fingerprint()?,
             version,
-            now
+            now,
+            m.destination.as_ref().map(NodeId::as_str)
         ],
     )?;
-    for neighbor in p.topology.neighbors(&p.local)? {
+    let neighbors = if let Some(destination) = &m.destination {
+        let path = p.topology.path(&p.local, destination)?;
+        if ingress.is_some()
+            && !p.topology.node(&p.local)?.role.can_transit()
+            && destination != &p.local
+        {
+            return Err(Error::Policy);
+        }
+        audit(
+            conn,
+            &p.network,
+            p.local.as_str(),
+            &format!(
+                "directed-route:{}:{}:{}",
+                m.id,
+                destination,
+                path.get(1).map_or("local", NodeId::as_str)
+            ),
+            now,
+        )?;
+        path.get(1).cloned().into_iter().collect()
+    } else {
+        p.topology.neighbors(&p.local)?
+    };
+    for neighbor in neighbors {
         if m.path.contains(&neighbor)
             || ingress == Some(&neighbor)
-            || !subscribed(conn, p, &neighbor, &m.codename)?
+            || (m.destination.is_none() && !subscribed(conn, p, &neighbor, &m.codename)?)
         {
             continue;
         }
@@ -449,10 +485,23 @@ fn eligible(conn: &Connection, p: &Profile, q: &str) -> Result<bool, Error> {
     let n = NodeId::new(&neighbor)?;
     p.neighbor(&n)?;
     let (m, mid) = load_message(conn, p, &MessageId::new(&identity)?)?;
-    if !subscribed(conn, p, &n, &m.codename)? {
+    if m.destination.is_none() && !subscribed(conn, p, &n, &m.codename)? {
         return Ok(false);
     }
-    if let Some(mapping) = area(conn, p, &m.codename)? {
+    if let Some(destination) = &m.destination {
+        if p.topology.path(&p.local, destination)?.get(1) != Some(&n) {
+            return Ok(false);
+        }
+    }
+    let transit = m.destination.is_some() && m.origin != p.local;
+    if transit {
+        if !p.topology.node(&p.local)?.role.can_transit() {
+            return Ok(false);
+        }
+        if area(conn, p, &m.codename)?.is_some_and(|m| !m.send) {
+            return Ok(false);
+        }
+    } else if let Some(mapping) = area(conn, p, &m.codename)? {
         if !mapping.send {
             return Ok(false);
         }
@@ -490,7 +539,7 @@ impl RuntimeDatabase {
         if !p.enabled {
             return Err(Error::Policy);
         }
-        let rows=tx.prepare("SELECT m.message_id,a.codename,m.author_name,p.subject,p.body,p.encoding,m.created_at,m.parent_message_id FROM messages m JOIN message_fanouts f USING(fanout_id) JOIN message_payloads p USING(payload_id) JOIN message_conferences c USING(conference_id) JOIN circuitnet_mappings a USING(conference_id) WHERE a.network=?1 AND a.send=1 AND c.active=1 AND c.public_only=1 AND m.origin_kind='native' AND m.visibility='public' AND m.audience_kind='all-callers' AND m.lifecycle_state='active' AND p.content_kind='standard' AND m.message_id>?2 AND NOT EXISTS(SELECT 1 FROM circuitnet_messages n WHERE n.network=?1 AND n.message_id=m.message_id) ORDER BY m.message_id LIMIT 100")?.query_map(params![network.as_str(),after],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Vec<u8>>(3)?,r.get::<_,Vec<u8>>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?,r.get::<_,Option<i64>>(7)?)))?.collect::<Result<Vec<_>,_>>()?;
+        let rows=tx.prepare("SELECT m.message_id,a.codename,m.author_name,p.subject,p.body,p.encoding,m.created_at,m.parent_message_id FROM messages m JOIN message_fanouts f USING(fanout_id) JOIN message_payloads p USING(payload_id) JOIN message_conferences c USING(conference_id) JOIN circuitnet_mappings a USING(conference_id) WHERE a.network=?1 AND a.send=1 AND c.active=1 AND c.public_only=1 AND m.origin_kind='native' AND m.visibility='public' AND m.audience_kind='all-callers' AND m.lifecycle_state='active' AND p.content_kind='standard' AND m.message_id>?2 AND NOT EXISTS(SELECT 1 FROM circuitnet_destinations dst WHERE dst.network=?1 AND dst.message_id=m.message_id AND dst.accepted=0) AND NOT EXISTS(SELECT 1 FROM circuitnet_messages n WHERE n.network=?1 AND n.message_id=m.message_id) ORDER BY m.message_id LIMIT 100")?.query_map(params![network.as_str(),after],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Vec<u8>>(3)?,r.get::<_,Vec<u8>>(4)?,r.get::<_,String>(5)?,r.get::<_,i64>(6)?,r.get::<_,Option<i64>>(7)?)))?.collect::<Result<Vec<_>,_>>()?;
         let mut count = 0;
         let mut cursor = after;
         for (mid, code, author, subject, body, encoding, timestamp, parent) in rows {
@@ -534,6 +583,7 @@ impl RuntimeDatabase {
                 timestamp,
                 reply,
                 path: vec![p.local.clone()],
+                destination: tx.query_row("SELECT destination FROM circuitnet_destinations WHERE network=?1 AND message_id=?2",params![network.as_str(),mid],|r|r.get::<_,String>(0)).optional()?.map(|s|NodeId::new(&s)).transpose()?,
             };
             m.validate()?;
             publish(&tx, &p, &m, mid, None, now)?;
@@ -562,6 +612,16 @@ impl RuntimeDatabase {
         neighbor: &NodeId,
         now: i64,
     ) -> Result<Prepared, Error> {
+        self.circuitnet_prepare_capable_neighbor(store, network, neighbor, true, now)
+    }
+    pub fn circuitnet_prepare_capable_neighbor(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        neighbor: &NodeId,
+        directed: bool,
+        now: i64,
+    ) -> Result<Prepared, Error> {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -572,8 +632,8 @@ impl RuntimeDatabase {
             return Err(Error::Policy);
         }
         // Finish an existing immutable offer before adding newly posted traffic.
-        let prior:Option<String>=tx.query_row("SELECT q.artifact_id FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('ready','retry') AND q.artifact_id IS NOT NULL AND q.attempts<12 ORDER BY m.message_id LIMIT 1",params![network.as_str(),neighbor.as_str()],|r|r.get(0)).optional()?;
-        let candidates:Vec<(String,String)>=tx.prepare("SELECT q.queue_id,d.identity FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('pending','ready','retry') AND q.attempts<12 AND (?3 IS NULL OR q.artifact_id=?3) ORDER BY m.message_id LIMIT 1000")?.query_map(params![network.as_str(),neighbor.as_str(),prior],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<Result<_,_>>()?;
+        let prior:Option<String>=tx.query_row("SELECT q.artifact_id FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('ready','retry') AND q.artifact_id IS NOT NULL AND q.attempts<12 AND (?3 OR m.destination IS NULL) AND (?3 OR NOT EXISTS(SELECT 1 FROM circuitnet_batch_members bm JOIN circuitnet_deliveries bd USING(queue_id) JOIN circuitnet_messages cm USING(network,identity) WHERE bm.artifact=q.artifact_id AND cm.destination IS NOT NULL)) ORDER BY m.message_id LIMIT 1",params![network.as_str(),neighbor.as_str(),directed],|r|r.get(0)).optional()?;
+        let candidates:Vec<(String,String)>=tx.prepare("SELECT q.queue_id,d.identity FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('pending','ready','retry') AND q.attempts<12 AND (?3 IS NULL OR q.artifact_id=?3) AND (?4 OR m.destination IS NULL) AND (?4 OR q.artifact_id IS NULL OR NOT EXISTS(SELECT 1 FROM circuitnet_batch_members bm JOIN circuitnet_deliveries bd USING(queue_id) JOIN circuitnet_messages cm USING(network,identity) WHERE bm.artifact=q.artifact_id AND cm.destination IS NOT NULL)) ORDER BY m.message_id LIMIT 1000")?.query_map(params![network.as_str(),neighbor.as_str(),prior,directed],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<Result<_,_>>()?;
         let mut messages = vec![];
         let mut encoded_bytes = 1024;
         let mut queues = vec![];
@@ -661,6 +721,29 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
     ) -> Result<Imported, Error> {
+        let result = self.circuitnet_import_inner(store, network, expected_neighbor, bytes, now);
+        if result.is_err()
+            && Batch::decode(bytes)
+                .is_ok_and(|b| b.messages.iter().any(|m| m.destination.is_some()))
+        {
+            audit(
+                &self.connection,
+                network,
+                expected_neighbor.as_str(),
+                "directed-rejected",
+                now,
+            )?;
+        }
+        result
+    }
+    fn circuitnet_import_inner(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        expected_neighbor: &NodeId,
+        bytes: &[u8],
+        now: i64,
+    ) -> Result<Imported, Error> {
         let _permit = store.admit_import()?;
         let batch = Batch::decode(bytes)?;
         let artifact = wire::digest(bytes);
@@ -695,21 +778,45 @@ impl RuntimeDatabase {
                     duplicates += 1;
                     continue;
                 }
-                if !subscribed(&tx, &p, expected_neighbor, &m.codename)? {
+                if let Some(destination) = &m.destination {
+                    let route = p.topology.path(&m.origin, destination)?;
+                    let mut arrived = m.path.clone();
+                    arrived.push(p.local.clone());
+                    if !route.starts_with(&arrived)
+                        || (!p.topology.node(&p.local)?.role.can_transit()
+                            && destination != &p.local)
+                    {
+                        return Err(Error::Policy);
+                    }
+                }
+                if m.destination.is_none() && !subscribed(&tx, &p, expected_neighbor, &m.codename)?
+                {
                     return Err(Error::Policy);
                 }
                 let mapping = area(&tx, &p, &m.codename)?;
-                let conference = match mapping {
-                    Some(a) if a.receive => {
-                        let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM message_conferences WHERE conference_id=?1 AND public_only=1 AND active=1)",[a.conference],|r|r.get(0))?;
-                        if !valid {
-                            return Err(Error::Policy);
-                        }
-                        Some(a.conference)
+                let transit = m.destination.as_ref().is_some_and(|d| d != &p.local);
+                let conference = if transit {
+                    if mapping.is_some_and(|a| !a.receive || !a.send) {
+                        return Err(Error::Policy);
                     }
-                    Some(_) => return Err(Error::Policy),
-                    None if p.topology.node(&p.local)?.role.can_transit() => None,
-                    None => return Err(Error::Policy),
+                    None
+                } else {
+                    match mapping {
+                        Some(a) if a.receive => {
+                            let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM message_conferences WHERE conference_id=?1 AND public_only=1 AND active=1)",[a.conference],|r|r.get(0))?;
+                            if !valid {
+                                return Err(Error::Policy);
+                            }
+                            Some(a.conference)
+                        }
+                        Some(_) => return Err(Error::Policy),
+                        None if m.destination.is_none()
+                            && p.topology.node(&p.local)?.role.can_transit() =>
+                        {
+                            None
+                        }
+                        None => return Err(Error::Policy),
+                    }
                 };
                 let mid = insert_native(&tx, m, conference, now)?;
                 let mut forwarded = m.clone();

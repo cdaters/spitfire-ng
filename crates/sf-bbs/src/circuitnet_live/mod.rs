@@ -173,6 +173,30 @@ fn key(runtime: &BoardRuntime, c: &Config) -> Result<Vec<u8>, Error> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Action {
+    ControlPolicy {
+        network: NetworkId,
+        policy: core::control::Policy,
+        expected: i64,
+    },
+    RequestSubscription {
+        network: NetworkId,
+        change: core::control::Operation,
+        codename: Option<core::Codename>,
+    },
+    DecideControl {
+        network: NetworkId,
+        id: envelope::MessageId,
+        approve: bool,
+    },
+    RetryControl {
+        network: NetworkId,
+        id: envelope::MessageId,
+    },
+    Direct {
+        network: NetworkId,
+        message: i64,
+        destination: NodeId,
+    },
     Test {
         network: NetworkId,
         node: NodeId,
@@ -203,6 +227,11 @@ pub enum Action {
 impl Action {
     pub fn operation(&self) -> &'static str {
         match self {
+            Self::ControlPolicy { .. } => "circuitnet.control-policy",
+            Self::RequestSubscription { .. } => "circuitnet.control-request",
+            Self::DecideControl { .. } => "circuitnet.control-decision",
+            Self::RetryControl { .. } => "circuitnet.control-retry",
+            Self::Direct { .. } => "circuitnet.direct",
             Self::Test { .. } => "circuitnet.test",
             Self::Poll { .. } => "circuitnet.poll",
             Self::Hold { .. } => "circuitnet.hold",
@@ -216,7 +245,12 @@ impl Action {
             Self::Test { .. } => C::NetworkTest,
             Self::Poll { .. } => C::NetworkRun,
             Self::Hold { .. } | Self::Retry { .. } => C::NetworkQueue,
-            Self::Subscribe { .. } => C::ChangeSensitiveConfiguration,
+            Self::Subscribe { .. }
+            | Self::ControlPolicy { .. }
+            | Self::RequestSubscription { .. }
+            | Self::DecideControl { .. }
+            | Self::RetryControl { .. }
+            | Self::Direct { .. } => C::ChangeSensitiveConfiguration,
         }
     }
 }
@@ -227,6 +261,31 @@ pub(crate) fn dispatch(
 ) -> Result<crate::NetworkResult, ApplicationError> {
     let mut d = db(runtime).map_err(application)?;
     match action {
+        Action::ControlPolicy {
+            network,
+            policy,
+            expected,
+        } => d.circuitnet_set_control_policy(actor, network, *policy, *expected, now())?,
+        Action::RequestSubscription {
+            network,
+            change,
+            codename,
+        } => {
+            d.circuitnet_request(network, *change, codename.clone(), now())?;
+        }
+        Action::DecideControl {
+            network,
+            id,
+            approve,
+        } => {
+            d.circuitnet_decide_control(actor, network, id, *approve, now())?;
+        }
+        Action::RetryControl { network, id } => d.circuitnet_retry_control(network, id)?,
+        Action::Direct {
+            network,
+            message,
+            destination,
+        } => d.circuitnet_direct(network, *message, destination, now())?,
         Action::Hold {
             network,
             node,
@@ -320,6 +379,12 @@ pub struct LinkStatus {
     pub health: Option<Health>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ControlStatus {
+    #[serde(flatten)]
+    pub entry: core::control::Entry,
+    pub subscription_count: usize,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Status {
     pub network: NetworkId,
     pub local: NodeId,
@@ -330,8 +395,22 @@ pub struct Status {
     pub credential: bool,
     pub version: i64,
     pub peers: Vec<LinkStatus>,
+    pub topology: core::Topology,
+    pub control_policy: (core::control::Policy, i64),
+    pub controls: Vec<ControlStatus>,
+    pub pending_approvals: u32,
+    pub directed_pending: u32,
+    pub directed_failures: u32,
+    pub subscriptions: Vec<core::Dossier>,
+    pub more: bool,
 }
-pub(crate) fn status(runtime: &BoardRuntime) -> Result<Vec<Status>, ApplicationError> {
+impl std::ops::Deref for ControlStatus {
+    type Target = core::control::Entry;
+    fn deref(&self) -> &Self::Target {
+        &self.entry
+    }
+}
+pub(crate) fn status(runtime: &BoardRuntime, offset: u32) -> Result<Vec<Status>, ApplicationError> {
     let d = db(runtime).map_err(application)?;
     let mut result = vec![];
     for network in d.circuitnet_profiles()? {
@@ -371,6 +450,8 @@ pub(crate) fn status(runtime: &BoardRuntime) -> Result<Vec<Status>, ApplicationE
                 })
             })
             .collect::<Result<Vec<_>, core::Error>>()?;
+        let controls = d.circuitnet_controls_page(&network, offset)?;
+        let more = controls.len() > 16 || s.dossiers.len() > offset as usize + 16;
         result.push(Status {
             local: s.profile.local.clone(),
             role: s
@@ -390,6 +471,30 @@ pub(crate) fn status(runtime: &BoardRuntime) -> Result<Vec<Status>, ApplicationE
                 .and_then(|key| tls::validate_identity(&c.certificate, key))
                 .is_ok(),
             version,
+            topology: s.profile.topology.clone(),
+            control_policy: d.circuitnet_control_policy(&network)?,
+            more,
+            controls: controls
+                .into_iter()
+                .take(16)
+                .map(|mut entry| {
+                    let subscription_count = entry.result.subscriptions.len();
+                    entry.result.subscriptions.truncate(16);
+                    ControlStatus {
+                        entry,
+                        subscription_count,
+                    }
+                })
+                .collect(),
+            pending_approvals: d.circuitnet_control_counts(&network)?.0,
+            directed_pending: d.circuitnet_control_counts(&network)?.1,
+            directed_failures: d.circuitnet_control_counts(&network)?.2,
+            subscriptions: s
+                .dossiers
+                .into_iter()
+                .skip(offset as usize)
+                .take(16)
+                .collect(),
             network,
             peers,
         });
@@ -404,6 +509,8 @@ struct Session<'a> {
     health: Health,
     pending: Option<String>,
     started: Instant,
+    directed: bool,
+    controls: bool,
 }
 impl<'a> Session<'a> {
     fn new(
@@ -425,6 +532,8 @@ impl<'a> Session<'a> {
             },
             pending: None,
             started: Instant::now(),
+            directed: false,
+            controls: false,
         }
     }
     fn admitted(&self) -> Result<RuntimeDatabase, Error> {
@@ -464,10 +573,65 @@ impl<'a> Session<'a> {
             return Err(Error::AuthFailed);
         }
         self.admitted()?;
+        (self.directed, self.controls) = local.c4_capabilities(&remote)?;
         self.health.protocol_minor = Some(minor);
         Ok(local)
     }
+    fn send_controls(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        if !self.controls {
+            return Ok(());
+        }
+        let requests = custody(
+            self.admitted()?
+                .circuitnet_pending_controls(&self.profile.network, &self.peer.node),
+        )?;
+        ch.send(&Frame::Controls {
+            requests: requests.clone(),
+        })?;
+        let Frame::ControlResults { results } = ch.receive(1024 * 1024)? else {
+            return Err(Error::MalformedFrame);
+        };
+        if results.len() != requests.len()
+            || results.iter().zip(&requests).any(|(s, r)| s.id != r.id)
+        {
+            return Err(Error::MalformedFrame);
+        }
+        let mut d = self.admitted()?;
+        for result in results {
+            custody(d.circuitnet_control_result(
+                &self.profile.network,
+                &self.peer.node,
+                &result,
+                now(),
+            ))?;
+        }
+        Ok(())
+    }
+    fn receive_controls(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        if !self.controls {
+            return Ok(());
+        }
+        let Frame::Controls { requests } = ch.receive(envelope::control::MAX_CONTROL_BYTES)? else {
+            return Err(Error::MalformedFrame);
+        };
+        if requests.len() > envelope::control::MAX_CONTROLS {
+            return Err(Error::Oversized);
+        }
+        let mut results = vec![];
+        let mut d = self.admitted()?;
+        for r in requests {
+            results.push(custody(d.circuitnet_receive_control(
+                &self.profile.network,
+                &self.peer.node,
+                &r,
+                now(),
+            ))?);
+        }
+        ch.send(&Frame::ControlResults { results })?;
+        Ok(())
+    }
     fn send(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        self.send_controls(ch)?;
         let prepared = {
             let _guard = custody(self.runtime.network_lock.lock())?;
             let mut d = self.admitted()?;
@@ -479,10 +643,11 @@ impl<'a> Session<'a> {
                 }
                 cursor = next;
             }
-            match d.circuitnet_prepare_neighbor(
+            match d.circuitnet_prepare_capable_neighbor(
                 &self.runtime.network_artifacts,
                 &self.profile.network,
                 &self.peer.node,
+                self.directed,
                 now(),
             ) {
                 Ok(p) => Some(p),
@@ -525,12 +690,16 @@ impl<'a> Session<'a> {
         Ok(())
     }
     fn receive(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        self.receive_controls(ch)?;
         let Frame::Offer { batch } = ch.receive(wire::MAX_FRAME)? else {
             return Err(Error::MalformedFrame);
         };
         let Some(batch) = batch else {
             return Ok(());
         };
+        if !self.directed && batch.messages.iter().any(|m| m.destination.is_some()) {
+            return Err(Error::UnsupportedVersion);
+        }
         let bytes = batch.encode().map_err(|_| Error::MalformedFrame)?;
         self.health.bytes += bytes.len() as u64;
         let result = {

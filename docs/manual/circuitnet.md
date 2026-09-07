@@ -5,7 +5,8 @@ CircuitNET's Node IDs, END/HOST/ROOT tree, conference codenames and Dossiers.
 SPITFIRE messages remain ordinary native messages. There is no FTN or QWK
 translation and no separate CircuitNET message base.
 
-C3 adds native encrypted, authenticated live exchange. Use explicitly configured
+C3 adds live exchange over encrypted, authenticated transport. C4 adds directed
+routing and authenticated remote Dossier requests. Use explicitly configured
 neighbors; no public port or automatic discovery is assigned. C2 offline exchange
 remains available when explicitly enabled. Private mail, file networking, legacy
 packets and remote network administration remain outside this implementation.
@@ -298,3 +299,144 @@ conflicts or is unauthorized. Existing duplicate history remains intact. Native
 backup/restore preserves config, credentials, Dossiers, queue/artifact custody and
 receipts; it never restores an active socket. See the
 [wire specification](../technical/circuitnet-transport.md) for exact protocol rules.
+
+## How directed routing works
+
+C4 lets an operator route an eligible native public conference post to one
+**Destination Node**. The message still has its conference codename and original
+posted author. The configured tree determines every hop. For example, END1 to
+END2 under HOST1 stays within that branch. END1 to END3 under HOST2 goes through
+HOST1, ROOT1 and HOST2. ROOT only routes within its configured tree.
+
+C4 provides operator destination selection; the caller composer remains unchanged.
+After posting a native conference message and before any scan or Poll publishes
+it, use its native message ID with the running board:
+
+```text
+sfconfig circuitnet BOARD direct circuitnet-test MESSAGE_ID END3
+```
+
+This selection is immutable. A post already published cannot be redirected.
+The destination must exist in this profile. An unknown destination records a
+failure and prevents that post from later becoming broadcast traffic. Preserve
+it for review and create a new post with the correct destination. No subject-line
+parser is enabled: `>>NODE` and `>>NODE--CODENAME` remain historical conventions,
+not machine instructions in the modern protocol.
+
+Intermediate HOST/ROOT boards retain native transit records and provenance. They
+do not add these directed posts to their caller conferences. At the destination,
+an active public conference mapping must permit receive. A configured mapping
+that disables forwarding or receive can also stop transit. Directed messages do
+not require broadcast Dossiers and never silently subscribe a board. Replies
+retain threading identity but do not inherit a destination; each directed reply
+needs its own explicit destination selection.
+
+## Directed does not mean private
+
+A directed post is a **conference message**, not private mail. Destination Node
+chooses where it travels. Users allowed into that conference at the destination
+can read it. Intermediate system operators can access stored transit records.
+Do not use directed routing for content that requires secrecy.
+
+## What transport encryption protects
+
+CircuitNET transport is encrypted and authenticated between neighboring nodes.
+TLS protects packets while traveling over each link. After import, conference
+access rules determine who can read the stored message. This is not end-to-end
+encrypted messaging. Local/private BBS messages elsewhere in NG are restricted
+by BBS access controls unless a separate feature explicitly provides encryption.
+C4 adds no private mail or end-to-end encryption feature.
+
+## How to request conference subscriptions
+
+An END requests changes to its own Dossier at its direct parent HOST. A HOST may
+request its own upstream subscriptions at its parent. ROOT has no upstream target.
+The parent must already carry the codename in an enabled send/receive mapping;
+requests never create conferences or mappings. Configure the child's receive
+mapping and local parent Dossier separately using the existing setup commands.
+
+```text
+sfconfig circuitnet BOARD remote-subscribe circuitnet-test CNTECH
+sfconfig circuitnet BOARD poll circuitnet-test HOST2
+sfconfig circuitnet BOARD live-status circuitnet-test
+```
+
+The status includes a request ID and result. The default is **Pending Approval**.
+Poll again after the parent operator decides. `remote-unsubscribe` uses the same
+workflow. `query-subscriptions` creates a read-only request for the child's own
+Dossier at the parent. Its result is a snapshot; use a new query for fresh state.
+Administrative controls never appear in caller message lists.
+
+## How a HOST approves requests
+
+In sfmonitor's CircuitNET Networks view, select the pending request and use
+`a` **Approve** or `d` **Deny**, then confirm the displayed operation. Use
+`[` and `]` for previous/next pages of requests and history. The profile
+row reports pending approvals and directed queue/failure counts. Request details
+identify the requester, codename, operation, authenticated source and timestamps.
+The same actions are available through sfconfig:
+
+```text
+sfconfig circuitnet BOARD live-status circuitnet-test
+sfconfig circuitnet BOARD approve circuitnet-test REQUEST_ID
+sfconfig circuitnet BOARD poll circuitnet-test END3
+```
+
+Approval rechecks current authority and conference availability. The Dossier
+change and result commit together. Denial is durable; a retry of the same identity
+does not reopen it. The requester can submit a genuinely new request later.
+These actions require the existing sensitive-configuration operator capability.
+
+## How to deny remote subscription changes
+
+```text
+sfconfig circuitnet BOARD control-policy circuitnet-test deny
+```
+
+`require-approval` restores the safe default. `auto-approve` explicitly permits
+eligible direct-child mutations without a separate decision. Read-only queries
+remain available to authorized children in all three modes. Policy changes do
+not erase pending or applied history; approval while remote changes are disabled
+produces a denial. To deny one pending request, use `deny NETWORK REQUEST_ID`.
+
+## How to test a route
+
+```text
+sfconfig circuitnet BOARD route-test circuitnet-test END3
+```
+
+Route Test reads the running board's configured topology and shows local node,
+destination, next hop and full path. It sends no CircuitNET traffic. It proves a
+configured path, not remote conference availability or peer capability. Test Link
+checks the authenticated neighbor session; Poll performs actual exchange.
+
+## Troubleshooting remote Dossier requests
+
+- **Pending Approval:** the parent has durably received the request. Its operator
+  must decide, then either side can Poll that link to return the result.
+- **Unknown Conference:** the parent has no available mapping. Ask its operator
+  to review configuration; retrying an old terminal request cannot create one.
+- **Denied:** remote changes are disabled or the operator denied this request.
+- **Unauthorized:** the authenticated direct child, profile, requester and target
+  must match the configured relationship. A child cannot name another requester.
+- **Already Subscribed / Already Unsubscribed:** successful deterministic no-ops.
+- **Replay conflict:** a request identity was reused with different fields.
+  Preserve evidence; do not rewrite the retained request.
+- **Old peer:** minors 0–1 still exchange ordinary conference traffic. They receive
+  no C4 controls or directed offers. Upgrade and enroll capable neighbors along
+  the whole directed path before expecting that queue to advance.
+
+`control-retry NETWORK REQUEST_ID` resends the identical retained request; it does
+not reopen a denial or reapply an approved mutation. Pending requests and replies
+survive daemon restart. Cold backup/restore retains controls, decisions, routing
+intent, native transit, queue truth and receipts. Uncertain directed queue work
+is held on restore for the normal explicit retry; control retries retain their
+original identities and converge through durable results.
+
+`live-status NETWORK PAGE` pages the bounded operator view (page zero by default).
+Query subscription results in this view show a bounded sample and total count.
+The parent's current subscriptions are also paged. Full retained control results
+can be inspected with the cold `control-history NETWORK [AFTER_REQUEST_ID]` command.
+Offline C2 conference exchange also carries directed metadata under its existing
+explicit trusted-custody rule. Remote Dossier controls require live authenticated
+links in C4; offline files do not establish the TLS identity used for authorization.

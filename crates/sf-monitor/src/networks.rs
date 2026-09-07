@@ -163,12 +163,23 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
                 .as_ref()
                 .is_some_and(|s| s.page.more)
             {
-                model.networks.query.offset += 100;
+                model.networks.query.offset +=
+                    if model.networks.query.section == Section::Circuitnet {
+                        16
+                    } else {
+                        100
+                    };
                 request(model, worker)
             }
         }
         KeyCode::Char('[') => {
-            model.networks.query.offset = model.networks.query.offset.saturating_sub(100);
+            model.networks.query.offset = model.networks.query.offset.saturating_sub(
+                if model.networks.query.section == Section::Circuitnet {
+                    16
+                } else {
+                    100
+                },
+            );
             request(model, worker)
         }
         KeyCode::Up => model.networks.selected = model.networks.selected.saturating_sub(1),
@@ -218,6 +229,45 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
                 request: sf_bbs::ftn::Action::Scan,
             })
         }
+        KeyCode::Char(c @ ('a' | 'd')) if model.networks.query.section == Section::Circuitnet => {
+            if let Some(s) = &model.snapshot.networks {
+                let mut index = model.networks.selected;
+                for n in &s.circuitnet {
+                    if index == 0 {
+                        break;
+                    }
+                    index -= 1;
+                    if index < n.peers.len() {
+                        break;
+                    }
+                    index -= n.peers.len();
+                    if let Some(e) = n.controls.get(index) {
+                        if e.direction == "incoming"
+                            && e.result.outcome
+                                == sf_core::circuitnet::control::Outcome::PendingApproval
+                        {
+                            let request = sf_bbs::circuitnet_live::Action::DecideControl {
+                                network: n.network.clone(),
+                                id: e.request.id.clone(),
+                                approve: c == 'a',
+                            };
+                            if model
+                                .snapshot
+                                .authorized_capabilities
+                                .contains(&request.capability())
+                            {
+                                model.networks.pending =
+                                    Some(NetworkAction::Circuitnet { request });
+                            } else {
+                                model.networks.status = t("sfmonitor-action-denied");
+                            }
+                        }
+                        break;
+                    }
+                    index = index.saturating_sub(n.controls.len());
+                }
+            }
+        }
         KeyCode::Char(c @ ('t' | 'p' | 'h' | 'r'))
             if model.networks.query.section == Section::Circuitnet =>
         {
@@ -257,7 +307,7 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
                         }
                         break;
                     }
-                    index = index.saturating_sub(n.peers.len());
+                    index = index.saturating_sub(n.peers.len() + n.controls.len());
                 }
             }
         }
@@ -334,6 +384,21 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
     }
     true
 }
+fn control_outcome(outcome: sf_core::circuitnet::control::Outcome) -> String {
+    use sf_core::circuitnet::control::Outcome;
+    t(match outcome {
+        Outcome::Accepted => "circuitnet-accepted",
+        Outcome::PendingApproval => "circuitnet-pending-approval",
+        Outcome::Applied => "circuitnet-applied",
+        Outcome::AlreadySubscribed => "circuitnet-already-subscribed",
+        Outcome::AlreadyUnsubscribed => "circuitnet-already-unsubscribed",
+        Outcome::Denied => "circuitnet-denied",
+        Outcome::UnknownCodename => "circuitnet-unknown-conference",
+        Outcome::Unauthorized => "circuitnet-unauthorized",
+        Outcome::Malformed => "circuitnet-malformed",
+        Outcome::ReplayConflict => "circuitnet-replay-conflict",
+    })
+}
 fn rows(model: &MonitorModel) -> Vec<String> {
     let Some(s) = &model.snapshot.networks else {
         return vec![t("networks-access")];
@@ -348,6 +413,7 @@ fn rows(model: &MonitorModel) -> Vec<String> {
                 p.node,p.role,p.host,p.port,t("circuitnet-held"),p.held,t("networks-queues"),p.queued,
                 t("circuitnet-last-attempt"),time(p.health.as_ref().map(|h|h.last_attempt)),t("circuitnet-last-contact"),time(p.health.as_ref().and_then(|h|h.last_success)),
                 t("circuitnet-active"),p.active,p.health.as_ref().map_or("—",|h|h.result.as_str()))));
+            lines.extend(n.controls.iter().map(|e|format!("{} / {} / {:?} / {} / {}", t("circuitnet-remote-request"),e.request.id,e.request.operation,e.request.codename.as_ref().map_or("—",sf_core::circuitnet::Codename::as_str),control_outcome(e.result.outcome))));
             lines
         }).collect(),
         Section::Overview => vec![
@@ -659,11 +725,20 @@ fn details(model: &MonitorModel) -> Vec<String> {
                     return vec![
                         format!("{} / {} / {:?}", n.network, n.local, n.role),
                         format!(
-                            "{}: {:?} / {}",
-                            t("circuitnet-listener"),
-                            n.listener,
-                            n.listening
+                            "{}: {} / {}: {} / {}: {}",
+                            t("circuitnet-pending-approval"),
+                            n.pending_approvals,
+                            t("circuitnet-directed"),
+                            n.directed_pending,
+                            t("circuitnet-route-failures"),
+                            n.directed_failures
                         ),
+                        format!(
+                            "{}: {:?}",
+                            t("circuitnet-control-policy"),
+                            n.control_policy.0
+                        ),
+                        t("circuitnet-visibility-help"),
                     ];
                 }
                 index -= 1;
@@ -697,6 +772,31 @@ fn details(model: &MonitorModel) -> Vec<String> {
                     ];
                 }
                 index = index.saturating_sub(n.peers.len());
+                if let Some(e) = n.controls.get(index) {
+                    return vec![
+                        format!("{} / {}", n.network, e.request.id),
+                        format!(
+                            "{} -> {} / {:?} / {:?}",
+                            e.request.requester,
+                            e.request.target,
+                            e.request.operation,
+                            e.request.codename
+                        ),
+                        format!(
+                            "{} / {}: {}",
+                            control_outcome(e.result.outcome),
+                            t("circuitnet-authentication"),
+                            e.authenticated_source
+                        ),
+                        format!(
+                            "{} / {}",
+                            time(Some(e.created_at)),
+                            time(Some(e.updated_at))
+                        ),
+                        t("circuitnet-control-help"),
+                    ];
+                }
+                index = index.saturating_sub(n.controls.len());
             }
             vec![]
         }
@@ -948,6 +1048,8 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
         let circuitnet_label = if let NetworkAction::Circuitnet { request } = action {
             use sf_bbs::circuitnet_live::Action;
             Some(t(match request {
+                Action::DecideControl { approve: true, .. } => "circuitnet-approve",
+                Action::DecideControl { approve: false, .. } => "circuitnet-deny",
                 Action::Test { .. } => "circuitnet-test-link",
                 Action::Poll { .. } => "circuitnet-poll",
                 Action::Hold { held: true, .. } => "circuitnet-hold",
@@ -966,6 +1068,12 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
                     | Action::Hold { node, .. }
                     | Action::Subscribe { node, .. } => node.as_str(),
                     Action::Retry { queue, .. } => queue.as_str(),
+                    Action::DecideControl { id, .. } | Action::RetryControl { id, .. } => {
+                        id.as_str()
+                    }
+                    Action::Direct { destination, .. } => destination.as_str(),
+                    Action::ControlPolicy { network, .. }
+                    | Action::RequestSubscription { network, .. } => network.as_str(),
                 };
                 (circuitnet_label.as_deref().unwrap_or(""), target)
             }
@@ -1057,6 +1165,22 @@ mod tests {
             })
         ));
         assert!(commands.try_recv().is_err());
+        m.networks.query = NetworkQuery {
+            section: Section::Circuitnet,
+            offset: 32,
+        };
+        key(
+            &mut m,
+            &worker,
+            KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE),
+        );
+        assert!(matches!(
+            commands.try_recv().unwrap(),
+            WorkerCommand::Networks(NetworkQuery {
+                section: Section::Circuitnet,
+                offset: 16
+            })
+        ));
     }
     #[test]
     fn cockpit_sizes_and_hostile_text_are_safe() {

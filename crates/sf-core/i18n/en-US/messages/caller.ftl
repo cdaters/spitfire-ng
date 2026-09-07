@@ -363,3 +363,6 @@ message-identity-unrepresentable = The posting name cannot be displayed exactly 
 
 caller-profile-handle = Handle: { $name }
 caller-profile-real-name = Real Name (derived, private): { $name }
+
+# CircuitNET conference visibility; no caller private-mail or E2EE feature.
+circuitnet-conference-visibility = CircuitNET transport is encrypted. After delivery, conference messages are readable by users allowed into that conference. A destination node chooses the route; it does not make the message private.

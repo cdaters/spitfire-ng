@@ -1086,7 +1086,7 @@ netconfig-field-posting-identity = Posting identity requirement
 netconfig-effective-identity = Effective posting identity (saved policy)
 
 # CircuitNET C2 explicitly uses cold-board operator custody.
-circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. See the CircuitNET manual for offline exchange and full syntax.
+circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. C4: direct, route-test, remote-subscribe, remote-unsubscribe, query-subscriptions, control-policy, approve, deny, control-retry. See the CircuitNET manual for full syntax.
 circuitnet-file-error = Offline Exchange file unavailable, oversized, unsafe, or output already exists. Retained delivery work can be retried.
 circuitnet-completed = CircuitNET operation completed. Export is pending until the neighbor's durable receipt is acknowledged.
 
@@ -1106,6 +1106,34 @@ circuitnet-active = Link active
 circuitnet-link-failure = Link failure
 
 circuitnet-dossiers = Dossier codenames
-circuitnet-keys = t Test Link · p Exchange/Poll · h Hold · r Release · Enter details · Tab section
+circuitnet-keys = [ / ] Previous/next page · a Approve · d Deny request · t Test Link · p Exchange/Poll · h Hold · r Release · Enter details · Tab section
 circuitnet-hold = Hold neighbor
 circuitnet-release = Release neighbor
+
+# C4 directed conference traffic and authenticated Dossier controls.
+circuitnet-directed = Directed Message
+circuitnet-destination = Destination Node
+circuitnet-route-test = Route Test
+circuitnet-remote-request = Remote Subscription Request
+circuitnet-pending-approval = Pending Approval
+circuitnet-approve = Approve
+circuitnet-deny = Deny
+circuitnet-auto-approve = Auto-Approve
+circuitnet-remote-disabled = Remote Changes Disabled
+circuitnet-already-subscribed = Already Subscribed
+circuitnet-already-unsubscribed = Already Unsubscribed
+circuitnet-unknown-node = Unknown Node
+circuitnet-unknown-conference = Unknown Conference
+circuitnet-transport-encrypted = Transport Encrypted
+circuitnet-conference-message = Conference Message
+circuitnet-route-failures = Routing failures
+circuitnet-control-policy = Remote subscription policy
+circuitnet-control-help = Select a pending request: a Approve · d Deny. Poll the child link to return the result.
+circuitnet-visibility-help = Directed traffic remains a conference message. CircuitNET transport is encrypted; stored messages follow BBS conference access rules.
+
+circuitnet-accepted = Accepted
+circuitnet-applied = Applied
+circuitnet-denied = Denied
+circuitnet-unauthorized = Unauthorized
+circuitnet-malformed = Malformed request
+circuitnet-replay-conflict = Conflicting request identity

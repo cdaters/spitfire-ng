@@ -63,8 +63,20 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
-        if matches!(self, Self::Circuitnet { .. }) {
-            return crate::OperatorFeature::Circuitnet;
+        if let Self::Circuitnet { request } = self {
+            use crate::circuitnet_live::Action;
+            return if matches!(
+                request,
+                Action::ControlPolicy { .. }
+                    | Action::RequestSubscription { .. }
+                    | Action::DecideControl { .. }
+                    | Action::RetryControl { .. }
+                    | Action::Direct { .. }
+            ) {
+                crate::OperatorFeature::CircuitnetControls
+            } else {
+                crate::OperatorFeature::Circuitnet
+            };
         }
         if matches!(
             self,

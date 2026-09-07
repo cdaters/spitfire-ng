@@ -8,6 +8,50 @@ legacy packet layout or proprietary implementation. No legacy compatibility is c
 
 ## Interface gate
 
+### C4 interface gate
+
+C4 adds optional typed `destination` to native CircuitNET publication metadata.
+Absence retains byte-identical C2 encoding. A destination selects the unique path
+in the profile's validated tree; only its next direct neighbor receives queue
+intent. Every hop verifies the complete origin-to-destination path. Intermediate
+nodes retain native transit records, without placing them in caller conferences.
+The destination must have an active public receive mapping. Directed traffic does
+not require or modify broadcast Dossiers. This deliberately modernizes C1's
+route-driven subscription learning into explicit operator-controlled subscriptions.
+Normal fanout retains C2 Dossier rules. Replies retain typed parent identity but do
+not inherit a destination. Historical subject parsing remains deferred.
+
+Typed controls use a separate namespace and request/result frames on the existing
+mutually authenticated session. Subscribe, Unsubscribe and QuerySubscriptions
+identify network, requester, direct parent target and origin-scoped random request
+ID; mutation operations require a codename. No caller identity or message payload
+authorizes controls. Only a configured direct child can request its own Dossier
+at its parent; ROOT has no upstream target. HOST follows the same upstream rule.
+Local operator management of direct neighbors remains available.
+
+The default remote policy is require-approval; auto-approve and deny are explicit
+operator choices. Requests, authenticated source, canonical request hash, time,
+pending/terminal result and decisions are durable. Approval revalidates policy and
+codename availability in the same transaction as Dossier mutation and result.
+Identical retries return current durable results; conflicting reuse rejects.
+Unknown/unavailable codenames never create conferences or mappings. Results expose
+only finite codes and the requester's own subscription list. Pending results are
+retried in subsequent finite polls; terminal results stop automatic resubmission.
+
+Protocol 1.2 negotiates `directed-routing` and `remote-dossier-control` independently.
+Minors 0–1 keep their existing phase sequence and conference encoding. Directed
+work is withheld from peers without its capability; controls are sent only after
+mutual capability agreement. Offline directed envelopes share C2 custody and
+receipts. Remote controls over offline files are deferred because trusted file
+custody does not provide the live certificate identity anchor.
+
+CircuitNET transport is encrypted. Conference messages are readable by users
+authorized for the destination conference after delivery. Directed routing does
+not provide private messaging or end-to-end encryption. Transit is accessible to
+intermediate operators under native BBS access controls. Other local/private BBS
+messages are access-restricted unless an explicit feature supplies end-to-end
+encryption; C4 supplies no such feature.
+
 The network slug is 1–32 lowercase ASCII letters/digits/hyphens, beginning and
 ending alphanumeric. Node IDs are 1–8 ASCII alphanumerics, normalized uppercase;
 codenames are 1–8 ASCII alphanumerics or internal hyphens, normalized uppercase.
@@ -83,7 +127,7 @@ batches, acknowledgement/retry state and channel protection in its separate wire
 Legacy codecs are a separate deferred compatibility boundary, with no empty codec
 or speculative C3 tables. Third-party adapters can implement this envelope without
 SPITFIRE database knowledge. Conference Health remains future native analytics
-across all conferences. Private/directed mail, files, governance, catalog creation,
+across all conferences. Private mail, directed public routing, files, governance, catalog creation,
 remote Dossier commands and live transport are outside C2; live transport is C3.
 
 ## Schema 29 and implementation map
@@ -166,3 +210,48 @@ operator actions. sfconfig preserves the cold C2 interface and adds live command
 sfmonitor adds the CircuitNET Networks section. C2 atomic batch and restore-held
 semantics remain accepted. Test names and acceptance details for the live layer
 are documented with C3, while the original offline journey remains a regression.
+
+
+## Schema 31: C4 authority and recovery
+
+The transactional 30→31 migration appends nullable `destination` to immutable
+`circuitnet_messages`; old rows retain null and identical fingerprints. The
+immutable `circuitnet_destinations` table selects a native post's destination
+before publication. Rejected selection records prevent later broadcast fallback.
+`circuitnet_control_policy` owns CAS-versioned policy. `circuitnet_controls` owns
+incoming/outgoing request JSON, authenticated neighbor, fingerprint, result,
+settled flag and creation/update times. Its identity fields cannot be updated or
+deleted. Native message bodies remain solely in existing native payload storage.
+No governance, private-mail or file-networking tables are added.
+
+A pending approval becomes a terminal result in the transaction that mutates the
+Dossier. Approved is therefore not a separate crash-prone durable intermediate
+state: successful approval produces `applied` or the corresponding no-op. Failure
+of the SQLite transaction preserves pending authority for recovery. Invalidated
+policy or mapping produces a durable denial/unknown-codename result. Terminal
+request identities cannot be reopened by the service. Incoming requests are kept
+for replay; outgoing terminal results stop resubmission until explicit retry.
+
+The existing 100,000-row history budget includes controls. Request identity and
+content are immutable; unknown/forged identities are rejected with a safe audit
+entry before any Dossier change. `circuitnet_changes` records request, decision,
+mutation, route selection/next hop and rejected routing without message bodies,
+private names or credentials. Native cold backup covers the complete database,
+artifact manifests and existing credential custody. Restoring an old sender can
+recover later receipts from its receiver without duplicate import or transit.
+It cannot reconstruct decisions made after the receiver's own backup; restoring
+such a receiver correctly restores the snapshot's truth, not invented later ACKs.
+
+C4 operator IPC uses minor 14's `circuitnet-controls` feature for new mutations;
+C3 actions retain minor 13. Networks projects 16 control/subscription entries per
+profile/page, prioritizing unsettled controls, with count/sample metadata for
+large query results. The full request/result remains in durable core history.
+Human instructions and the cold history command are in the
+[CircuitNET manual](../manual/circuitnet.md#troubleshooting-remote-dossier-requests).
+
+The independently configured topology is the only route authority. `Topology::path`
+validates node membership, one connected acyclic rooted tree and END leaf roles,
+then performs bounded traversal to return its unique path. Native publication
+uses just the second node, or no hop for self. Import verifies that the arriving
+origin/path/local prefix belongs to the same complete destination route. No route
+learning, peer mesh, subscription inference or broadcast fallback is permitted.

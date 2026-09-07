@@ -709,3 +709,407 @@ fn atomic_mixed_valid_duplicate_conflict_preserves_exact_truth() {
     ));
     assert_eq!(count(&receiver), 3);
 }
+
+#[test]
+fn directed_same_branch_native_transit_no_fanout_and_lost_ack() {
+    let mut e1 = board("END1");
+    let mut h = board("HOST");
+    let mut e2 = board("END2");
+    let native = post(&mut e1, "Directed conference", None);
+    e1.db
+        .circuitnet_direct(&net(), native.id.get(), &node("END2"), 20)
+        .unwrap();
+    e1.db.circuitnet_scan(&net(), 0, 21).unwrap();
+    assert!(matches!(
+        e1.db
+            .circuitnet_prepare_capable_neighbor(&e1.store, &net(), &node("HOST"), false, 22),
+        Err(Error::Empty)
+    ));
+    let offer = e1
+        .db
+        .circuitnet_prepare(&e1.store, &net(), &node("HOST"), 23)
+        .unwrap();
+    let first =
+        h.db.circuitnet_import(&h.store, &net(), &node("END1"), &offer.bytes, 24)
+            .unwrap();
+    assert_eq!(first.imported, 1);
+    assert_eq!(h.db.messages(h.actor, h.conference).unwrap().len(), 0);
+    let replay =
+        h.db.circuitnet_import(&h.store, &net(), &node("END1"), &offer.bytes, 25)
+            .unwrap();
+    assert_eq!(replay.duplicates, 1);
+    assert_eq!(h.db.circuitnet_queue(&net(), "").unwrap().len(), 1);
+    let onward =
+        h.db.circuitnet_prepare(&h.store, &net(), &node("END2"), 26)
+            .unwrap();
+    let decoded = Batch::decode(&onward.bytes).unwrap();
+    assert_eq!(decoded.messages[0].destination, Some(node("END2")));
+    assert_eq!(decoded.messages[0].origin, node("END1"));
+    assert_eq!(decoded.messages[0].path, vec![node("END1"), node("HOST")]);
+    let received = e2
+        .db
+        .circuitnet_import(&e2.store, &net(), &node("HOST"), &onward.bytes, 27)
+        .unwrap();
+    let again = e2
+        .db
+        .circuitnet_import(&e2.store, &net(), &node("HOST"), &onward.bytes, 28)
+        .unwrap();
+    assert_eq!(again.duplicates, 1);
+    assert_eq!(e2.db.messages(e2.actor, e2.conference).unwrap().len(), 1);
+    assert!(e2.db.circuitnet_queue(&net(), "").unwrap().is_empty());
+    assert_eq!(
+        h.db.circuitnet_acknowledge(&h.store, &net(), &node("END2"), &received.receipt, 29)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        h.db.circuitnet_acknowledge(&h.store, &net(), &node("END2"), &again.receipt, 30)
+            .unwrap(),
+        0
+    );
+}
+#[test]
+fn directed_unknown_is_durable_failure_without_broadcast_fallback() {
+    let mut b = board("END1");
+    let m = post(&mut b, "Unknown", None);
+    assert!(b
+        .db
+        .circuitnet_direct(&net(), m.id.get(), &node("UNKNOWN"), 20)
+        .is_err());
+    assert_eq!(b.db.circuitnet_scan(&net(), 0, 21).unwrap().0, 0);
+    assert!(b.db.circuitnet_queue(&net(), "").unwrap().is_empty());
+    assert_eq!(b.db.circuitnet_control_counts(&net()).unwrap().2, 1);
+    assert!(b
+        .db
+        .circuitnet_route(&NetworkId::new("wrong-profile").unwrap(), &node("END2"))
+        .is_err());
+}
+#[test]
+fn directed_does_not_require_dossier_but_requires_final_receive_mapping() {
+    let mut a = board("END1");
+    let mut b = board("HOST");
+    for board in [&mut a, &mut b] {
+        board
+            .db
+            .connection
+            .execute("UPDATE circuitnet_dossiers SET subscribed=0", [])
+            .unwrap();
+    }
+    let m = post(&mut a, "No broadcast subscription", None);
+    a.db.circuitnet_direct(&net(), m.id.get(), &node("HOST"), 20)
+        .unwrap();
+    a.db.circuitnet_scan(&net(), 0, 21).unwrap();
+    let offer =
+        a.db.circuitnet_prepare(&a.store, &net(), &node("HOST"), 22)
+            .unwrap();
+    b.db.connection
+        .execute("UPDATE circuitnet_mappings SET receive=0", [])
+        .unwrap();
+    assert!(b
+        .db
+        .circuitnet_import(&b.store, &net(), &node("END1"), &offer.bytes, 23)
+        .is_err());
+    b.db.connection
+        .execute("UPDATE circuitnet_mappings SET receive=1", [])
+        .unwrap();
+    assert_eq!(
+        b.db.circuitnet_import(&b.store, &net(), &node("END1"), &offer.bytes, 24)
+            .unwrap()
+            .imported,
+        1
+    );
+    assert!(b.db.circuitnet_queue(&net(), "").unwrap().is_empty());
+}
+#[test]
+fn controls_approval_replay_conflict_denial_and_forged_child() {
+    use control::*;
+    let mut e = board("END1");
+    let mut h = board("HOST");
+    let r =
+        e.db.circuitnet_request(&net(), Operation::Unsubscribe, Some(code("CNTEST")), 20)
+            .unwrap();
+    let pending =
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &r, 21)
+            .unwrap();
+    assert_eq!(pending.outcome, Outcome::PendingApproval);
+    e.db.circuitnet_control_result(&net(), &node("HOST"), &pending, 22)
+        .unwrap();
+    assert!(subscribed(
+        &h.db.connection,
+        &h.db.circuitnet_status(&net()).unwrap().profile,
+        &node("END1"),
+        &code("CNTEST")
+    )
+    .unwrap());
+    let applied =
+        h.db.circuitnet_decide_control("operator", &net(), &r.id, true, 23)
+            .unwrap();
+    assert_eq!(applied.outcome, Outcome::Applied);
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &r, 24)
+            .unwrap(),
+        applied
+    );
+    assert!(h
+        .db
+        .circuitnet_decide_control("operator", &net(), &r.id, true, 25)
+        .is_err());
+    e.db.circuitnet_control_result(&net(), &node("HOST"), &applied, 26)
+        .unwrap();
+    assert!(e
+        .db
+        .circuitnet_pending_controls(&net(), &node("HOST"))
+        .unwrap()
+        .is_empty());
+    assert!(e
+        .db
+        .circuitnet_control_result(&net(), &node("HOST"), &pending, 27)
+        .is_err());
+    let mut changed = r.clone();
+    changed.operation = Operation::Subscribe;
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &changed, 28)
+            .unwrap()
+            .outcome,
+        Outcome::ReplayConflict
+    );
+    let mut forged = r.clone();
+    forged.requester = node("END2");
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &forged, 29)
+            .unwrap()
+            .outcome,
+        Outcome::Unauthorized
+    );
+    let new =
+        e.db.circuitnet_request(&net(), Operation::Subscribe, Some(code("CNTEST")), 30)
+            .unwrap();
+    h.db.circuitnet_receive_control(&net(), &node("END1"), &new, 31)
+        .unwrap();
+    let denied =
+        h.db.circuitnet_decide_control("operator", &net(), &new.id, false, 32)
+            .unwrap();
+    assert_eq!(denied.outcome, Outcome::Denied);
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &new, 33)
+            .unwrap(),
+        denied
+    );
+    let logs =
+        h.db.connection
+            .prepare("SELECT operation FROM circuitnet_changes")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .join(" ");
+    assert!(logs.contains("control-unauthorized"));
+    assert!(!logs.contains("Synthetic body"));
+    assert!(!logs.contains("Handle"));
+}
+#[test]
+fn controls_policy_modes_unknown_query_and_pending_restart() {
+    use control::*;
+    let mut e = board("END1");
+    let mut h = board("HOST");
+    let unknown =
+        e.db.circuitnet_request(&net(), Operation::Subscribe, Some(code("UNKNOWN")), 20)
+            .unwrap();
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &unknown, 21)
+            .unwrap()
+            .outcome,
+        Outcome::UnknownCodename
+    );
+    h.db.circuitnet_set_control_policy("operator", &net(), Policy::AutoApprove, 0, 22)
+        .unwrap();
+    for (operation, outcome) in [
+        (Operation::Subscribe, Outcome::AlreadySubscribed),
+        (Operation::Unsubscribe, Outcome::Applied),
+        (Operation::Unsubscribe, Outcome::AlreadyUnsubscribed),
+    ] {
+        let r =
+            e.db.circuitnet_request(&net(), operation, Some(code("CNTEST")), 23)
+                .unwrap();
+        assert_eq!(
+            h.db.circuitnet_receive_control(&net(), &node("END1"), &r, 24)
+                .unwrap()
+                .outcome,
+            outcome
+        );
+    }
+    h.db.circuitnet_set_control_policy("operator", &net(), Policy::Deny, 1, 25)
+        .unwrap();
+    let r =
+        e.db.circuitnet_request(&net(), Operation::Subscribe, Some(code("CNTEST")), 26)
+            .unwrap();
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &r, 27)
+            .unwrap()
+            .outcome,
+        Outcome::Denied
+    );
+    let q =
+        e.db.circuitnet_request(&net(), Operation::QuerySubscriptions, None, 28)
+            .unwrap();
+    assert!(h
+        .db
+        .circuitnet_receive_control(&net(), &node("END1"), &q, 29)
+        .unwrap()
+        .subscriptions
+        .is_empty());
+    h.db.circuitnet_set_control_policy("operator", &net(), Policy::RequireApproval, 2, 30)
+        .unwrap();
+    let pending =
+        e.db.circuitnet_request(&net(), Operation::Subscribe, Some(code("CNTEST")), 31)
+            .unwrap();
+    h.db.circuitnet_receive_control(&net(), &node("END1"), &pending, 32)
+        .unwrap();
+    let path = h._temp.path().join("native.sqlite3");
+    drop(h.db);
+    h.db = RuntimeDatabase::open(&path).unwrap();
+    assert_eq!(h.db.circuitnet_control_counts(&net()).unwrap().0, 1);
+    assert_eq!(
+        h.db.circuitnet_decide_control("operator", &net(), &pending.id, true, 33)
+            .unwrap()
+            .outcome,
+        Outcome::Applied
+    );
+    drop(h.db);
+    h.db = RuntimeDatabase::open(&path).unwrap();
+    assert_eq!(
+        h.db.circuitnet_receive_control(&net(), &node("END1"), &pending, 34)
+            .unwrap()
+            .outcome,
+        Outcome::Applied
+    );
+}
+
+#[test]
+fn directed_parent_links_and_end_rejects_unrelated_transit() {
+    let mut a = board("END1");
+    let mut h = board("HOST");
+    let mut b = board("END2");
+    let parent = post(&mut a, "Directed parent", None);
+    a.db.circuitnet_direct(&net(), parent.id.get(), &node("END2"), 20)
+        .unwrap();
+    a.db.circuitnet_scan(&net(), 0, 21).unwrap();
+    let child = post(&mut a, "Directed reply", Some(parent.id));
+    a.db.circuitnet_direct(&net(), child.id.get(), &node("END2"), 22)
+        .unwrap();
+    a.db.circuitnet_scan(&net(), 0, 23).unwrap();
+    let first =
+        a.db.circuitnet_prepare(&a.store, &net(), &node("HOST"), 24)
+            .unwrap();
+    h.db.circuitnet_import(&h.store, &net(), &node("END1"), &first.bytes, 25)
+        .unwrap();
+    let last =
+        h.db.circuitnet_prepare(&h.store, &net(), &node("END2"), 26)
+            .unwrap();
+    let mut bad = Batch::decode(&last.bytes).unwrap();
+    bad.messages[0].destination = Some(node("HOST"));
+    assert!(b
+        .db
+        .circuitnet_import(&b.store, &net(), &node("HOST"), &bad.encode().unwrap(), 27)
+        .is_err());
+    b.db.circuitnet_import(&b.store, &net(), &node("HOST"), &last.bytes, 28)
+        .unwrap();
+    let messages = b.db.messages(b.actor, b.conference).unwrap();
+    let parent = messages
+        .iter()
+        .find(|m| m.subject == b"Directed parent")
+        .unwrap();
+    let child = messages
+        .iter()
+        .find(|m| m.subject == b"Directed reply")
+        .unwrap();
+    assert_eq!(
+        b.db.message(b.actor, b.conference, child.number)
+            .unwrap()
+            .parent_message_id,
+        Some(parent.id)
+    );
+}
+#[test]
+fn remote_controls_wrong_network_role_target_and_approval_revalidation() {
+    use control::*;
+    let mut e = board("END1");
+    let mut h = board("HOST");
+    assert!(h
+        .db
+        .circuitnet_request(&net(), Operation::Subscribe, Some(code("CNTEST")), 20)
+        .is_err());
+    let r =
+        e.db.circuitnet_request(&net(), Operation::Subscribe, Some(code("CNTEST")), 21)
+            .unwrap();
+    for mut bad in [r.clone(), r.clone()] {
+        bad.network = NetworkId::new("wrong").unwrap();
+        assert_eq!(
+            h.db.circuitnet_receive_control(&net(), &node("END1"), &bad, 22)
+                .unwrap()
+                .outcome,
+            Outcome::Unauthorized
+        );
+        bad = r.clone();
+        bad.target = node("END2");
+        assert_eq!(
+            h.db.circuitnet_receive_control(&net(), &node("END1"), &bad, 23)
+                .unwrap()
+                .outcome,
+            Outcome::Unauthorized
+        );
+    }
+    assert!(e
+        .db
+        .circuitnet_receive_control(&net(), &node("END2"), &r, 24)
+        .is_err());
+    h.db.circuitnet_receive_control(&net(), &node("END1"), &r, 25)
+        .unwrap();
+    h.db.connection
+        .execute("UPDATE circuitnet_mappings SET send=0", [])
+        .unwrap();
+    assert_eq!(
+        h.db.circuitnet_decide_control("operator", &net(), &r.id, true, 26)
+            .unwrap()
+            .outcome,
+        Outcome::UnknownCodename
+    );
+}
+
+#[test]
+fn privacy_help_describes_transport_and_conference_access_without_secrecy_claims() {
+    let localizer = crate::Localizer::embedded_en_us();
+    let help = localizer.text(
+        "circuitnet-visibility-help",
+        &crate::LocalizationArgs::new(),
+    );
+    assert!(help.contains("transport is encrypted"));
+    assert!(help.contains("conference access rules"));
+    let caller = localizer.text(
+        "circuitnet-conference-visibility",
+        &crate::LocalizationArgs::new(),
+    );
+    assert!(caller.contains("does not make the message private"));
+    for key in [
+        "circuitnet-directed",
+        "circuitnet-destination",
+        "circuitnet-route-test",
+        "circuitnet-remote-request",
+        "circuitnet-pending-approval",
+        "circuitnet-approve",
+        "circuitnet-deny",
+        "circuitnet-auto-approve",
+        "circuitnet-remote-disabled",
+        "circuitnet-already-subscribed",
+        "circuitnet-already-unsubscribed",
+        "circuitnet-unknown-node",
+        "circuitnet-unknown-conference",
+        "circuitnet-transport-encrypted",
+        "circuitnet-conference-message",
+    ] {
+        let label = localizer.text(key, &crate::LocalizationArgs::new());
+        assert!(!label.contains(key));
+        assert!(!["Private", "Confidential", "Encrypted Message"].contains(&label.as_str()));
+    }
+}

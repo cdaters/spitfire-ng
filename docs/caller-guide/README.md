@@ -242,3 +242,14 @@ Names remain private during ordinary handle-based activity. A real-name post
 intentionally publishes its displayed name. Changing your profile or asking the
 Sysop to rename your Handle never renames old posts or already queued senders.
 An offline QWK reply requiring your real name asks for review before it is saved.
+
+### CircuitNET conference visibility
+
+CircuitNET transport is encrypted between neighboring boards. After delivery,
+conference messages are readable by users allowed into that conference. An
+operator may direct a conference message to a Destination Node; that selects its
+route and does not make it private. Intermediate operators can access transit
+records. C4 has no caller directed-message composer or private-mail feature.
+Local/private BBS messages, where available, are restricted by BBS access controls;
+these restrictions do not imply end-to-end encryption. See the
+[CircuitNET guide](../manual/circuitnet.md#directed-does-not-mean-private).

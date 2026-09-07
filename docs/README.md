@@ -245,3 +245,5 @@ See the [identity contract](technical/identity-policy.md), [caller instructions]
 - [Operator setup and actions](manual/circuitnet.md)
 - [Native service authority](technical/circuitnet.md)
 - [TCP/TLS wire specification](technical/circuitnet-transport.md)
+
+- [C4 directed routing and remote Dossier controls](research/m066-circuitnet-directed-routing-controls.md) — Rights-safe implementation and acceptance summary.

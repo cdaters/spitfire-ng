@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 13;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 14;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -131,6 +131,7 @@ pub enum OperatorFeature {
     FtnNetwork,
     BinkpNetwork,
     Circuitnet,
+    CircuitnetControls,
     Networks,
     FtnHub,
     FtnFiles,
@@ -175,6 +176,9 @@ impl OperatorFeature {
         if minor >= 13 {
             features.push(Self::Circuitnet);
         }
+        if minor >= 14 {
+            features.push(Self::CircuitnetControls);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -194,7 +198,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 25] = [
+    const ALL: [Self; 26] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -220,6 +224,7 @@ impl OperatorFeature {
         Self::FtnHub,
         Self::FtnFiles,
         Self::Circuitnet,
+        Self::CircuitnetControls,
     ];
 }
 
@@ -448,6 +453,18 @@ fn describe_controls(capabilities: &[LocalOperatorCapability], minor: u16) -> Op
                 zero_minutes_allowed: false,
             });
         }
+    }
+    if minor >= 14 {
+        result.controls.push(OperatorControlDescriptor {
+            feature: OperatorFeature::CircuitnetControls,
+            capability: LocalOperatorCapability::ChangeSensitiveConfiguration,
+            preflight_required: false,
+            confirmation_required: false,
+            expected_version_required: true,
+            minimum_minutes: None,
+            maximum_minutes: None,
+            zero_minutes_allowed: false,
+        });
     }
     result
 }
@@ -1943,6 +1960,7 @@ mod server {
                     && *item != OperatorFeature::FtnHub
                     && *item != OperatorFeature::FtnFiles
                     && *item != OperatorFeature::BinkpNetwork
+                    && *item != OperatorFeature::CircuitnetControls
                     && *item != OperatorFeature::Circuitnet
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
                     && (negotiated_minor >= crate::live_control::LIVE_CONTROL_MINOR
@@ -3250,6 +3268,7 @@ fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability])
         | OperatorFeature::Networks
         | OperatorFeature::BinkpNetwork
         | OperatorFeature::Circuitnet
+        | OperatorFeature::CircuitnetControls
         | OperatorFeature::QwkNetwork
         | OperatorFeature::FtnNetwork => LocalOperatorCapability::NetworkStatus,
         OperatorFeature::Configuration => LocalOperatorCapability::ReadConfiguration,

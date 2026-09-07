@@ -34,8 +34,8 @@ pub(crate) fn snapshot(
     let config = runtime.configuration.current()?;
     let mut db = RuntimeDatabase::open_read_only(runtime.database_path())?;
     db.bind_posting_identity_configuration(&config);
-    let result = Snapshot {
-        circuitnet: crate::circuitnet_live::status(runtime)?,
+    let mut result = Snapshot {
+        circuitnet: crate::circuitnet_live::status(runtime, query.offset)?,
         page: db.network_page(query)?,
         ftn: config.ftn,
         transport: config.binkp,
@@ -44,6 +44,9 @@ pub(crate) fn snapshot(
         now: chrono::Utc::now().timestamp(),
         files: Some(db.file_network_status()?),
     };
+    if query.section == ftn::NetworkSection::Circuitnet {
+        result.page.more = result.circuitnet.iter().any(|s| s.more);
+    }
     if serde_json::to_vec(&result).map_or(true, |b| b.len() > 524288) {
         return Err(ftn::Error::Capacity.into());
     }

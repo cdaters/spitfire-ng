@@ -1,5 +1,29 @@
 # SPITFIRE NG Roadmap
 
+## CircuitNET NG C4 — directed conferences and remote Dossier controls
+
+Schema **31**, protocol minor **2**, en-US **1.28.0 / 1,354 messages**.
+Typed destinations select one path in the configured END/HOST/ROOT tree.
+Authenticated children can request their own Dossier subscriptions at their direct
+parent; operator approval is the default. Durable decisions/results prevent
+retries from duplicating mutations. Native messages remain canonical.
+
+CircuitNET transport is encrypted. Directed routing is not private messaging;
+stored conference messages follow BBS access rules. C1 remains historical authority,
+C2 the native/offline foundation and C3 the live authenticated transport.
+
+Six independent Apple Silicon daemons exercise same-branch, cross-branch and ROOT
+routes, no fanout, ACK/result loss, approval/denial, restart and cold restore.
+The [C4 summary](docs/research/m066-circuitnet-directed-routing-controls.md),
+[manual](docs/manual/circuitnet.md) and [wire contract](docs/technical/circuitnet-transport.md)
+record behavior, bounds, deliberate deferrals and validation.
+**C4 COMPLETE / ACCEPTED.** Public workspace: **720 passed / 0 failed / 7 existing
+ignored**, all six doctest groups. Headers (131), fmt, all-target Clippy, diff and
+local documentation/provenance gates pass. No production or external CircuitNET
+traffic, release/tag or binary distribution. Stop after C4; no C5 without review.
+
+## Previous accepted checkpoints
+
 ## CircuitNET NG C3 — authenticated live conference exchange
 
 Schema **30** adds native CircuitNET NG TCP/TLS 1.3 links to the accepted C2

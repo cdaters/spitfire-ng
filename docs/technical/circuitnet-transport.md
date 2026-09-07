@@ -1,6 +1,7 @@
-# CircuitNET NG live transport (C3 interface gate)
+# CircuitNET NG live transport and C4 controls
 
-Status: implemented and accepted for C3, including isolated four-node macOS acceptance.
+C3 establishes the live transport; C4 extends it with negotiated directed routing
+and typed Dossier controls. The C4 extension is specified below.
 Native SPITFIRE messages remain canonical. This transport supplies authenticated
 neighbor authority to the C2 service; it owns no alternate message store.
 
@@ -17,9 +18,9 @@ The node certificate/private key is its credential; a second password is absent.
 
 Application frames are a four-byte unsigned big-endian JSON byte length followed
 by strict UTF-8 JSON. Zero length and lengths above 4 MiB + 4096 reject before
-allocation. Hello/control frames have a 4096-byte bound. Protocol identity is
-`CIRCUITNET-NG`, major 1, supported minor range 0 through 1. Both minors use the
-same baseline semantics; select the highest common minor. Unknown major,
+allocation. Hello/ACK/Close frames have a 4096-byte bound; C4 control-work bounds are below. Protocol identity is
+`CIRCUITNET-NG`, major 1, supported minor range 0 through 2. Minors 0–1 use the
+same baseline semantics; minor 2 has optional C4 capabilities; select the highest common minor. Unknown major,
 nonoverlapping minor ranges, identity/profile/role mismatches and missing required
 capabilities reject. Required capabilities: `atomic-batch`, `symmetric-poll`.
 
@@ -91,7 +92,7 @@ Mode is `test` or `poll` and the responder echoes it. Role is `END`, `HOST`, or
 `ROOT`. Both peers independently compute the highest common minor from the two
 hellos; no work frame is legal before both hellos validate. Minor 0 and 1 have
 identical mandatory behavior in this implementation; new incompatible semantics
-must not be added under those version numbers. Unknown capabilities (at most eight
+must not be added under those version numbers. Minor 2 adds only negotiated C4 phases. Unknown capabilities (at most eight
 strings of at most 32 bytes) may be ignored, but both required capabilities must
 be present. Unsupported major/range rejects with `unsupported-version` after TLS;
 ALPN failure can reject at TLS before an application error is possible.
@@ -148,10 +149,89 @@ end-to-end signature by every earlier node.
 
 ## Durable implementation authority
 
-Schema 30 adds `circuitnet_live` for CAS-versioned profile listener/public identity/
+C3 schema 30 adds `circuitnet_live` for CAS-versioned profile listener/public identity/
 peer configuration and `circuitnet_link_health` for one safe latest observation per
 enrolled neighbor. Private keys use the existing restricted SYSTEM secret-custody
 pattern, keyed by the public certificate's SHA-256. Native cold backup includes
 those files and preserves restricted permissions on restore. Runtime session and
 listener state exist only in memory. C2 history/queue/schema-29 ownership remains
-as documented; no directed-routing or governance relations are added.
+as documented; C4 schema 31 adds the separately documented directed/control relations; no governance relations are added.
+
+## C4 compatible minor 2
+
+C4 advertises minimum minor 0, maximum minor 2, and the existing `atomic-batch`
+and `symmetric-poll` capabilities plus `directed-routing` and
+`remote-dossier-control`. Only the original two are mandatory for a session.
+Each optional feature requires minor 2 and both peers advertising that capability.
+Unknown capabilities remain bounded and ignorable. ALPN and major 1 are unchanged.
+
+A broadcast message omits `destination`, preserving the exact C2 encoding and
+fingerprint. A directed message appends `"destination":"END3"` after `path`.
+The destination participates in its immutable content fingerprint and artifact
+hash. The remaining batch and receipt format/version fields stay unchanged.
+Old strict decoders reject the extra field; live C4 senders withhold directed
+work unless its capability was negotiated. They also withhold any already-built
+mixed artifact containing directed work, preserving artifact identity. Ordinary
+unprepared broadcast work can still exchange. Receipt semantics are unchanged:
+a hop's ACK proves its native durable acceptance, not final-node delivery.
+
+When control capability is negotiated, each direction's Offer phase is prefixed
+by exactly one Controls frame and one matching ControlResults frame, even when
+both lists are empty. The initiator sends controls/results exchange then its
+Offer/ACK; the responder does the same in reverse; Close remains unchanged.
+Test mode never sends either control or message work. Without control capability,
+the C3 phase sequence is unchanged. Controls use the same authenticated TLS stream.
+
+```json
+{"type":"controls","requests":[{"network":"circuitnet-test","id":"END3:00000000000000000000000000000001","requester":"END3","target":"HOST2","operation":"subscribe","codename":"CNTECH"}]}
+```
+
+Request field order above is the canonical SHA-256 input: compact UTF-8 JSON,
+C2 escaping rules, explicit null codename for `query-subscriptions`. The other
+mutation operation is `unsubscribe`. IDs use Node ID plus random 128-bit hex,
+in a control namespace distinct from conference message identities. They expose
+no native database IDs. Duplicate and unknown fields, unknown operations,
+inconsistent codename presence and invalid tokens reject.
+
+```json
+{"type":"control-results","results":[{"network":"circuitnet-test","id":"END3:00000000000000000000000000000001","fingerprint":"<canonical-request-sha256>","requester":"END3","target":"HOST2","outcome":"pending-approval","subscriptions":[]}]}
+```
+
+The illustrative fingerprint placeholder must be replaced by the lowercase
+64-character SHA-256. Result order and IDs must match the exact request list.
+Every result binds network, requester, parent target and request fingerprint.
+Results are `accepted` (local queued state), `pending-approval`, `applied`,
+`already-subscribed`, `already-unsubscribed`, `denied`, `unknown-codename`,
+`unauthorized`, `malformed` or `replay-conflict`. Shape failures may instead close
+with `malformed-frame`; bounds failures close with `oversized`. No arbitrary
+operator details are returned. Query results contain only the authenticated
+requester's subscribed codenames, sorted, at most 4,096 entries.
+
+Each direction carries at most 16 requests. A Controls frame is at most 65,536
+bytes; ControlResults at most 1 MiB, within the existing outer frame ceiling.
+The existing connection/session deadlines and admission permits also bound these
+phases. There is no unbounded control dialogue or subscription scheduler.
+
+The receiving service compares the authenticated TLS peer against requester,
+request-ID origin, configured profile and direct-child relationship to local
+parent. ROOT cannot request upstream control; no child may mutate another child
+or remote branch. A request is an administrative operation, never a caller post.
+Authorization is rechecked when an operator approves a pending mutation.
+
+Incoming request/result and any Dossier mutation commit before returning a result.
+The requester persists results before marking terminal work settled. Pending
+requests are resent by subsequent explicit polls. Losing a result does not require
+an independent result-ACK protocol: retransmitting the identical request recovers
+the current durable result. A terminal result never regresses to pending locally;
+a conflicting terminal response fails closed. Queries are immutable snapshots.
+Cold restore retains these identities and results without recreating operations.
+
+## Transport confidentiality and stored visibility
+
+CircuitNET transport is encrypted and authenticated hop by hop. TLS protects
+packets in transit; it does not encrypt the stored native conference message for
+only its final reader. Conference access rules govern readers after import.
+Directed routing selects one destination and does not provide private messaging.
+Intermediate HOST/ROOT operators may access retained native transit records.
+Local/private BBS messages are restricted by BBS access controls unless a separate,
+explicit feature supplies end-to-end encryption. C4 supplies no E2EE capability.

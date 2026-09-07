@@ -18,7 +18,12 @@ pub const PROTOCOL: &str = "CIRCUITNET-NG";
 pub const ALPN: &[u8] = b"circuitnet-ng/1";
 pub const MAX_FRAME: usize = MAX_ARTIFACT + 4096;
 pub const CONTROL_FRAME: usize = 4096;
-pub const CAPABILITIES: [&str; 2] = ["atomic-batch", "symmetric-poll"];
+pub const CAPABILITIES: [&str; 4] = [
+    "atomic-batch",
+    "symmetric-poll",
+    "directed-routing",
+    "remote-dossier-control",
+];
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "kebab-case")]
 pub enum Error {
@@ -88,13 +93,23 @@ impl Hello {
             protocol: PROTOCOL.into(),
             major: 1,
             minimum_minor: 0,
-            maximum_minor: 1,
+            maximum_minor: 2,
             capabilities: CAPABILITIES.iter().map(|s| (*s).into()).collect(),
             network,
             node,
             role,
             mode,
         }
+    }
+    /// The two bounded C4 extensions; baseline negotiation remains independent.
+    pub fn c4_capabilities(&self, remote: &Self) -> Result<(bool, bool), Error> {
+        let minor = self.negotiate(remote)?;
+        let has = |name: &str| {
+            minor >= 2
+                && self.capabilities.iter().any(|c| c == name)
+                && remote.capabilities.iter().any(|c| c == name)
+        };
+        Ok((has("directed-routing"), has("remote-dossier-control")))
     }
     pub fn negotiate(&self, remote: &Self) -> Result<u16, Error> {
         if remote.protocol != PROTOCOL
@@ -104,7 +119,7 @@ impl Hello {
                 > self.maximum_minor.min(remote.maximum_minor)
             || remote.capabilities.len() > 8
             || remote.capabilities.iter().any(|s| s.len() > 32)
-            || CAPABILITIES
+            || CAPABILITIES[..2]
                 .iter()
                 .any(|c| !remote.capabilities.iter().any(|r| r == c))
         {
@@ -135,6 +150,12 @@ pub enum Frame {
     },
     Error {
         code: Error,
+    },
+    Controls {
+        requests: Vec<super::control::Request>,
+    },
+    ControlResults {
+        results: Vec<super::control::SubscriptionResult>,
     },
     Close {},
 }
@@ -181,13 +202,13 @@ mod tests {
     fn versions_negotiate_only_common_known_minors() {
         let h = hello();
         let mut r = h.clone();
-        assert_eq!(h.negotiate(&r), Ok(1));
+        assert_eq!(h.negotiate(&r), Ok(2));
         r.maximum_minor = 0;
         assert_eq!(h.negotiate(&r), Ok(0));
         r.major = 2;
         assert_eq!(h.negotiate(&r), Err(Error::UnsupportedVersion));
         r = h.clone();
-        r.minimum_minor = 2;
+        r.minimum_minor = 3;
         r.maximum_minor = 3;
         assert!(h.negotiate(&r).is_err());
         r = h.clone();
@@ -196,6 +217,22 @@ mod tests {
         r = h.clone();
         r.capabilities.clear();
         assert!(h.negotiate(&r).is_err());
+    }
+    #[test]
+    fn c4_capabilities_are_optional_independent_and_minor_gated() {
+        let h = hello();
+        let mut r = h.clone();
+        assert_eq!(h.c4_capabilities(&r), Ok((true, true)));
+        r.capabilities.retain(|c| c != "remote-dossier-control");
+        assert_eq!(h.c4_capabilities(&r), Ok((true, false)));
+        r.maximum_minor = 1;
+        assert_eq!(h.c4_capabilities(&r), Ok((false, false)));
+        r.maximum_minor = 2;
+        r.capabilities.retain(|c| c != "directed-routing");
+        assert_eq!(h.negotiate(&r), Ok(2));
+        assert_eq!(h.c4_capabilities(&r), Ok((false, false)));
+        r.capabilities.push("future-feature".into());
+        assert_eq!(h.negotiate(&r), Ok(2));
     }
     #[test]
     fn framing_roundtrip_and_hostile_bounds() {

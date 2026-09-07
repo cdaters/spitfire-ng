@@ -1,5 +1,14 @@
 # CircuitNet Preservation and Modernization Specification
 
+**Current C4 source:** typed directed conference routing and authenticated remote
+Dossier subscription controls extend the accepted C2 foundation and C3 transport.
+Schema 31 and protocol minor 2 preserve native message authority. The
+[operator guide](manual/circuitnet.md) and [technical contract](technical/circuitnet.md)
+define the implemented subset; the broader historical/revival plan below does not
+imply implementation of legacy codecs, private mail, files or governance.
+CircuitNET transport is encrypted. Directed routing is not private messaging.
+Stop after C4 for review; C5 is not authorized.
+
 ## Current status — C2 foundation and C3 live transport
 
 CircuitNET NG now implements a modern native public-conference adapter with
