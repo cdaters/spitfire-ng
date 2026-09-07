@@ -245,3 +245,36 @@ fn known_control_delimiters_and_generated_bounds_fail_closed() {
     assert!(t.encode().is_err());
     assert!(Text::plain("\x01MSGID: injected", Charset::Ascii).is_err());
 }
+#[test]
+fn rescanned_wire_forms_preserve_bytes_without_relaxing_endpoints() {
+    for marker in ["90:100/1", "90:100/1@interop", "90:100/1.4"] {
+        let bytes = format!("\x01RESCANNED {marker}\rBody\r").into_bytes();
+        let text = Text::parse(&bytes, Charset::Utf8).unwrap();
+        assert_eq!(text.encode().unwrap(), bytes);
+    }
+    assert!("90:100/1".parse::<Endpoint>().is_err());
+    for marker in [
+        "",
+        "90:100",
+        "90:100/1@",
+        "90:100/1@bad_domain",
+        "90:100/1 extra",
+        "90:100/65536",
+        "0:100/1",
+        "90:100/1..2",
+    ] {
+        assert!(
+            Text::parse(
+                format!("\x01RESCANNED {marker}\rBody\r").as_bytes(),
+                Charset::Utf8
+            )
+            .is_err(),
+            "{marker}"
+        );
+    }
+    assert!(Text::parse(
+        b"\x01RESCANNED 90:100/1\r\x01RESCANNED 90:100/1@interop\rBody\r",
+        Charset::Utf8
+    )
+    .is_err());
+}

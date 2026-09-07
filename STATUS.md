@@ -1,5 +1,37 @@
 # SPITFIRE NG Status
 
+## FTN interoperability and recovery — COMPLETE / ACCEPTED
+
+Current source is **schema 27**. Contextual RESCANNED normalization, authenticated
+direct-hatch TIC history, bounded same-request FREQ recovery and negotiated BinkP
+1.1 response batches are accepted. Exact peer, filename, destination and domain
+authority remains fail-closed; generic parsers and routing do not acquire broader
+compatibility. Native messages and files remain canonical.
+
+Independent Synchronet interoperability verifies rescan provenance, FileEcho in
+both directions, one FREQ payload after EOB, unauthorized request denial,
+interrupted transfer/retry, restart and duplicate/reflection suppression. Tests
+used isolated configured peers. Operational identities, transcripts, configuration,
+credentials and research inputs are excluded from this public source tree.
+
+See the [BinkP contract](docs/technical/binkp.md),
+[FileEcho/FREQ contract](docs/technical/ftn-files.md),
+[rescan contract](docs/technical/ftn-hub.md) and
+[operator recovery workflow](docs/manual/ftn-files.md).
+The Windows operator workflow accepts its dedicated branch, PRs to main and
+manual dispatch; normal pushes to main do not trigger it. Windows live acceptance
+remains deferred. No release, tag, binary or public-network participation is added.
+
+Publication gates pass **661 tests / 0 failed / 7 existing ignored**, including
+six doctest suites, formatting, all-target Clippy with warnings denied, 117 source
+headers, documentation links/fences and privacy/provenance checks. Synthetic
+fixtures retain the private source's authority boundaries; no operational identity
+or captured peer artifact is published. cargo-audit remains unavailable.
+
+Exact next action: stop after source publication closure. No additional
+interoperability traffic is required; further development needs a new scope.
+Earlier sections below record historical checkpoints.
+
 ## N7 FTN file networking — COMPLETE / ACCEPTED
 
 Native file authority now supports FileEcho leaf/hub operation, authenticated

@@ -697,6 +697,23 @@ impl session::Backend for NativeBackend {
             self.work.insert(item.queue.clone(), item);
         }
         let used = result.iter().map(|item| item.offer.size).sum::<u64>();
+        result.extend(self.next_batch(
+            wire::MAX_FILES.saturating_sub(result.len()),
+            wire::MAX_SESSION_BYTES.saturating_sub(used),
+        )?);
+        Ok(result)
+    }
+    fn next_batch(
+        &mut self,
+        max_files: usize,
+        max_bytes: u64,
+    ) -> std::result::Result<Vec<session::Outgoing>, Error> {
+        if self.mode == BinkpMode::Test || max_files == 0 || max_bytes == 0 {
+            return Ok(vec![]);
+        }
+        let session = self.session()?.to_owned();
+        let mut db = self.db()?;
+        let mut result = vec![];
         let storage = custody(sf_core::FileStorage::open_existing(&self.runtime.paths))?;
         let files = custody(db.claim_file_work(
             &self.ftn,
@@ -707,8 +724,8 @@ impl session::Backend for NativeBackend {
                     .ok()
                     .and_then(|s| String::from_utf8(s).ok())
             },
-            wire::MAX_FILES.saturating_sub(result.len()),
-            wire::MAX_SESSION_BYTES.saturating_sub(used),
+            max_files,
+            max_bytes,
         ))?;
         for (item, bytes) in files {
             self.file_work.insert(item.key.clone(), bytes);
@@ -783,9 +800,13 @@ impl session::Backend for NativeBackend {
             return self.receive(bytes);
         }
         let storage = custody(sf_core::FileStorage::open_existing(&self.runtime.paths))?;
-        custody(self.db()?.receive_file_offer(
+        custody(self.db()?.receive_file_offer_with_context(
             &self.ftn,
             &storage,
+            &ftn::files::FileReceiveContext {
+                transport: &self.policy,
+                artifacts: &self.runtime.network_artifacts,
+            },
             self.session()?,
             offer,
             bytes,

@@ -89,12 +89,28 @@ files and unapproved names are denied with generic results.
 
 To request a file from a configured peer, choose **Request FTN files**, select its
 link, enter the exact transfer filename and choose the destination native area ID.
-The typed API also supports a bounded list. Poll to deliver the request, then poll
-again for a queued response if necessary. Received bytes import only against the
+The typed API also supports a bounded list. Poll to deliver the request. A peer
+may send the response in the same session through negotiated BinkP 1.1 batches;
+a later explicit poll can receive a queued response. Received bytes import only against the
 outstanding link/name receipt. The requester's choice does not grant FileEcho
 redistribution. Inspect recent FREQ activity for outcomes; lack of a returned file
 is not proof of success. The implemented request convention and independent
 coverage limits are described in the [Technical Reference](../technical/ftn-files.md).
+
+## Recover an acknowledged request without a response
+
+Acknowledgement proves custody of the request, not delivery of its payload. In
+**Networks → FTN file networking**, use the acknowledged request's **Retry / FREQ**
+entry. It retains the original request ID, peer, exact unanswered names, creation
+provenance and all prior acknowledgements. Refresh a stale view before retrying.
+The action requires network-run permission, current peer/destination policy, no
+active BinkP session and at least 15 minutes since the latest acknowledgement.
+
+There are at most three request attempts including the original, each with at
+most twelve transport tries. Retries are manual; hold/release cannot reset a FREQ
+budget. Exhaustion prevents further sends, while a valid delayed response can
+still complete the original receipt. Duplicate responses do not create another
+native file. Never delete request records or clear receipts to obtain a retry.
 
 ## Restart and restore
 
@@ -112,7 +128,10 @@ Incomplete staged pairs remain incomplete until their matching valid artifact
 arrives. Restored hatches reference the same native file, and FREQ sessions are
 never resurrected as live connections.
 
-A delivery reaching twelve unsuccessful attempts is held. After correcting the
-cause, release its retained delivery in sfconfig to renew the attempt budget and
-poll again. The Attempts counter restarts on explicit release; accepted artifacts
-remain accepted and are not retransmitted. The release is audited.
+An ordinary FileEcho delivery reaching twelve unsuccessful attempts is held.
+After correcting the cause, release its retained delivery in sfconfig to renew
+that transport budget and poll again; accepted artifacts are not retransmitted.
+The release is audited. FREQ request families retain their finite attempt budgets
+across release, restart and restore. Uncertain restored request history stays
+held until matching recovery evidence proves it safe; a generic queue release
+cannot bypass that family hold.

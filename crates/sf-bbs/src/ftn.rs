@@ -94,6 +94,10 @@ pub enum FileAction {
         names: Vec<String>,
         native_area: i64,
     },
+    RetryRequest {
+        request: String,
+        expected: i64,
+    },
     Hold {
         delivery: String,
         expected: i64,
@@ -121,6 +125,7 @@ impl FileAction {
             Self::Preview { .. } => "ftn.hatch-preview",
             Self::Hatch { .. } => "ftn.hatch",
             Self::Request { .. } => "ftn.freq-request",
+            Self::RetryRequest { .. } => "ftn.freq-retry",
             Self::Hold { .. } => "ftn.file-hold",
         }
     }
@@ -215,6 +220,9 @@ pub(crate) fn dispatch(
                     native_area,
                 } => {
                     db.request_ftn_files(&policy, principal, link, names, *native_area, now)?;
+                }
+                FileAction::RetryRequest { request, expected } => {
+                    db.retry_ftn_request(&policy, principal, request, *expected, now)?;
                 }
                 FileAction::Hold {
                     delivery,
@@ -313,4 +321,28 @@ pub(crate) fn dispatch(
             Result::Updated
         }
     })
+}
+
+#[cfg(test)]
+mod freq_tests {
+    use super::*;
+    #[test]
+    fn freq_retry_action_requires_run_and_only_accepts_original_identity_version() {
+        let action: FileAction = serde_json::from_str(
+            r#"{"operation":"retry-request","request":"original","expected":2}"#,
+        )
+        .unwrap();
+        assert_eq!(action.capability(), Capability::NetworkRun);
+        assert_eq!(action.operation(), "ftn.freq-retry");
+        for extra in [
+            r#", "link":"other""#,
+            r#", "names":["OTHER.TXT"]"#,
+            r#", "attempts":0"#,
+        ] {
+            let json = format!(
+                r#"{{"operation":"retry-request","request":"original","expected":2{extra}}}"#
+            );
+            assert!(serde_json::from_str::<FileAction>(&json).is_err());
+        }
+    }
 }

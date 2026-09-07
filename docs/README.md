@@ -232,4 +232,4 @@ See [operator workflows](manual/ftn-hub.md) for downstreams, subscriptions, Area
 
 ## FTN file networking — N7
 
-See [FileEcho, TIC, hatching and FREQ](manual/ftn-files.md) for implemented authority and workflows. Schema 26; en-US 1.24.0 / 1,291 messages.
+See [FileEcho, TIC, hatching and FREQ](manual/ftn-files.md) for implemented authority and workflows. Schema 27; en-US 1.24.0 / 1,291 messages.

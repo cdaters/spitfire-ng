@@ -258,4 +258,4 @@ See [hub authority contract](ftn-hub.md) for downstreams, subscriptions, AreaFix
 
 ## FTN file networking — N7
 
-See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 26; en-US 1.24.0 / 1,291 messages.
+See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 27; en-US 1.24.0 / 1,291 messages.

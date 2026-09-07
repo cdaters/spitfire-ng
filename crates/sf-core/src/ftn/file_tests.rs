@@ -801,3 +801,9 @@ fn native_name_collision_and_long_hatch_preserve_content_identity() {
     );
     assert_eq!(b.db.file_count(area.id).unwrap(), 3);
 }
+
+#[path = "file_hatch_tests.rs"]
+mod direct_hatch;
+
+#[path = "freq_tests.rs"]
+mod freq_recovery;

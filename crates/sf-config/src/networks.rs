@@ -1381,6 +1381,12 @@ fn file_menu(
                 json!({"operation":"request","link":link,"names":["FILE.ZIP"],"native_area":native.map(|f|f.area).unwrap_or(1)}),
             ),
         ];
+        forms.extend(page.requests.iter().filter(|r| r.state == sf_core::ftn::files::FreqState::Acknowledged).map(|r| {
+            (format!("{} / FREQ / {} / {} / {} {}", t("network-retry"), r.link,
+                r.responses.iter().filter(|p|p.file.is_none()).map(|p|p.name.as_str()).collect::<Vec<_>>().join(", "),
+                t("networks-attempts"), r.attempts.len()),
+             json!({"operation":"retry-request","request":r.request,"expected":r.version}))
+        }));
         forms.extend(page.areas.iter().map(|a| {
             (
                 format!(

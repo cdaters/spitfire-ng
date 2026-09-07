@@ -664,7 +664,7 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
     ) -> Result<TossResult, Error> {
-        self.toss_ftn_admitted(store, policy, link_id, bytes, now, None, None)
+        self.toss_ftn_admitted(store, policy, link_id, bytes, now, None, None, None)
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) fn toss_ftn_admitted(
@@ -676,6 +676,7 @@ impl RuntimeDatabase {
         now: i64,
         permitted: Option<(&[String], &[Address])>,
         areafix: Option<&AreaFixVerifier<'_>>,
+        authenticated: Option<&BinkpPolicy>,
     ) -> Result<TossResult, Error> {
         policy.validate()?;
         let link = policy.link(link_id)?;
@@ -779,6 +780,19 @@ impl RuntimeDatabase {
                     cost: m.cost,
                 };
                 e.validate()?;
+                if let Some(marker) = hub_service::rescan_marker(&e.text)? {
+                    if e.text.area.is_none() {
+                        return Err(Error::Denied);
+                    }
+                    hub_service::resolve_rescan_source(
+                        marker,
+                        policy,
+                        authenticated,
+                        link,
+                        Some(&e.source.domain),
+                        packet.header.origin,
+                    )?;
+                }
                 let tx = self
                     .connection
                     .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -806,14 +820,6 @@ impl RuntimeDatabase {
                     && e.source != link.remote
                 {
                     return Err(Error::Denied);
-                }
-                if let Some(sender) = hub_service::rescan_marker(&e.text)? {
-                    if e.text.area.is_none()
-                        || sender.domain != link.remote.domain
-                        || sender.address != packet.header.origin
-                    {
-                        return Err(Error::Denied);
-                    }
                 }
                 let identity = e
                     .text

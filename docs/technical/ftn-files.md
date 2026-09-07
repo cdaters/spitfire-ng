@@ -27,6 +27,45 @@ CP437 text is explicitly decoded/encoded; unrepresentable output rejects.
 Repeated singleton fields reject. Ordered descriptions and Path remain ordered.
 Unknown fields are bounded opaque provenance, never commands or configuration.
 
+### Authenticated direct-hatch interoperability profile
+
+The generic TIC parser/encoder remains strict. A separate receive profile handles
+the observed HatchIT direct-hatch shape: exactly one PATH address, equal to both
+From and Origin, addressed explicitly to the link's local AKA. PATH may have its
+normal timestamp or exactly no timestamp; malformed/trailing timestamp data and
+missing/multiple PATH entries reject. Seenby may independently be empty. This is
+an interoperability exception to FTS-5006.001, not a claim of full conformance.
+FSC-0028.001 documents historical address-only PATH syntax; current HatchIT emits
+it, and TickIT/HTick source tolerates it. Seenby omission has implementation
+evidence but is not permitted by the selected standard.
+
+Only a currently authenticated configured BinkP link with complete configured
+transport context and restricted artifact custody may use this profile. Exact
+TIC password, peer, local destination, area/subscription, payload and loop checks
+remain mandatory. Any cross-domain configured address overlap rejects this
+profile, including local/remote AKAs and explicit route identities. Relayed
+incomplete history and local-address loop evidence reject. A product banner
+never grants authority. Existing strict APIs without that context do not acquire
+the exception.
+
+The parser records an untimed peer PATH separately from timestamped operational
+history; it never supplies zero, file date or transport time as a remote PATH
+timestamp. Received Seenby remains an empty set when absent. Immutable private
+receipt metadata records authenticated peer/session, receive time, original TIC
+artifact reference and the two independent omission flags. Original TIC bytes,
+including password and all field spelling, reside only in the restricted native
+network artifact store, with its existing quotas and cold-backup custody. Raw Pw
+does not enter JSON staging, status, logs or outbound metadata. Legacy staged and
+published metadata remains readable without new schema or invented provenance.
+
+Ingress and Origin exclusions still prevent reflection; normal hash identity
+suppresses native duplicates and re-fanout. Forwarding preserves timestamped
+history and appends NG's actual processing hop. An untimed peer hop is retained
+in private received provenance, not emitted with an invented timestamp. The
+authenticated direct sender is included in outgoing Seenby as witnessed ingress,
+alongside normal local/target history. No arbitrary received Seenby is invented,
+and zero received entries never create routes or subscriptions.
+
 File uses safe ASCII DOS 8.3 names. No paths, device names, leading dots, shell
 metacharacters or alternate streams are admitted. Lfile/Fullname is metadata,
 never a storage selector. Native names remain unchanged during hatch; a stable
@@ -79,6 +118,42 @@ staging and per-artifact delivery truth. Restore clears live session/claims and
 preserves accepted work. Reconciliation must include file acknowledgements;
 missing later history remains held. Restoring an older snapshot never implies
 permission to resend accepted downstream work.
+
+## Outstanding exact-FREQ recovery contract (schema 27)
+
+The original request ID, peer, immutable request bytes/creation provenance and
+per-name response receipts remain authoritative. BinkP M_GOT acknowledges custody
+of the request file, not delivery of the requested file. The lifecycle is pending,
+sent, acknowledged-but-unanswered, and complete only after every requested payload
+has a native receipt. Partial responses remain individually visible.
+
+A schema-27 request recovery row and append-only attempt links associate each
+transport delivery with the SAME original request. Attempt one is the existing
+delivery, including on migration from schema 26. Its acknowledgement is never
+cleared. A manual `RetryRequest { request, expected }` operator action requires
+NetworkRun, no active BinkP session, current exact peer/local policy and active
+native destinations, unanswered names, and at least 900 seconds since the latest
+acknowledgement. It queues only unanswered original exact names. It never inserts
+another per-name request receipt or changes the existing pending-name unique index.
+
+At most three request attempts, including the original, may exist. Each retains
+the normal maximum of 12 transport tries; generic hold/release cannot reset FREQ
+transport budgets. Exhausted requests grant no further sends; a legitimate delayed
+response may still complete the original request. There is no automatic reissue
+scheduler. Expected-version checks and a transaction prevent parallel attempts.
+
+Attempt links, offered evidence and acknowledgements survive restart. A response
+from any previously offered attempt attaches to the original exact peer/name
+receipt; only one native result may commit. A queued reissue is suppressed when
+all its names have already arrived. Wrong peer/name cannot satisfy a FREQ receipt;
+ordinary bounded FileEcho payload staging remains a separate authority.
+
+Cold restore holds request families as well as outstanding deliveries. Generic
+queue release cannot bypass the family hold. Verified recovery evidence may
+release only an identical family/receipt history; a snapshot missing later
+attempts or responses remains held instead of resetting the retry budget. No
+inferred receipt, deleted request, relaxed uniqueness or new unrelated request ID
+is used to recover unanswered work.
 
 ## Cross-project reference
 
@@ -144,7 +219,10 @@ filenames, carried on the existing authenticated BinkP session. NG emits the
 remote net/node hexadecimal request name. FTS-1026 itself does not specify a
 complete FREQ service; this is the conservative FTSC request-file convention,
 not a claim of complete Wazoo session transport or wildcard/update semantics.
-Replies use ordinary acknowledged BinkP files and may require the next poll.
+Replies use ordinary acknowledged BinkP files. Negotiated 1.1 permits a response
+batch in the same session; a queued response may also require a later poll.
+Schema 27 adds the retained request-attempt authority described above, implemented
+in `crates/sf-core/src/ftn/freq.rs` and `freq.sql`.
 
 An eligible native file must be active, SHA-256/size verified, on its area's
 primary managed root, and explicitly granted to that link. Its area must be

@@ -834,3 +834,339 @@ fn queued_rescan_restore_never_reoffers_its_accepted_member() {
     restored.finish_binkp(&session, None, NOW).unwrap();
     assert_eq!(restored.ftn_rescan_activity(0).unwrap()[0].accepted, 3);
 }
+fn interop_rescan_fixture() -> Fixture {
+    let mut f = fixture();
+    f.policy.akas.push(Aka {
+        id: "interop-local".into(),
+        endpoint: "90:100/2@interop".parse().unwrap(),
+        enabled: true,
+        primary: true,
+    });
+    let mut link = f.policy.links[0].clone();
+    link.id = "interop-peer".into();
+    link.aka = "interop-local".into();
+    link.remote = "90:100/1@interop".parse().unwrap();
+    link.transit = false;
+    f.policy.links.push(link);
+    f.policy.routes.push(Route {
+        domain: "interop".parse().unwrap(),
+        target: RouteMatch::Exact {
+            address: "90:100/1".parse().unwrap(),
+        },
+        link: "interop-peer".into(),
+    });
+    f.db.configure_ftn_mapping(
+        &f.policy,
+        "operator",
+        &Mapping {
+            domain: "interop".parse().unwrap(),
+            area: "INTEROP.TEST".into(),
+            conference_id: f.areas[0],
+            aka: "interop-local".into(),
+            receive: true,
+            send: true,
+            origin: "Synthetic rescan fixture".into(),
+            links: vec!["interop-peer".into()],
+            version: 1,
+        },
+        0,
+        NOW,
+    )
+    .unwrap();
+    f
+}
+fn interop_rescan_packet(marker: &str) -> Vec<u8> {
+    let mut p = Packet::decode(&inbound(900, "10:100/1", Some("INTEROP.TEST")), (10, 10)).unwrap();
+    p.header.origin = "90:100/1".parse().unwrap();
+    p.header.destination = "90:100/2".parse().unwrap();
+    p.messages[0].origin = (100, 1);
+    p.messages[0].destination = (100, 2);
+    let text = String::from_utf8(p.messages[0].text.clone())
+        .unwrap()
+        .replace("10:100/2.9", "90:100/1")
+        .replace("100/2", "100/1");
+    p.messages[0].text = text
+        .replacen("\r", &format!("\r\x01RESCANNED {marker}\r"), 1)
+        .into_bytes();
+    p.encode().unwrap()
+}
+fn receive_interop_rescan(
+    f: &mut Fixture,
+    p: &BinkpPolicy,
+    bytes: &[u8],
+    auth: bool,
+) -> TossResult {
+    let session =
+        f.db.begin_binkp(
+            &f.policy,
+            p,
+            "interop-peer",
+            "rescan-test",
+            BinkpMode::Poll,
+            NOW,
+        )
+        .unwrap();
+    if auth {
+        f.db.observe_binkp(
+            &session,
+            &["90:100/1@interop".parse().unwrap()],
+            &[],
+            0,
+            NOW,
+        )
+        .unwrap();
+    }
+    let result =
+        f.db.receive_binkp(&f.store, &f.policy, p, &session, bytes, NOW)
+            .unwrap();
+    f.db.finish_binkp(&session, None, NOW).unwrap();
+    result
+}
+
+#[test]
+fn contextual_interop_rescan_preserves_provenance_and_suppresses_replay() {
+    for marker in ["90:100/1@interop", "90:100/1"] {
+        let mut f = interop_rescan_fixture();
+        let p = interop_rescan_transport(&f);
+        let bytes = interop_rescan_packet(marker);
+        assert_eq!(receive_interop_rescan(&mut f, &p, &bytes, true).imported, 1);
+        let raw: Vec<u8> =
+            f.db.connection
+                .query_row(
+                    "SELECT raw FROM ftn_controls ORDER BY ordinal LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+        assert_eq!(raw, format!("\x01RESCANNED {marker}").as_bytes());
+        let identity: (String, String, String) =
+            f.db.connection
+                .query_row(
+                    "SELECT domain,msgid,ingress_link FROM ftn_messages WHERE domain='interop'",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap();
+        assert_eq!(
+            identity,
+            (
+                "interop".into(),
+                "90:100/1 00000384".into(),
+                "interop-peer".into()
+            )
+        );
+        assert!(f.db.ftn_queue(None).unwrap().is_empty());
+        assert_eq!(
+            receive_interop_rescan(&mut f, &p, &interop_rescan_packet("90:100/1@interop"), true)
+                .duplicates,
+            1
+        );
+        assert_eq!(
+            f.db.connection
+                .query_row("SELECT COUNT(*) FROM ftn_messages", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert!(f.db.ftn_queue(None).unwrap().is_empty());
+    }
+}
+
+#[test]
+fn contextual_rescan_rejects_untrusted_wrong_domain_peer_and_malformed_markers() {
+    for (marker, auth) in [
+        ("90:100/1", false),
+        ("90:100/1@unknown", true),
+        ("90:100/1@fidonet", true),
+        ("90:100/1@othernet", true),
+        ("90:100/3", true),
+        ("90:100/3@interop", true),
+        ("1:1/1@fidonet", true),
+        ("20:200/8@othernet", true),
+        ("1:1/1", true),
+        ("20:200/8", true),
+        ("90:100/1@", true),
+        ("garbage", true),
+        ("90:100/65536", true),
+    ] {
+        let mut f = interop_rescan_fixture();
+        let p = interop_rescan_transport(&f);
+        assert_eq!(
+            receive_interop_rescan(&mut f, &p, &interop_rescan_packet(marker), auth).quarantined,
+            1,
+            "{marker}"
+        );
+        assert!(f.db.ftn_queue(None).unwrap().is_empty());
+        assert_eq!(
+            f.db.connection
+                .query_row("SELECT COUNT(*) FROM ftn_messages", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    let mut f = interop_rescan_fixture();
+    assert_eq!(
+        f.db.toss_ftn(
+            &f.store,
+            &f.policy,
+            "interop-peer",
+            &interop_rescan_packet("90:100/1"),
+            NOW
+        )
+        .unwrap()
+        .quarantined,
+        1
+    );
+}
+
+#[test]
+fn contextual_rescan_rejects_cross_domain_configured_identity_overlap() {
+    for kind in ["aka", "peer", "alias", "route"] {
+        let mut f = interop_rescan_fixture();
+        let endpoint: Endpoint = "90:100/1@othernet".parse().unwrap();
+        if kind == "aka" {
+            f.policy.akas.push(Aka {
+                id: "overlap".into(),
+                endpoint: endpoint.clone(),
+                enabled: false,
+                primary: false,
+            });
+        } else {
+            let mut l = f.policy.links[0].clone();
+            l.id = "overlap".into();
+            l.aka = "other".into();
+            l.remote = if kind == "peer" {
+                endpoint.clone()
+            } else {
+                "90:100/9@othernet".parse().unwrap()
+            };
+            f.policy.links.push(l);
+        }
+        let mut p = interop_rescan_transport(&f);
+        if kind == "alias" {
+            p.links
+                .iter_mut()
+                .find(|l| l.link == "overlap")
+                .unwrap()
+                .remote_akas
+                .push(endpoint.clone());
+        }
+        if kind == "route" {
+            f.policy.routes.push(Route {
+                domain: endpoint.domain,
+                target: RouteMatch::Exact {
+                    address: endpoint.address,
+                },
+                link: "overlap".into(),
+            });
+        }
+        assert_eq!(
+            receive_interop_rescan(&mut f, &p, &interop_rescan_packet("90:100/1"), true)
+                .quarantined,
+            1,
+            "{kind}"
+        );
+        assert_eq!(
+            receive_interop_rescan(&mut f, &p, &interop_rescan_packet("90:100/1@interop"), true)
+                .imported,
+            1,
+            "qualified {kind}"
+        );
+    }
+}
+
+#[test]
+fn contextual_rescan_does_not_relax_packet_destination_or_outbound_admission() {
+    let mut f = interop_rescan_fixture();
+    let p = interop_rescan_transport(&f);
+    let mut packet = Packet::decode(&interop_rescan_packet("90:100/1"), (90, 90)).unwrap();
+    packet.header.destination = "90:100/3".parse().unwrap();
+    assert_eq!(
+        receive_interop_rescan(&mut f, &p, &packet.encode().unwrap(), true).quarantined,
+        1
+    );
+    for raw in [
+        "90:100/1",
+        "90:100/2@interop",
+        "90:100/3@interop",
+        "1:1/1@fidonet",
+        "20:200/8@othernet",
+        "90:100/1@unknown",
+    ] {
+        if let Ok(destination) = raw.parse::<Endpoint>() {
+            assert!(
+                f.db.send_ftn_mail(
+                    f.actor,
+                    &f.policy,
+                    &NewNetMail {
+                        aka: "interop-local".into(),
+                        destination,
+                        recipient: "Recipient".into(),
+                        subject: "Denied".into(),
+                        body: "Fixture".into(),
+                        reply_to: None
+                    },
+                    NOW
+                )
+                .is_err(),
+                "{raw}"
+            );
+        }
+        assert!(f.db.ftn_queue(None).unwrap().is_empty());
+    }
+    assert!("90:100/1".parse::<Endpoint>().is_err());
+    assert_eq!(
+        f.policy
+            .route(&"90:100/1@interop".parse().unwrap())
+            .unwrap()
+            .link,
+        "interop-peer"
+    );
+}
+
+fn interop_rescan_transport(f: &Fixture) -> BinkpPolicy {
+    let mut p = transport(f);
+    p.listener = None;
+    p
+}
+
+#[test]
+fn authenticated_numeric_rescan_does_not_refanout_to_other_links() {
+    let mut f = hub();
+    let mut packet = Packet::decode(&inbound(901, "10:100/1", Some("TEST1")), (10, 10)).unwrap();
+    let mut text = Text::parse(&packet.messages[0].text, Charset::Utf8).unwrap();
+    text.add_control("RESCANNED 10:100/2");
+    packet.messages[0].text = text.encode().unwrap();
+    let p = transport(&f);
+    let session =
+        f.db.begin_binkp(&f.policy, &p, "peer", "rescan-test", BinkpMode::Poll, NOW)
+            .unwrap();
+    f.db.observe_binkp(
+        &session,
+        &[f.policy.link("peer").unwrap().remote.clone()],
+        &[],
+        0,
+        NOW,
+    )
+    .unwrap();
+    assert_eq!(
+        f.db.receive_binkp(
+            &f.store,
+            &f.policy,
+            &p,
+            &session,
+            &packet.encode().unwrap(),
+            NOW
+        )
+        .unwrap()
+        .imported,
+        1
+    );
+    f.db.finish_binkp(&session, None, NOW).unwrap();
+    assert!(f.db.ftn_queue(None).unwrap().is_empty());
+    assert_eq!(toss(&mut f, 901, "TEST1").duplicates, 1);
+    assert!(f.db.ftn_queue(None).unwrap().is_empty());
+    assert_eq!(toss(&mut f, 902, "TEST1").imported, 1);
+    assert_eq!(f.db.ftn_queue(None).unwrap().len(), 3);
+}

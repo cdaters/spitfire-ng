@@ -13,6 +13,23 @@
 use super::*;
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use std::collections::BTreeSet;
+/// RESCANNED wire syntax only. A numeric marker is not a routable identity;
+/// the importer must resolve it using authenticated, unambiguous peer context.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RescanSource {
+    Qualified(Endpoint),
+    Domainless(Address),
+}
+impl FromStr for RescanSource {
+    type Err = Error;
+    fn from_str(value: &str) -> Result<Self, Error> {
+        if value.contains('@') {
+            value.parse().map(Self::Qualified)
+        } else {
+            value.parse().map(Self::Domainless)
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Charset {
@@ -351,7 +368,7 @@ impl Text {
                             }
                         }
                         "RESCANNED" => {
-                            value.parse::<super::Endpoint>()?;
+                            value.parse::<RescanSource>()?;
                         }
                         "Via" => {
                             if out.via.len() >= MAX_HOPS {

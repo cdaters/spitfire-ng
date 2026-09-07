@@ -483,6 +483,7 @@ impl RuntimeDatabase {
             now,
             Some((permitted, &remote)),
             if authenticated { verifier } else { None },
+            authenticated.then_some(policy),
         )?;
         let digest = sf_net::qwk::digest(bytes);
         let tx = self.connection.transaction()?;

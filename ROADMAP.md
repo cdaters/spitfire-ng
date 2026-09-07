@@ -1,5 +1,8 @@
 # SPITFIRE NG Roadmap
 
+> Current checkpoint: **FTN interoperability and bounded FREQ recovery COMPLETE / ACCEPTED**.
+> Schema 27. See [current status](STATUS.md) and the [file-network contract](docs/technical/ftn-files.md).
+
 ## N6 FTN hub and operator semantics — M050
 
 Implemented routing-node, per-link EchoMail subscriptions/fanout, authenticated

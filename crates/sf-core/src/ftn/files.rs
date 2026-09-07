@@ -14,6 +14,13 @@ use super::*;
 use crate::{FileAdminActor, FileAreaId, FileId, FileIntegrity, FileLifecycle, FileStorage};
 use sf_net::{qwk, tic};
 use std::io::Read;
+#[path = "file_admission.rs"]
+mod admission;
+pub use admission::FileReceiveContext;
+use admission::{StoredTic, TicReceipt};
+#[path = "freq.rs"]
+mod freq;
+pub use freq::*;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FileNetworkError {
@@ -107,6 +114,8 @@ pub struct FileActivity {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileStatus {
+    #[serde(default)]
+    pub requests: Vec<FreqRequest>,
     pub native_files: Vec<NativeFileChoice>,
     pub policy: FilePolicy,
     pub areas: Vec<FileEchoArea>,
@@ -224,6 +233,7 @@ fn publish(
     file: FileId,
     sha: &str,
     ingress: Option<&str>,
+    received_tic: Option<&TicReceipt>,
     now: i64,
 ) -> Result<String> {
     let current: i64 = tx.query_row(
@@ -241,7 +251,12 @@ fn publish(
     let targets = recipients(tx, policy, map, meta, ingress)?;
     capacity(tx, targets.len() + 1)?;
     let publication = super::id();
-    let json = serde_json::to_string(meta).map_err(|_| FileNetworkError::Storage)?;
+    let mut json = serde_json::to_value(meta).map_err(|_| FileNetworkError::Storage)?;
+    if let Some(received) = received_tic {
+        json["received_tic"] =
+            serde_json::to_value(received).map_err(|_| FileNetworkError::Storage)?;
+    }
+    let json = json.to_string();
     tx.execute(
         "INSERT INTO ftn_file_publications VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         params![
@@ -539,6 +554,7 @@ impl RuntimeDatabase {
             file.id,
             &file.sha256,
             None,
+            None,
             now,
         )?;
         super::audit(&tx, principal, "ftn-file-hatch", now)?;
@@ -661,6 +677,33 @@ impl RuntimeDatabase {
         }
         self.receive_file_artifact(policy, storage, session, &name, bytes, now, verify)
     }
+    /// Receive with immutable raw-TIC custody and authenticated transport authority.
+    #[allow(clippy::too_many_arguments)]
+    pub fn receive_file_offer_with_context(
+        &mut self,
+        policy: &Policy,
+        storage: &FileStorage,
+        context: &FileReceiveContext<'_>,
+        session: &str,
+        offer: &sf_net::binkp::Offer,
+        bytes: &[u8],
+        now: i64,
+        verify: &dyn Fn(&str, &str) -> bool,
+    ) -> Result<()> {
+        if tic::filename(&offer.name)?.ends_with(".REQ") {
+            return self.receive_file_offer(policy, storage, session, offer, bytes, now, verify);
+        }
+        self.receive_file_artifact_admitted(
+            policy,
+            storage,
+            Some(context),
+            session,
+            &offer.name,
+            bytes,
+            now,
+            verify,
+        )
+    }
     /// Rotation invalidates previously authenticated incomplete controls.
     pub fn invalidate_staged_tics(&mut self, link: &str, now: i64) -> Result<()> {
         let tx = self
@@ -695,6 +738,22 @@ impl RuntimeDatabase {
         now: i64,
         verify: &dyn Fn(&str, &str) -> bool,
     ) -> Result<()> {
+        self.receive_file_artifact_admitted(
+            policy, storage, None, session, wire_name, bytes, now, verify,
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn receive_file_artifact_admitted(
+        &mut self,
+        policy: &Policy,
+        storage: &FileStorage,
+        context: Option<&FileReceiveContext<'_>>,
+        session: &str,
+        wire_name: &str,
+        bytes: &[u8],
+        now: i64,
+        verify: &dyn Fn(&str, &str) -> bool,
+    ) -> Result<()> {
         let link = session_link(&self.connection, session)?;
         let limits = self.file_network_policy()?;
         if !limits.enabled {
@@ -707,9 +766,36 @@ impl RuntimeDatabase {
         if bytes.is_empty() || bytes.len() as u64 > limits.max_payload {
             return Err(FileNetworkError::Capacity);
         }
-        let remote = &policy.link(&link)?.remote;
-        let (pair, kind, content) = if name.ends_with(".TIC") {
-            let envelope = match tic::parse(bytes, &remote.domain) {
+        let configured = policy.link(&link)?;
+        let remote = &configured.remote;
+        let local = &policy.aka(&configured.aka)?.endpoint;
+        if let Some(context) = context {
+            context.transport.validate(policy)?;
+            context.transport.link(&link)?;
+            let current: bool = self.connection.query_row(
+                "SELECT policy_digest=?2 FROM binkp_link_health WHERE session_id=?1 AND authenticated=1",
+                params![session, context.transport.digest(policy)?], |r| r.get(0),
+            )?;
+            let observed: bool = self.connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM binkp_peer_addresses p JOIN ftn_addresses a USING(address_id) WHERE p.link_id=?1 AND a.domain=?2 AND a.zone=?3 AND a.net=?4 AND a.node=?5 AND a.point=?6)",
+                params![link, remote.domain.as_str(), remote.address.zone(), remote.address.net(), remote.address.node(), remote.address.point()], |r| r.get(0),
+            )?;
+            if !current || !observed || !configured.enabled || policy.local(local).is_none() {
+                return Err(FileNetworkError::Denied);
+            }
+        }
+        let (pair, kind, content, digest) = if name.ends_with(".TIC") {
+            let parsed = tic::parse(bytes, &remote.domain).or_else(|error| {
+                let Some(context) = context else {
+                    return Err(error);
+                };
+                let envelope = tic::parse_direct_hatch(bytes, remote, local)?;
+                if !admission::unambiguous_hatch(&envelope.metadata, policy, context.transport) {
+                    return Err(tic::Error::Malformed);
+                }
+                Ok(envelope)
+            });
+            let envelope = match parsed {
                 Ok(tic) => tic,
                 Err(error) => {
                     self.record_file_rejection(
@@ -766,15 +852,40 @@ impl RuntimeDatabase {
                 self.record_file_rejection(&link, Some(&name), "file-routing-rejected", now)?;
                 return Ok(());
             }
-            let content = serde_json::to_vec(&meta).map_err(|_| FileNetworkError::Storage)?;
-            (meta.file, "tic", content)
+            // Replay identity excludes receive-time provenance; retries retain the
+            // first admitted receipt instead of conflicting across sessions.
+            let digest =
+                qwk::digest(&serde_json::to_vec(&meta).map_err(|_| FileNetworkError::Storage)?);
+            let received_tic = if let Some(context) = context {
+                let _permit = context
+                    .artifacts
+                    .admit_import()
+                    .map_err(|_| FileNetworkError::Storage)?;
+                Some(TicReceipt {
+                    artifact: self
+                        .preserve_artifact(context.artifacts, bytes, now)
+                        .map_err(|_| FileNetworkError::Storage)?,
+                    peer: remote.clone(),
+                    session: session.to_owned(),
+                    received_at: now,
+                    direct_hatch: envelope.direct_hatch,
+                })
+            } else {
+                None
+            };
+            let pair = meta.file.clone();
+            let content = serde_json::to_vec(&StoredTic {
+                metadata: meta,
+                received_tic,
+            })
+            .map_err(|_| FileNetworkError::Storage)?;
+            (pair, "tic", content, digest)
         } else {
-            (name, "payload", bytes.to_vec())
+            (name, "payload", bytes.to_vec(), qwk::digest(bytes))
         };
         if kind == "payload" {
             self.receive_freq_payload(storage, &link, &pair, &content, now)?;
         }
-        let digest = qwk::digest(&content);
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -831,7 +942,7 @@ impl RuntimeDatabase {
             )?;
         }
         tx.commit()?;
-        self.complete_file_pair(policy, storage, &link, &pair, now)
+        self.complete_file_pair(policy, storage, context, &link, &pair, now)
     }
     fn record_file_rejection(
         &mut self,
@@ -849,6 +960,7 @@ impl RuntimeDatabase {
         &mut self,
         policy: &Policy,
         storage: &FileStorage,
+        context: Option<&FileReceiveContext<'_>>,
         link: &str,
         name: &str,
         now: i64,
@@ -857,8 +969,26 @@ impl RuntimeDatabase {
         let Some((json, bytes)) = row else {
             return Ok(());
         };
-        let meta: tic::Metadata =
+        let stored: StoredTic =
             serde_json::from_slice(&json).map_err(|_| FileNetworkError::Storage)?;
+        let meta = stored.metadata;
+        if let Some(receipt) = stored
+            .received_tic
+            .as_ref()
+            .filter(|r| r.direct_hatch.is_some())
+        {
+            let Some(context) = context else {
+                return Err(FileNetworkError::Denied);
+            };
+            let configured = policy.link(link)?;
+            if receipt.peer != configured.remote
+                || meta.origin != configured.remote
+                || meta.to.as_ref() != Some(&policy.aka(&configured.aka)?.endpoint)
+                || !admission::unambiguous_hatch(&meta, policy, context.transport)
+            {
+                return Err(FileNetworkError::Denied);
+            }
+        }
         if let Err(error) = meta.validate_payload(&bytes) {
             self.record_file_rejection(
                 link,
@@ -900,8 +1030,18 @@ impl RuntimeDatabase {
         capacity(&self.connection, 34)?;
         let native:Option<i64>=self.connection.query_row("SELECT file_id FROM files WHERE area_id=?1 AND sha256=?2 AND size_bytes=?3 ORDER BY file_id LIMIT 1",params![map.native_area,sha,bytes.len() as i64],|r|r.get(0)).optional()?;
         let commit = |tx: &Transaction<'_>, id: FileId| -> rusqlite::Result<()> {
-            publish(tx, policy, &map, &meta, id, &sha, Some(link), now)
-                .map_err(|_| rusqlite::Error::InvalidQuery)?;
+            publish(
+                tx,
+                policy,
+                &map,
+                &meta,
+                id,
+                &sha,
+                Some(link),
+                stored.received_tic.as_ref(),
+                now,
+            )
+            .map_err(|_| rusqlite::Error::InvalidQuery)?;
             tx.execute(
                 "DELETE FROM ftn_file_staging WHERE link_id=?1 AND name=?2",
                 params![link, name],
@@ -1061,7 +1201,21 @@ impl RuntimeDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         super::bind(&tx, policy)?;
         capacity(&tx, 1)?;
+        for name in &requested {
+            let pending: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM ftn_freq_inbound WHERE link_id=?1 AND name=?2 AND file_id IS NULL)", params![link,name], |r| r.get(0))?;
+            if pending {
+                return Err(FileNetworkError::Conflict);
+            }
+        }
         tx.execute("INSERT INTO ftn_file_deliveries(delivery_id,link_id,name,sha256,size,kind,request,tic_accepted,created_at) VALUES(?1,?2,?3,?4,?5,'freq-request',?6,1,?7)",params![delivery,link,name,qwk::digest(&bytes),bytes.len() as i64,bytes,now])?;
+        tx.execute(
+            "INSERT INTO ftn_freq_recovery(request_id) VALUES(?1)",
+            [&delivery],
+        )?;
+        tx.execute(
+            "INSERT INTO ftn_freq_attempts(request_id,number,delivery_id) VALUES(?1,1,?1)",
+            [&delivery],
+        )?;
         for name in requested {
             tx.execute(
                 "INSERT INTO ftn_freq_inbound(request_id,link_id,name,area_id) VALUES(?1,?2,?3,?4)",
@@ -1092,6 +1246,7 @@ impl RuntimeDatabase {
         )?;
         let native_files = self.connection.prepare("SELECT file_id,area_id,a.name,f.filename,size_bytes FROM files f JOIN file_areas a USING(area_id) WHERE a.active=1 AND f.lifecycle='active' ORDER BY area_id,file_id LIMIT 256")?.query_map([],|r|Ok(NativeFileChoice{id:r.get(0)?,area:r.get(1)?,area_name:r.get(2)?,filename:r.get(3)?,size:r.get::<_,i64>(4)? as u64}))?.collect::<std::result::Result<Vec<_>,_>>()?;
         Ok(FileStatus {
+            requests: self.freq_requests()?,
             native_files,
             policy: self.file_network_policy()?,
             areas,
@@ -1114,7 +1269,11 @@ impl RuntimeDatabase {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if tx.execute("UPDATE ftn_file_deliveries SET held=?1,last_error=NULL,attempts=CASE WHEN ?1=0 THEN 0 ELSE attempts END,version=version+1 WHERE delivery_id=?2 AND version=?3 AND session_id IS NULL AND accepted_at IS NULL",params![held,delivery,expected])?!=1 {return Err(FileNetworkError::Conflict)}
+        let freq_blocked: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM ftn_freq_attempts a JOIN ftn_freq_recovery r USING(request_id) JOIN ftn_file_deliveries d ON d.delivery_id=a.delivery_id WHERE d.delivery_id=?1 AND (r.held=1 OR d.attempts>=12))", [delivery], |r| r.get(0))?;
+        if !held && freq_blocked {
+            return Err(FileNetworkError::Denied);
+        }
+        if tx.execute("UPDATE ftn_file_deliveries SET held=?1,last_error=NULL,attempts=CASE WHEN ?1=0 AND kind<>'freq-request' THEN 0 ELSE attempts END,version=version+1 WHERE delivery_id=?2 AND version=?3 AND session_id IS NULL AND accepted_at IS NULL",params![held,delivery,expected])?!=1 {return Err(FileNetworkError::Conflict)}
         if !held {
             tx.execute("UPDATE binkp_link_health SET held=0,next_attempt=NULL WHERE link_id=(SELECT link_id FROM ftn_file_deliveries WHERE delivery_id=?1)",[delivery])?;
         }
@@ -1165,6 +1324,9 @@ impl RuntimeDatabase {
             {
                 continue;
             }
+            if kind == "freq-request" && !freq::sendable(&self.connection, &id)? {
+                continue;
+            }
             let result = (|| -> Result<Vec<(FileWork, Vec<u8>)>> {
                 let mut items = vec![];
                 let mut meta = None;
@@ -1174,7 +1336,15 @@ impl RuntimeDatabase {
                         [publication],
                         |r| r.get(0),
                     )?;
-                    let mut value = metadata(&json)?;
+                    let stored: StoredTic =
+                        serde_json::from_str(&json).map_err(|_| FileNetworkError::Storage)?;
+                    let mut value = stored.metadata;
+                    if let Some(receipt) = stored.received_tic.filter(|r| r.direct_hatch.is_some())
+                    {
+                        // This is witnessed ingress, separate from received Seenby.
+                        // The untimed remote PATH stays in private provenance.
+                        value.seen.push(receipt.peer);
+                    }
                     let map = self.fileecho_area(&value.from.domain, &value.area)?;
                     let permits:bool=self.connection.query_row("SELECT EXISTS(SELECT 1 FROM ftn_file_subscriptions WHERE link_id=?1 AND domain=?2 AND tag=?3 AND subscribed=1 AND held=0)",params![link,map.domain.as_str(),map.tag],|r|r.get(0))?;
                     if !map.enabled || !map.outbound || !permits {
@@ -1275,12 +1445,23 @@ impl RuntimeDatabase {
         Ok(prepared)
     }
     pub fn file_work_offered(&mut self, session: &str, key: &str) -> Result<()> {
-        session_link(&self.connection, session)?;
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        session_link(&tx, session)?;
         let (id, part) = key.split_once(':').ok_or(FileNetworkError::Denied)?;
+        if !freq::sendable(&tx, id)? {
+            return Err(FileNetworkError::Denied);
+        }
         let sql=match part {"p"=>"UPDATE ftn_file_deliveries SET payload_offered=1 WHERE delivery_id=?1 AND session_id=?2 AND payload_accepted=0", "t"=>"UPDATE ftn_file_deliveries SET tic_offered=1 WHERE delivery_id=?1 AND session_id=?2 AND tic_accepted=0",_=>return Err(FileNetworkError::Denied)};
-        if self.connection.execute(sql, params![id, session])? != 1 {
+        if tx.execute(sql, params![id, session])? != 1 {
             return Err(FileNetworkError::Conflict);
         }
+        tx.execute(
+            "UPDATE ftn_freq_attempts SET offered=1 WHERE delivery_id=?1",
+            [id],
+        )?;
+        tx.commit()?;
         Ok(())
     }
     pub fn file_work_accepted(&mut self, session: &str, key: &str, now: i64) -> Result<()> {
@@ -1295,6 +1476,7 @@ impl RuntimeDatabase {
         }
         if tx.execute("UPDATE ftn_file_deliveries SET accepted_at=?2,last_error=NULL,session_id=NULL WHERE delivery_id=?1 AND payload_accepted=1 AND tic_accepted=1",params![id,now])?==1 {
             activity(&tx,Some(&link),None,"file-delivery-accepted",1,0,now)?;
+            tx.execute("UPDATE ftn_freq_recovery SET version=version+1 WHERE request_id IN (SELECT request_id FROM ftn_freq_attempts WHERE delivery_id=?1)", [id])?;
         }
         tx.commit()?;
         Ok(())
@@ -1319,6 +1501,10 @@ impl RuntimeDatabase {
         let Some((request, area_id)) = pending else {
             return Ok(self.connection.query_row("SELECT EXISTS(SELECT 1 FROM ftn_freq_inbound WHERE link_id=?1 AND name=?2 AND sha256=?3 AND size=?4 AND file_id IS NOT NULL)",params![link,name,sha,bytes.len() as i64],|r|r.get(0))?);
         };
+        let allowed: bool = self.connection.query_row("SELECT EXISTS(SELECT 1 FROM ftn_freq_recovery r JOIN ftn_freq_attempts a USING(request_id) WHERE r.request_id=?1 AND r.held=0 AND a.offered=1)", [&request], |r| r.get(0))?;
+        if !allowed {
+            return Err(FileNetworkError::Denied);
+        }
         let limits = self.file_network_policy()?;
         let total: i64 = self.connection.query_row(
             "SELECT COALESCE(SUM(size),0) FROM ftn_freq_inbound WHERE request_id=?1",
@@ -1341,6 +1527,10 @@ impl RuntimeDatabase {
         let existing:Option<i64>=self.connection.query_row("SELECT file_id FROM files WHERE area_id=?1 AND sha256=?2 AND size_bytes=?3 ORDER BY file_id LIMIT 1",params![area_id,sha,bytes.len() as i64],|r|r.get(0)).optional()?;
         let commit = |tx: &Transaction<'_>, file: FileId| -> rusqlite::Result<()> {
             if tx.execute("UPDATE ftn_freq_inbound SET file_id=?3,sha256=?4,size=?5,received_at=?6 WHERE request_id=?1 AND name=?2 AND file_id IS NULL",params![request,name,file.get(),sha,bytes.len() as i64,now])?!=1 {return Err(rusqlite::Error::InvalidQuery);}
+            tx.execute(
+                "UPDATE ftn_freq_recovery SET version=version+1 WHERE request_id=?1",
+                [&request],
+            )?;
             activity(
                 tx,
                 Some(link),

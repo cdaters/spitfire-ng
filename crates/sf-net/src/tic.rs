@@ -39,7 +39,14 @@ pub enum Error {
 /// Secret-bearing parsed envelope. Deliberately not serializable or clonable.
 pub struct Envelope {
     pub metadata: Metadata,
+    pub direct_hatch: Option<DirectHatchHistory>,
     password: String,
+}
+/// Received omissions, never invented remote history or an authentication grant.
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DirectHatchHistory {
+    pub untimed_path: Option<Endpoint>,
+    pub empty_seenby: bool,
 }
 impl std::fmt::Debug for Envelope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -182,12 +189,42 @@ fn lines(bytes: &[u8], max: usize) -> Result<Vec<String>, Error> {
 }
 
 pub fn parse(bytes: &[u8], domain: &Domain) -> Result<Envelope, Error> {
+    parse_history(bytes, domain, false)
+}
+
+/// Narrow direct-hatch syntax. The caller must supply authenticated configured
+/// identities, check ambiguity, verify the TIC credential and retain raw custody.
+/// Generic parsing and encoding deliberately do not use this profile.
+pub fn parse_direct_hatch(
+    bytes: &[u8],
+    peer: &Endpoint,
+    local: &Endpoint,
+) -> Result<Envelope, Error> {
+    let envelope = parse_history(bytes, &peer.domain, true)?;
+    let meta = &envelope.metadata;
+    let history = envelope.direct_hatch.as_ref().ok_or(Error::Malformed)?;
+    let paths = meta.path.len() + usize::from(history.untimed_path.is_some());
+    if peer.domain != local.domain
+        || meta.from != *peer
+        || meta.origin != *peer
+        || meta.to.as_ref() != Some(local)
+        || paths != 1
+        || meta.path.iter().any(|p| p.address != *peer)
+        || history.untimed_path.as_ref().is_some_and(|p| p != peer)
+    {
+        return Err(Error::Malformed);
+    }
+    Ok(envelope)
+}
+
+fn parse_history(bytes: &[u8], domain: &Domain, direct_hatch: bool) -> Result<Envelope, Error> {
     let mut singleton = std::collections::BTreeMap::new();
     let mut descriptions = vec![];
     let mut long_descriptions = vec![];
     let mut path = vec![];
     let mut seen = vec![];
     let mut opaque = vec![];
+    let mut untimed_path = None;
     for line in lines(bytes, MAX_TIC)? {
         let (key, value) = line.split_once(' ').ok_or(Error::Malformed)?;
         let key = key.to_ascii_lowercase();
@@ -201,7 +238,14 @@ pub fn parse(bytes: &[u8], domain: &Domain) -> Result<Envelope, Error> {
             "path" => {
                 let mut fields = value.splitn(3, ' ');
                 let address = endpoint(fields.next().ok_or(Error::Malformed)?, domain)?;
-                let time = decimal(fields.next().ok_or(Error::Malformed)?)?;
+                let time = match fields.next() {
+                    Some(value) => decimal(value)?,
+                    None if direct_hatch && untimed_path.is_none() => {
+                        untimed_path = Some(address);
+                        continue;
+                    }
+                    None => return Err(Error::Malformed),
+                };
                 path.push(Hop {
                     address,
                     time,
@@ -235,8 +279,8 @@ pub fn parse(bytes: &[u8], domain: &Domain) -> Result<Envelope, Error> {
     let size = decimal(get("size")?)?;
     if size == 0
         || size > MAX_PAYLOAD
-        || path.is_empty()
-        || seen.is_empty()
+        || (path.is_empty() && untimed_path.is_none())
+        || (!direct_hatch && seen.is_empty())
         || descriptions.len() + long_descriptions.len() > 20
         || descriptions
             .iter()
@@ -247,6 +291,10 @@ pub fn parse(bytes: &[u8], domain: &Domain) -> Result<Envelope, Error> {
     {
         return Err(Error::Limit);
     }
+    let history = direct_hatch.then_some(DirectHatchHistory {
+        untimed_path,
+        empty_seenby: seen.is_empty(),
+    });
     let metadata = Metadata {
         area: area(get("area")?)?,
         file: filename(get("file")?)?,
@@ -267,6 +315,7 @@ pub fn parse(bytes: &[u8], domain: &Domain) -> Result<Envelope, Error> {
     };
     Ok(Envelope {
         metadata,
+        direct_hatch: history,
         password: singleton.remove("pw").unwrap_or_default(),
     })
 }
@@ -418,6 +467,78 @@ mod tests {
     use super::*;
     fn sample() -> Vec<u8> {
         b"Area TEST\r\nFile TEST.ZIP\r\nOrigin 10:1/1\r\nFrom 10:1/2\r\nSize 9\r\nCrc CBF43926\r\nDesc caf\x82\r\nPath 10:1/1 1\r\nSeenby 10:1/1\r\nPw SECRET\r\n".to_vec()
+    }
+    fn hatch(path: &str, seen: &str) -> Vec<u8> {
+        format!("Area INTEROP.FILE\r\nFile HATCH.TXT\r\nOrigin 90:100/1\r\nFrom 90:100/1\r\nTo 90:100/2@interop\r\nSize 9\r\nCrc CBF43926\r\n{path}{seen}Pw SECRET\r\n").into_bytes()
+    }
+    #[test]
+    fn direct_hatch_omissions_are_independent_and_generic_codec_stays_strict() {
+        let peer: Endpoint = "90:100/1@interop".parse().unwrap();
+        let local = "90:100/2@interop".parse().unwrap();
+        for untimed in [false, true] {
+            for empty in [false, true] {
+                let bytes = hatch(
+                    if untimed {
+                        "Path 90:100/1\r\n"
+                    } else {
+                        "Path 90:100/1 123\r\n"
+                    },
+                    if empty { "" } else { "Seenby 90:100/1\r\n" },
+                );
+                assert_eq!(parse(&bytes, &peer.domain).is_ok(), !untimed && !empty);
+                let parsed = parse_direct_hatch(&bytes, &peer, &local).unwrap();
+                let history = parsed.direct_hatch.unwrap();
+                assert_eq!(history.untimed_path.as_ref(), untimed.then_some(&peer));
+                assert_eq!(history.empty_seenby, empty);
+                assert_eq!(parsed.metadata.path.len(), usize::from(!untimed));
+                assert_eq!(parsed.metadata.seen.len(), usize::from(!empty));
+                assert_eq!(
+                    parsed.metadata.encode("NEWSECRET").is_ok(),
+                    !untimed && !empty
+                );
+                parsed.metadata.validate_payload(b"123456789").unwrap();
+            }
+        }
+    }
+    #[test]
+    fn direct_hatch_path_syntax_and_exact_provenance_fail_closed() {
+        let peer = "90:100/1@interop".parse().unwrap();
+        let local = "90:100/2@interop".parse().unwrap();
+        for path in [
+            "",
+            "Path garbage\r\n",
+            "Path 90:100/1 \r\n",
+            "Path 90:100/1 NaN\r\n",
+            "Path 90:100/1 -1\r\n",
+            "Path 90:100/1 18446744073709551616\r\n",
+            "Path 90:100/9\r\n",
+            "Path 90:100/1@fidonet\r\n",
+            "Path 1:123/4@fidonet\r\n",
+            "Path 20:200/7@othernet\r\n",
+            "Path 90:100/1@unknown\r\n",
+            "Path 90:100/1\r\nPath 90:100/1\r\n",
+            "Path 90:100/1\r\nPath 90:100/1 2\r\n",
+        ] {
+            assert!(
+                parse_direct_hatch(&hatch(path, ""), &peer, &local).is_err(),
+                "{path}"
+            );
+        }
+        let text = String::from_utf8(hatch("Path 90:100/1\r\n", "")).unwrap();
+        for (before, after) in [
+            ("Origin 90:100/1", "Origin 90:100/3"),
+            ("From 90:100/1", "From 90:100/3"),
+            ("To 90:100/2@interop", "To 90:100/3@interop"),
+            ("To 90:100/2@interop\r\n", ""),
+            ("Origin 90:100/1", "Origin 90:100/1@unknown"),
+        ] {
+            assert!(
+                parse_direct_hatch(text.replace(before, after).as_bytes(), &peer, &local).is_err()
+            );
+        }
+        assert!(
+            parse_direct_hatch(text.as_bytes(), &peer, &"90:100/2@other".parse().unwrap()).is_err()
+        );
     }
     #[test]
     fn round_trip_encoding_crc_and_redaction() {

@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 26;
+pub const SCHEMA_VERSION: u32 = 27;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 26] = [
+const MIGRATIONS: [Migration; 27] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1521,6 +1521,11 @@ const MIGRATIONS: [Migration; 26] = [
         version: 26,
         name: "ftn_file_network_authority",
         sql: crate::ftn::FILE_MIGRATION,
+    },
+    Migration {
+        version: 27,
+        name: "ftn_freq_recovery",
+        sql: crate::ftn::FREQ_MIGRATION,
     },
 ];
 

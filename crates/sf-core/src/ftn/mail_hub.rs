@@ -12,10 +12,17 @@
 //! Native AreaFix response and explicit per-link historical delivery services.
 use super::*;
 
-pub(super) fn rescan_marker(text: &Text) -> Result<Option<Endpoint>, Error> {
+pub(super) fn rescan_marker(text: &Text) -> Result<Option<wire::RescanSource>, Error> {
     let mut result = None;
     for c in &text.controls {
-        if let Some(raw) = c.raw.strip_prefix(b"\x01RESCANNED ") {
+        // Match the codec's logical control spelling without changing custody.
+        let logical: Vec<u8> = c
+            .raw
+            .iter()
+            .copied()
+            .filter(|b| !matches!(b, 10 | 141))
+            .collect();
+        if let Some(raw) = logical.strip_prefix(b"\x01RESCANNED ") {
             if result.is_some() {
                 return Err(Error::Rejected);
             }
@@ -28,6 +35,54 @@ pub(super) fn rescan_marker(text: &Text) -> Result<Option<Endpoint>, Error> {
     }
     Ok(result)
 }
+
+/// Only this metadata boundary may supply a missing domain. Offline toss has
+/// no authenticated transport and cannot use the numeric compatibility form.
+pub(super) fn resolve_rescan_source(
+    marker: wire::RescanSource,
+    policy: &Policy,
+    authenticated: Option<&BinkpPolicy>,
+    link: &Link,
+    message_domain: Option<&Domain>,
+    packet_origin: Address,
+) -> Result<Endpoint, Error> {
+    let domain = message_domain.ok_or(Error::Denied)?;
+    if *domain != link.remote.domain {
+        return Err(Error::Denied);
+    }
+    let resolved = match marker {
+        wire::RescanSource::Qualified(endpoint) => endpoint,
+        wire::RescanSource::Domainless(address) => {
+            let transport = authenticated.ok_or(Error::Denied)?;
+            transport.validate(policy)?;
+            let peer = transport.link(&link.id)?;
+            if !peer.enabled || address != link.remote.address || packet_origin != address {
+                return Err(Error::Denied);
+            }
+            // Include disabled identities and other links' aliases: configuration
+            // overlap must not become a default-domain guess or directory lookup.
+            let ambiguous = policy.akas.iter().map(|a| &a.endpoint)
+                .chain(policy.links.iter().map(|l| &l.remote))
+                .chain(transport.links.iter().flat_map(|l| &l.remote_akas))
+                .any(|e| e.address == address && e.domain != *domain)
+                || policy.routes.iter().any(|r| r.domain != *domain && matches!(
+                    r.target, RouteMatch::Exact { address: a } | RouteMatch::Boss { address: a } if a == address
+                ));
+            if ambiguous {
+                return Err(Error::Denied);
+            }
+            Endpoint {
+                address,
+                domain: domain.clone(),
+            }
+        }
+    };
+    if resolved.domain != *domain || resolved.address != packet_origin {
+        return Err(Error::Denied);
+    }
+    Ok(resolved)
+}
+
 struct RescanSelection {
     area: RescanArea,
     mapping: Mapping,
@@ -365,4 +420,43 @@ pub(super) fn areafix(
         now,
     )?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod rescan_context_tests {
+    use super::*;
+
+    #[test]
+    fn missing_or_inconsistent_message_domain_is_never_guessed() {
+        let link = Link {
+            id: "peer".into(),
+            remote: "90:100/1@interop".parse().unwrap(),
+            aka: "local".into(),
+            enabled: true,
+            inbound: true,
+            outbound: true,
+            transit: false,
+            profile: PacketProfile::Type2Plus,
+            charset: Charset::Utf8,
+        };
+        for marker in ["90:100/1", "90:100/1@interop"] {
+            for domain in [
+                None,
+                Some("fidonet".parse::<Domain>().unwrap()),
+                Some("unknown".parse().unwrap()),
+            ] {
+                assert!(matches!(
+                    resolve_rescan_source(
+                        marker.parse().unwrap(),
+                        &Policy::default(),
+                        Some(&BinkpPolicy::default()),
+                        &link,
+                        domain.as_ref(),
+                        link.remote.address,
+                    ),
+                    Err(Error::Denied)
+                ));
+            }
+        }
+    }
 }

@@ -74,7 +74,26 @@ Bounds are 1–500 messages per area, 1–1000 total per request, with a configu
 cooldown of at least 60 seconds and at most one outstanding rescan per link.
 Rescan requires both link and area permission and an active subscription.
 It never selects private NetMail or implicitly bridges another network adapter.
-FSC-0057.003's `RESCANNED <address@domain>` control marks each replay packet.
+NG emits the domain-qualified `RESCANNED <address@domain>` control described
+by FSC-0057.003 section 5 on each replay packet. Synchronet/SBBSecho instead
+emits a numeric `zone:net/node[.point]` marker. This is an interoperability
+convention, not the proposal's specified domain-inclusive form.
+
+At this metadata boundary alone, NG can resolve a numeric marker to a typed
+Endpoint. The configured BinkP session must already be authenticated; the
+admitted packet and message must have the configured link's known domain;
+and the marker must equal both the exact configured peer's numeric address
+and packet origin. The same numeric identity in another configured domain
+rejects resolution, including disabled local/peer identities, configured remote
+AKAs and exact/boss route targets. No directory, default route or global domain
+fallback participates. Domainless alias provenance is deliberately unsupported.
+Offline toss, absent authentication/domain, wrong peer/domain, unknown domain
+and malformed controls fail closed. Explicitly qualified markers retain their
+existing packet-origin and domain checks. Original control bytes and packet
+custody remain unchanged; generic Endpoint parsing and destination admission
+still require an explicit domain. Focused `rescan` core tests and
+`rescanned_wire` codec tests exercise these boundaries and byte preservation.
+
 Inbound rescanned traffic preserves provenance but creates no normal onward
 fanout; ordinary duplicate and PATH checks still apply. Rescanning previously
 rescanned content replaces only the delivery marker, never MSGID/REPLY, Origin,

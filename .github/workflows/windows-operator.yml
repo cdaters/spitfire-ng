@@ -3,7 +3,7 @@ name: Windows operator attachment
 on:
   push:
     branches:
-      - main
+      - b021-aw-windows
   pull_request:
     branches:
       - main

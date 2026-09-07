@@ -24,6 +24,7 @@ pub struct RecoveryEvidence {
     origins: Vec<OriginState>,
     accepted: Vec<AcceptedEvidence>,
     files: Vec<FileEvidence>,
+    freq: Vec<(String, String, bool)>,
 }
 struct FileEvidence {
     delivery: String,
@@ -124,6 +125,7 @@ impl RuntimeDatabase {
             origins,
             accepted,
             files,
+            freq: files::freq_history(&self.connection)?,
         })
     }
     /// Monotonic reconciliation; no caller-supplied numeric floor or random reset.
@@ -144,6 +146,7 @@ impl RuntimeDatabase {
         if active {
             return Err(Error::Conflict);
         }
+        let freq_history = files::freq_history(&tx)?;
         let mut result = RecoveryResult::default();
         for origin in &evidence.origins {
             let aid = address_id(&tx, &origin.endpoint)?;
@@ -169,6 +172,17 @@ impl RuntimeDatabase {
             if changed == 1 && file.payload && file.tic {
                 result.accepted += 1;
             }
+        }
+        for (request, history, _) in freq_history {
+            let held = evidence
+                .freq
+                .iter()
+                .find(|(id, source, _)| id == &request && source == &history)
+                .is_none_or(|(_, _, held)| *held);
+            tx.execute(
+                "UPDATE ftn_freq_recovery SET held=?2,version=version+1 WHERE request_id=?1",
+                params![request, held],
+            )?;
         }
         audit(&tx, principal, "ftn.recovery-reconciled", now)?;
         event(&tx, "recovery-reconciled", now)?;

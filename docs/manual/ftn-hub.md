@@ -173,6 +173,7 @@ proved accepted A/point deliveries remain accepted while pending B resumes once;
 focused tests also prove a partially accepted rescan resumes only its pending
 members. Subscription source/state and point relationships restore exactly.
 
-N6 includes no FileEcho, TIC, FREQ, hatching, file-network services, general
-scheduler, public onboarding or release/service packaging. Windows live acceptance
-remains deferred pending a real Windows environment.
+The N6 acceptance scope excluded file networking; current source adds
+[FileEcho, TIC, FREQ and native hatching](ftn-files.md). A general scheduler,
+public onboarding and release/service packaging remain outside this scope.
+Windows live acceptance remains deferred pending a real Windows environment.

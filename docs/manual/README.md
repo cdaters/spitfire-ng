@@ -5,7 +5,7 @@ Current source implements N1–N6 networking and [N7 FTN file networking](ftn-fi
 
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 26)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 27)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -182,4 +182,4 @@ See [operator workflows](ftn-hub.md) for downstreams, subscriptions, AreaFix, bo
 
 ## FTN file networking — N7
 
-See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 26; en-US 1.24.0 / 1,291 messages.
+See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority and workflows. Schema 27; en-US 1.24.0 / 1,291 messages.

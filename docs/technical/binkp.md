@@ -9,8 +9,8 @@ routing decisions and the common outbound queue remain canonical.
 ## Wire and service interfaces
 
 `sf-net::binkp` owns bounded frames, file descriptors, address presentation and
-CRAM-MD5 primitives. FTS-1026.001 and FTS-1027.001 are primary. FTS-1028.001 is
-optional NR evidence; the implementation advertises BinkP 1.0, not the 1.1 draft.
+CRAM-MD5 primitives. FTS-1026.001 and FTS-1027.001 are primary. FTS-1028.001 supplies NR offset rules. The original N4 baseline was 1.0;
+the response-batch contract below adds negotiated 1.1 response batches with 1.0 fallback.
 Command/data framing is independent of sockets and native message storage.
 
 Daemon session workers perform `prepare(link, policy-version, mode)`, handshake,
@@ -36,14 +36,58 @@ restore holds uncertain work, preserves accepted receipts, and never resumes a
 socket/session. Origin serial reconciliation remains explicit because a backup
 cannot know messages originated after its snapshot.
 
+## Negotiated response batches
+
+The session negotiates BinkP 1.1 only from an explicit case-insensitive
+`binkp/1.1` VER token received before authentication is sent/completed. Missing,
+late or unsupported versions retain 1.0 behavior. Local VER precedes ADR so the
+peer can select the protocol before sending its authentication. This changes no
+AKA, link, destination or file authorization.
+
+FTS-1026.001 defines the 1.0 single-batch baseline and does not define FREQ.
+FSP-1024.000 is an unfinished **proposal**, whose sections 3 and 4.1–4.3 describe
+multiple batches, empty-batch termination and mandatory NR offset negotiation.
+Installed independent JSBinkP behavior and a bounded empty-session wire capture
+corroborate the two-direction EOB handshake. Scripted authenticated sockets and a completed independent FREQ exchange
+validate the response-batch model, including acknowledgements after EOB.
+
+In 1.1, EOB ends a send batch. A received file offer starts a new peer batch and
+invalidates received empty-batch evidence. Acknowledgements may straddle peer
+EOBs and preserve that evidence. A new outgoing file starts a fresh local batch;
+local confirmations reaffirm local empty batches for the peer. At least two
+empty EOBs in each direction, no outstanding acknowledgements/partial reception,
+and a drained output queue complete the session. Sending another empty EOB
+requires new peer EOB progress, so a waiting loop cannot flood commands. New
+file offers are accepted only through normal authenticated offer/import authority;
+unannounced data and handshake commands during transfer remain errors.
+
+At bounded batch transitions the backend may claim newly queued file work for
+the same authenticated session, using remaining session file/byte capacity and
+existing durable claims. No reauthentication, routing expansion, automatic FREQ
+reissue or receipt reset occurs. NR `-1` is a typed request for an offset; reception
+requests offset zero and transmission waits for matching M_GET before data. The
+ordinary numeric Offer parser remains strict. Unsupported options are not enabled.
+
+Existing limits remain: 30-second handshake, 60-second idle and 600-second total
+session deadline; 64 files per direction, 64 MiB per direction, 4,096 commands.
+An additional 128 EOBs per direction bounds batch transitions. A close/timeout
+with missing payload does not complete its durable FREQ request; schema-27 retry
+eligibility and maximum attempts remain authoritative.
+
+FireComm review was read-only (`docs/21-phase-10-transport-maturation.md`,
+`firecomm-transfer/src/safety.rs`): adapt explicit protocol state and capture
+exclusion; retain NG exact-name rejection instead of filename rewriting.
+FireComm has no BinkP protocol authority or dependency role. No source was copied.
+
 ## Selected boundaries
 
 TLS-wrapped streams are deferred: the primary baseline defines no STARTTLS or
 universal TLS mode; independent peer support alone does not create a standard.
 Compression, CRYPT, CRC extensions and persistent partial-file resume are not
 advertised. Retries restart inbound reception safely at zero; outbound M_GET
-offsets remain part of the base protocol. Only N3 packet artifacts are admitted;
-FileEcho, TIC, FREQ and AreaFix remain outside scope.
+offsets remain part of the base protocol. N4 admitted only N3 packet artifacts;
+the accepted [N7 file contract](ftn-files.md) supplies current FileEcho/TIC/FREQ
+authority, and [N6 hub authority](ftn-hub.md) supplies AreaFix.
 
 The defaults follow M044: connect 10 seconds, handshake 30 seconds, idle 60 seconds,
 session 10 minutes, two sessions, one per link, 16 MiB per packet, bounded session
@@ -132,15 +176,17 @@ Remote filenames are metadata only: no filesystem path is constructed from them.
 
 An interrupted incoming file is discarded; no partial file can survive a process
 restart or be tossed. A nonzero inbound offset is answered with M_GET at zero and
-old bytes are ignored until the replacement header. Valid outbound M_GET offsets
-reseek the same immutable offered artifact. Persistent partial resume and NR are
-not advertised. Outgoing M_SKIP retains work. M_GOT is matched to the current
+the replacement header must match the requested file identity. Data or EOB before
+that restart is rejected. Valid outbound M_GET offsets reseek the same immutable
+offered artifact. Persistent partial resume remains absent; NR offset requests
+are supported as specified in the response-batch contract. Outgoing M_SKIP retains work. M_GOT is matched to the current
 file descriptor; unsolicited or mismatched acknowledgements fail closed.
 
-EOB terminates a batch only after both directions finish, all outgoing offers have
-a result, private partial state is empty and queued frames drain. Successful
-termination is checked before a peer's subsequent EOF. Unknown capabilities do
-not make a 1.0 connection behave as an unimplemented 1.1/multiple-batch extension.
+EOB ends the current sending batch. Session completion additionally requires all
+outgoing results, empty private partial state and drained frames. Negotiated 1.1
+requires empty-batch evidence in both directions; fallback 1.0 uses its original
+single-batch termination. Successful termination is checked before subsequent EOF.
+Unknown capabilities and late VER cannot upgrade a 1.0 session.
 
 ## Bounds and security review
 

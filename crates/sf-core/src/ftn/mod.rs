@@ -12,6 +12,7 @@
 //! Native FTN message, directory and queue authority. Transport remains N4.
 pub mod files;
 pub(crate) const FILE_MIGRATION: &str = include_str!("files.sql");
+pub(crate) const FREQ_MIGRATION: &str = include_str!("freq.sql");
 mod binkp;
 pub(crate) use binkp::BINKP_MIGRATION;
 pub use binkp::*;
@@ -347,6 +348,14 @@ impl RuntimeDatabase {
         )?;
         if has_files {
             tx.execute("UPDATE ftn_file_deliveries SET held=1,last_error='restored-file-review',session_id=NULL,payload_offered=0,tic_offered=0,version=version+1 WHERE accepted_at IS NULL",[])?;
+        }
+        let has_freq: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name='ftn_freq_recovery')",
+            [],
+            |r| r.get(0),
+        )?;
+        if has_freq {
+            tx.execute("UPDATE ftn_freq_recovery SET held=1,version=version+1", [])?;
         }
         tx.commit()?;
         Ok(())

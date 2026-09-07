@@ -8,7 +8,10 @@ means that the peer took custody; it does not prove a recipient read the message
 N4 supports client polling and an inbound daemon listener, with controlled
 independent interoperability. Live public FidoNet participation is not claimed or
 authorized by this guide. Use an isolated peer and addresses agreed for that test.
-FileEcho, TIC, FREQ, AreaFix and scheduled polling are not implemented.
+Current source also supports [FileEcho, TIC and exact-name FREQ](ftn-files.md)
+and [AreaFix](ftn-hub.md). Polling remains explicit; no scheduler is enabled.
+Negotiated BinkP 1.1 permits queued responses in a subsequent batch of the same
+session, with 1.0 fallback and finite session limits.
 
 ## Configure an isolated link
 
