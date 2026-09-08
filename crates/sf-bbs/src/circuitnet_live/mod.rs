@@ -95,6 +95,29 @@ impl Drop for Permit {
 fn custody<T, E>(r: Result<T, E>) -> Result<T, Error> {
     r.map_err(|_| Error::Custody)
 }
+// Safe operation/error classes only: underlying errors can contain local paths.
+fn file_custody<T>(r: Result<T, core::Error>, operation: &'static str) -> Result<T, Error> {
+    r.map_err(|error| {
+        let (class, sqlite_code) = match &error {
+            core::Error::Sqlite(error)
+            | core::Error::Files(sf_core::files::FilesError::Sql(error)) => (
+                "database",
+                error.sqlite_error().map_or(0, |code| code.extended_code),
+            ),
+            core::Error::Files(_) => ("native-files", 0),
+            core::Error::Policy => ("policy", 0),
+            core::Error::Conflict => ("conflict", 0),
+            _ => ("custody", 0),
+        };
+        tracing::warn!(
+            operation,
+            error_class = class,
+            sqlite_code,
+            "CircuitNET file operation failed"
+        );
+        Error::Custody
+    })
+}
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
@@ -388,6 +411,8 @@ pub struct ControlStatus {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Status {
+    #[serde(default)]
+    pub files: core::files::Status,
     pub network: NetworkId,
     pub local: NodeId,
     pub role: core::Role,
@@ -457,6 +482,7 @@ pub(crate) fn status(runtime: &BoardRuntime, offset: u32) -> Result<Vec<Status>,
         let controls = d.circuitnet_controls_page(&network, offset)?;
         let more = controls.len() > 16 || s.dossiers.len() > offset as usize + 16;
         result.push(Status {
+            files: d.circuitnet_file_status(&network)?,
             local: s.profile.local.clone(),
             role: s
                 .profile
@@ -515,6 +541,8 @@ struct Session<'a> {
     started: Instant,
     directed: bool,
     controls: bool,
+    files: bool,
+    hash_have: bool,
 }
 impl<'a> Session<'a> {
     fn new(
@@ -538,6 +566,8 @@ impl<'a> Session<'a> {
             started: Instant::now(),
             directed: false,
             controls: false,
+            files: false,
+            hash_have: false,
         }
     }
     fn admitted(&self) -> Result<RuntimeDatabase, Error> {
@@ -578,8 +608,149 @@ impl<'a> Session<'a> {
         }
         self.admitted()?;
         (self.directed, self.controls) = local.c4_capabilities(&remote)?;
+        (self.files, self.hash_have) = local.file_capabilities(&remote)?;
         self.health.protocol_minor = Some(minor);
         Ok(local)
+    }
+    fn send_files(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        if !self.files {
+            return Ok(());
+        }
+        use envelope::files::{self as files, Want};
+        let storage = custody(sf_core::FileStorage::open_existing(&self.runtime.paths))?;
+        let offers = {
+            let _guard = self
+                .runtime
+                .network_lock
+                .lock()
+                .map_err(|_| Error::Custody)?;
+            file_custody(
+                self.admitted()?.circuitnet_file_offers(
+                    &self.profile.network,
+                    &self.peer.node,
+                    now(),
+                ),
+                "file-offers",
+            )?
+        };
+        for publication in offers {
+            custody(self.admitted()?.circuitnet_file_attempt(
+                &self.profile.network,
+                &self.peer.node,
+                &publication.id,
+                None,
+                now(),
+            ))?;
+            let mut payload = custody(storage.open_content(&publication.sha256, publication.size))?;
+            ch.send(&Frame::FileOffer {
+                publication: Some(publication.clone()),
+            })?;
+            let Frame::FileWant { want } = ch.receive_file()? else {
+                return Err(Error::MalformedFrame);
+            };
+            let receipt = match want {
+                Want::Complete { receipt } => receipt,
+                Want::Send | Want::Have => {
+                    if matches!(want, Want::Have) && !self.hash_have {
+                        return Err(Error::MalformedFrame);
+                    }
+                    if matches!(want, Want::Send) {
+                        ch.file_deadline();
+                        self.health.file_bytes += files::send(&mut payload, ch, publication.size)?;
+                    }
+                    let Frame::FileReceipt { receipt } = ch.receive_file()? else {
+                        return Err(Error::MalformedFrame);
+                    };
+                    receipt
+                }
+            };
+            custody(self.admitted()?.circuitnet_file_attempt(
+                &self.profile.network,
+                &self.peer.node,
+                &publication.id,
+                Some(&receipt),
+                now(),
+            ))?;
+            self.health.files_sent += 1;
+        }
+        ch.send(&Frame::FileOffer { publication: None })?;
+        Ok(())
+    }
+    fn receive_files(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        if !self.files {
+            return Ok(());
+        }
+        use envelope::files::{self as files, Want};
+        use std::io::Seek;
+        let storage = custody(sf_core::FileStorage::open_existing(&self.runtime.paths))?;
+        for count in 0..=files::MAX_PUBLICATIONS {
+            let Frame::FileOffer { publication } = ch.receive_file()? else {
+                return Err(Error::MalformedFrame);
+            };
+            let Some(publication) = publication else {
+                return Ok(());
+            };
+            if count == files::MAX_PUBLICATIONS {
+                return Err(Error::Oversized);
+            }
+            let mut want = custody(self.admitted()?.circuitnet_file_offer(
+                &storage,
+                &self.profile.network,
+                &self.peer.node,
+                &publication,
+            ))?;
+            if matches!(want, Want::Have) && !self.hash_have {
+                want = Want::Send;
+            }
+            ch.send(&Frame::FileWant { want: want.clone() })?;
+            let mut payload = match want {
+                Want::Complete { .. } => continue,
+                Want::Have => custody(storage.open_content(&publication.sha256, publication.size))?,
+                Want::Send => {
+                    let mut temp = custody(tempfile::tempfile())?;
+                    ch.file_deadline();
+                    match files::receive(ch, &mut temp, publication.size, &publication.sha256) {
+                        Ok(bytes) => self.health.file_bytes += bytes,
+                        Err(Error::ConflictingMessage) => {
+                            let receipt = custody(self.admitted()?.circuitnet_file_reject_hash(
+                                &storage,
+                                &self.profile.network,
+                                &self.peer.node,
+                                &publication,
+                                now(),
+                            ))?;
+                            ch.send(&Frame::FileReceipt { receipt })?;
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    }
+                    custody(temp.sync_all())?;
+                    custody(temp.rewind())?;
+                    temp
+                }
+            };
+            let receipt = {
+                let _guard = self
+                    .runtime
+                    .network_lock
+                    .lock()
+                    .map_err(|_| Error::Custody)?;
+                file_custody(
+                    self.admitted()?.circuitnet_file_receive(
+                        &storage,
+                        &self.profile.network,
+                        &self.peer.node,
+                        &publication,
+                        &mut payload,
+                        now(),
+                    ),
+                    "file-admission",
+                )?
+            };
+            ch.send(&Frame::FileReceipt { receipt })?;
+            self.health.files_received += 1;
+        }
+        Err(Error::Oversized)
     }
     fn send_controls(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
         if !self.controls {
@@ -828,7 +999,9 @@ fn outbound(
         let exchange = (|| {
             if mode == Mode::Poll {
                 session.send(&mut ch)?;
+                session.send_files(&mut ch)?;
                 session.receive(&mut ch)?;
+                session.receive_files(&mut ch)?;
             }
             ch.send(&Frame::Close {})?;
             if !matches!(ch.receive(wire::CONTROL_FRAME)?, Frame::Close {}) {
@@ -874,7 +1047,9 @@ fn inbound(
         ch.send(&Frame::Hello { hello: local })?;
         if mode == Mode::Poll {
             session.receive(&mut ch)?;
+            session.receive_files(&mut ch)?;
             session.send(&mut ch)?;
+            session.send_files(&mut ch)?;
         }
         if !matches!(ch.receive(wire::CONTROL_FRAME)?, Frame::Close {}) {
             return Err(Error::MalformedFrame);
@@ -983,7 +1158,7 @@ pub(crate) fn event_poll(
                     && d.circuitnet_link_health(network, node)
                         .ok()
                         .flatten()
-                        .is_some_and(|h| h.sent == 0)
+                        .is_some_and(|h| h.sent == 0 && h.files_sent == 0)
                 {
                     return Outcome::Held;
                 }

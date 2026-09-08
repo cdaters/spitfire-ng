@@ -537,6 +537,25 @@ impl OfflineConfiguration {
     pub fn snapshot(&self) -> Result<ConfigurationSnapshot, ApplicationError> {
         self.authority.snapshot(&self.principal, true)
     }
+    /// Native Files maintenance is coordinated with the board's cold-operation lock.
+    pub fn files<T>(
+        &self,
+        capability: LocalOperatorCapability,
+        operation: impl FnOnce(
+            &mut RuntimeDatabase,
+            &sf_core::FileStorage,
+        ) -> Result<T, sf_core::files::FilesError>,
+    ) -> Result<T, ApplicationError> {
+        let snapshot = self.snapshot()?;
+        if !snapshot.capabilities.contains(&capability) {
+            return Err(failure());
+        }
+        let root = self.authority.path.parent().ok_or_else(failure)?;
+        let paths = LogicalPaths::resolve(root, &snapshot.config.validate()?)?;
+        let mut db = RuntimeDatabase::open(&self.authority.database)?;
+        let store = sf_core::FileStorage::new(&paths)?;
+        Ok(operation(&mut db, &store)?)
+    }
     /// CircuitNET C2 is explicitly cold-board/operator mediated. No online fallback.
     pub fn circuitnet<T>(
         &self,

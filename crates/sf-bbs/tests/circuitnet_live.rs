@@ -1693,3 +1693,6 @@ fn real_macos_c5_events_policy_burst_controls_restart_restore() {
     stop(hd, &host);
     fs::write(root.join("acceptance.txt"),"PASS: native macOS daemon Events; immediate durable preparation; scheduled/manual/immediate/hybrid; burst coalescing and multiple batches; hold/release; offline/recovery; directed HOST transit; authenticated subscription approval/unsubscribe; restart/missed slot; Run Now; cold backup/restore; no running resurrection; graceful shutdown. Disposable loopback only.\n").unwrap();
 }
+
+#[path = "support/circuitnet_files.rs"]
+mod c6;

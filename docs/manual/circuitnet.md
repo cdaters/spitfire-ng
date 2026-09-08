@@ -1,4 +1,4 @@
-# CircuitNET NG public conferences
+# CircuitNET NG
 
 CircuitNET NG is SPITFIRE NG's native conference-networking service. It preserves
 CircuitNET's Node IDs, END/HOST/ROOT tree, conference codenames and Dossiers.
@@ -8,8 +8,8 @@ translation and no separate CircuitNET message base.
 C3 adds live exchange over encrypted, authenticated transport. C4 adds directed
 routing and authenticated remote Dossier requests. Use explicitly configured
 neighbors; no public port or automatic discovery is assigned. C2 offline exchange
-remains available when explicitly enabled. Private mail, file networking, legacy
-packets and remote network administration remain outside this implementation.
+remains available when explicitly enabled. C6 adds native file distribution. Private mail, legacy packets and governance automation remain outside
+this implementation.
 
 ## Identity and the tree
 
@@ -460,3 +460,55 @@ and connection timing disagree.
 The [distribution foundation](../circuitnet-ng/README.md) contains separate modern
 Charter, rules and conference proposals for review. It does not adopt governance,
 create conferences, ship proprietary historical documents, or add file networking.
+
+## File distribution (C6)
+
+Files belong to SPITFIRE, and CircuitNET distributes approved native file objects.
+First configure a native File Area and its inspection, scanning and approval rules
+in the [Files manual](files.md). Then configure a synthetic network codename, on a
+stopped board, for example:
+
+```text
+sfconfig circuitnet CONFIG file-map circuitnet-test CNFILES 77 yes yes 1048576
+sfconfig circuitnet CONFIG file-subscribe circuitnet-test HOST1 CNFILES yes
+sfconfig circuitnet CONFIG file-status circuitnet-test
+```
+
+The mapping arguments are codename, native area number, send, receive and maximum
+bytes. File codenames use the same short spelling rules as conference codenames,
+but belong to a separate namespace. File Dossiers do not change message Dossiers.
+Configure the file subscription at both ends: it permits sending to the neighbor
+and receiving new publications from that neighbor. `no` removes that permission.
+C4 remote subscription commands continue to manage messages only.
+
+An END sends upstream; HOST and ROOT forward only along their configured tree to
+subscribed neighbors. Forwarding preserves the original node and records each hop.
+The ingress path is never reflected back. Approved files may be distributed when
+a mapping or subscription is enabled, including already approved local files.
+Nothing is distributed until the operator creates mappings and subscriptions.
+
+Poll/Exchange moves messages, controls and files in one authenticated session.
+The [Events policy](events.md) controls when connections occur; there is no file
+scheduler. Scheduled-only operation retains work until the Event runs. Hold retains
+work. A failed branch does not undo another branch's completed receipt.
+
+A receiver with the same verified SHA-256 can skip the payload transfer. It still
+applies its local safety policy to a new publication. A interrupted payload starts
+over on retry in C6; resumable offsets are deferred. Lost receipts do not create a
+second native import. Rejected, quarantined and pending-approval receipts are distinct
+from publication. Required scanning failure on the destination cannot publish a file.
+
+Use CircuitNET Networks in sfmonitor for native approval/quarantine counts, file
+mapping/subscription counts, file queue status and peer activity. `file-status` on a
+stopped board gives per-neighbor receipts. Check mapping send/receive, both Dossiers,
+local approval, size limits, hold, Event policy and link health when a file does not
+move. Twelve attempted offers without a receipt stop automatic delivery. After resolving
+the cause, a stopped-board operator can use
+`sfconfig circuitnet CONFIG file-retry NETWORK NEIGHBOR PUBLICATION-ID`. Completed
+receipts, including a durable rejection, cannot be erased or reopened by Retry.
+
+Transfer is encrypted in transit. Published files are available according to each
+BBS's File Area access rules; they are not confidential merely because TLS carried
+them. No CircuitNET file request/FREQ capability is implemented. An eventual official
+network may explicitly configure distribution of documents, catalogs or node kits;
+C6 does not automatically distribute them or create official file-area governance.

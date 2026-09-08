@@ -418,3 +418,12 @@ report.
 ## FTN file adapters — N7
 
 FileEcho import and hatching use the native catalog, storage locators, lifecycle and SHA-256. Schema 26 adds network provenance and per-link delivery/request receipts, not a second file catalog. Native maintenance commits file publication and adapter fanout atomically through an internal transaction callback. [FTN file contract](technical/ftn-files.md); [operator guide](manual/ftn-files.md).
+
+## C6 custody extension
+
+Schema 33 extends these existing native areas and files with shared content custody,
+bounded archive/scanner admission, quarantine and publication fences. See the
+[Files custody contract](technical/files-custody.md) and [Files manual](manual/files.md).
+CircuitNET distributes these native objects through its own authenticated adapter;
+it does not create a second Files catalog. Legacy FileEcho receipt semantics remain
+separate, including the explicit safety-area integration limit documented there.

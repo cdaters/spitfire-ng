@@ -157,3 +157,12 @@ Transport encryption protects traffic while traveling between configured Circuit
 nodes. Conference messages are readable according to destination BBS access rules.
 Directed routing chooses a node; it does not make the message private or end-to-end
 encrypted.
+
+
+## CircuitNET file work (C6)
+
+The same CircuitNET Exchange Event also moves approved native files when both
+neighbors support file distribution. Files queue after native publication and
+mapping/subscription checks; they follow the link's existing Immediate, Scheduled,
+Manual or Hybrid policy. A quarantined file cannot become eligible merely because
+an Event runs. See [Files](files.md) and [CircuitNET file distribution](circuitnet.md#file-distribution-c6).

@@ -40,5 +40,7 @@ tracing-subscriber.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+tar.workspace = true
+flate2.workspace = true
 rusqlite.workspace = true
 zip.workspace = true

@@ -17,6 +17,8 @@ pub const NETWORKS_MINOR: u16 = 12;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     #[serde(default)]
+    pub native_files: Option<sf_core::files::Summary>,
+    #[serde(default)]
     pub events: Vec<sf_core::events::Status>,
     #[serde(default)]
     pub event_history: Vec<sf_core::events::History>,
@@ -39,6 +41,7 @@ pub(crate) fn snapshot(
     let mut db = RuntimeDatabase::open_read_only(runtime.database_path())?;
     db.bind_posting_identity_configuration(&config);
     let mut result = Snapshot {
+        native_files: Some(db.files_summary()?),
         events: db.events()?,
         event_history: if query.section == ftn::NetworkSection::Events {
             db.events()?

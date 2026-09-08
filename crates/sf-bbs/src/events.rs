@@ -122,6 +122,12 @@ fn prepare(runtime: &BoardRuntime) -> Result<i64, ApplicationError> {
         if !profile.enabled {
             continue;
         }
+        while db.circuitnet_files_prepare(&network, now)? == 100 {
+            if runtime.shutdown_in_progress()? {
+                complete = false;
+                break;
+            }
+        }
         let mut cursor = 0;
         loop {
             // Each native scan is bounded. Continue past ineligible historical

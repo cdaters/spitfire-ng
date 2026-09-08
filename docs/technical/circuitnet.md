@@ -263,3 +263,24 @@ inside the native posting transaction. The [Events contract](events.md) defines
 outbound initiation, bounded finite-session continuation, pending-control polling,
 and restore authority. The [operator manual](../manual/events.md) explains policy
 selection and safe troubleshooting. No CircuitNET wire change is needed.
+
+## C6 native Files adapter
+
+C6 file publications reference the native `files` and content custody authority;
+CircuitNET owns only mappings, typed file Dossiers, publication provenance and
+per-neighbor receipts. There is no CircuitNET payload store or FTN FileEcho/TIC
+translation. File Dossiers occupy a distinct namespace and require explicit local
+operator configuration; C4 remote controls remain message-only. New admission
+requires an enabled receive mapping, configured direct neighbor, valid tree path,
+subscription and local size/safety policy. Mapping changes cannot silently retarget
+a codename to another native area.
+
+Only active, published native files are originated or forwarded. Incoming files
+retain origin and ingress/path, and do not re-originate as local files. END does not
+transit imports; HOST/ROOT fanout excludes the recorded path and requires downstream
+subscriptions. New publications and subscription/approval changes notify the existing
+generic preparation authority. Exchange timing remains a C5 Event policy.
+
+See [Files custody](files-custody.md), the [1.3 transport extension](circuitnet-transport.md)
+and [C6 report](../research/m069-files-circuitnet-distribution.md) for implementation
+and acceptance status. No file request service or governance automation is introduced.

@@ -1,6 +1,8 @@
 # Future shared Files, archive and scanner architecture obligation
 
-C5 records this design obligation without implementing it. File networking is not
+C5 recorded this design obligation without implementing it. C6 implements the
+[initial native custody, inspection, scanner and distribution contract](files-custody.md);
+its remaining formats, derivatives, automatic rescans and cleanup remain future work. File networking is not
 part of CircuitNET C5. Future CircuitNET Files must reuse board-wide SPITFIRE Files
 services and native file/content authority, rather than introducing a separate
 archive or malware subsystem inside the network adapter.

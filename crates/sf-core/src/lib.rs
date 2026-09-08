@@ -25,6 +25,7 @@ pub mod database;
 pub mod file;
 pub mod file_maintenance;
 mod file_session;
+pub mod files;
 pub mod identity;
 pub mod interaction;
 pub mod localization;

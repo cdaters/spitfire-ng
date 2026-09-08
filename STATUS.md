@@ -1,5 +1,31 @@
 # SPITFIRE NG Status
 
+
+## C6 — native Files and CircuitNET distribution
+
+**C6 COMPLETE / ACCEPTED / PUBLISHED.** Schema **33**,
+CircuitNET **1.3**, operator IPC **16**, en-US **1.30.0 / 1,404 messages**.
+Native Files owns immutable SHA-256 content, bounded ZIP/TAR/GZIP inspection,
+FILE_ID.DIZ suggestions, scanner results, quarantine, review and payload-aware backup.
+CircuitNET distributes approved native files through typed file Dossiers, bounded
+binary streaming, hash-have and durable per-neighbor receipts. C5 Events governs
+exchange timing; existing messages and controls retain their native authority.
+
+See the [C6 report](docs/research/m069-files-circuitnet-distribution.md),
+[Files manual](docs/manual/files.md) and [custody contract](docs/technical/files-custody.md).
+Recognized unsupported archives quarantine. Offset resume, derivatives, physical
+payload GC and file requests remain deferred. Transport encryption does not make
+published files private. C1–C5 remain accepted. Stop after C6; C7 requires review.
+
+Public workspace: **753 passed / 0 failed / 7 existing ignored**, all 6 doctest
+groups. Nineteen tests added. Headers (142), fmt, strict all-target Clippy, diff,
+Markdown/local links and source provenance pass. Expanded six-node macOS C6 and
+C2–C5/FTN/QWK regressions pass. ClamAV and cargo-audit remain unavailable; no live
+ClamAV integration or audit success is claimed. No production changes or external
+BBS traffic occurred. No binary release or tag is created.
+
+## Previous accepted state
+
 ## C5 — native Events and CircuitNET operations
 
 **C5 COMPLETE / ACCEPTED / PUBLISHED.** Schema **32**, CircuitNET **1.2**, operator IPC

@@ -18,11 +18,13 @@ pub const PROTOCOL: &str = "CIRCUITNET-NG";
 pub const ALPN: &[u8] = b"circuitnet-ng/1";
 pub const MAX_FRAME: usize = MAX_ARTIFACT + 4096;
 pub const CONTROL_FRAME: usize = 4096;
-pub const CAPABILITIES: [&str; 4] = [
+pub const CAPABILITIES: [&str; 6] = [
     "atomic-batch",
     "symmetric-poll",
     "directed-routing",
     "remote-dossier-control",
+    "file-distribution",
+    "file-hash-have",
 ];
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "kebab-case")]
@@ -93,7 +95,7 @@ impl Hello {
             protocol: PROTOCOL.into(),
             major: 1,
             minimum_minor: 0,
-            maximum_minor: 2,
+            maximum_minor: 3,
             capabilities: CAPABILITIES.iter().map(|s| (*s).into()).collect(),
             network,
             node,
@@ -110,6 +112,16 @@ impl Hello {
                 && remote.capabilities.iter().any(|c| c == name)
         };
         Ok((has("directed-routing"), has("remote-dossier-control")))
+    }
+    pub fn file_capabilities(&self, remote: &Self) -> Result<(bool, bool), Error> {
+        let minor = self.negotiate(remote)?;
+        let has = |name: &str| {
+            minor >= 3
+                && self.capabilities.iter().any(|c| c == name)
+                && remote.capabilities.iter().any(|c| c == name)
+        };
+        let files = has("file-distribution");
+        Ok((files, files && has("file-hash-have")))
     }
     pub fn negotiate(&self, remote: &Self) -> Result<u16, Error> {
         if remote.protocol != PROTOCOL
@@ -157,6 +169,15 @@ pub enum Frame {
     ControlResults {
         results: Vec<super::control::SubscriptionResult>,
     },
+    FileOffer {
+        publication: Option<super::files::Publication>,
+    },
+    FileWant {
+        want: super::files::Want,
+    },
+    FileReceipt {
+        receipt: super::files::Receipt,
+    },
     Close {},
 }
 pub fn read(reader: &mut impl Read, limit: usize) -> Result<Frame, Error> {
@@ -202,14 +223,14 @@ mod tests {
     fn versions_negotiate_only_common_known_minors() {
         let h = hello();
         let mut r = h.clone();
-        assert_eq!(h.negotiate(&r), Ok(2));
+        assert_eq!(h.negotiate(&r), Ok(3));
         r.maximum_minor = 0;
         assert_eq!(h.negotiate(&r), Ok(0));
         r.major = 2;
         assert_eq!(h.negotiate(&r), Err(Error::UnsupportedVersion));
         r = h.clone();
-        r.minimum_minor = 3;
-        r.maximum_minor = 3;
+        r.minimum_minor = 4;
+        r.maximum_minor = 4;
         assert!(h.negotiate(&r).is_err());
         r = h.clone();
         r.network = NetworkId::new("wrong").unwrap();
@@ -233,6 +254,23 @@ mod tests {
         assert_eq!(h.c4_capabilities(&r), Ok((false, false)));
         r.capabilities.push("future-feature".into());
         assert_eq!(h.negotiate(&r), Ok(2));
+    }
+    #[test]
+    fn c6_file_capabilities_do_not_change_older_peers_or_claim_resume() {
+        let h = hello();
+        let mut r = h.clone();
+        assert_eq!(h.file_capabilities(&r), Ok((true, true)));
+        assert!(!h.capabilities.iter().any(|c| c == "file-resume"));
+        for minor in 0..=2 {
+            r.maximum_minor = minor;
+            assert_eq!(h.file_capabilities(&r), Ok((false, false)));
+            assert_eq!(h.negotiate(&r), Ok(minor));
+        }
+        r = h.clone();
+        r.capabilities.retain(|c| c != "file-hash-have");
+        assert_eq!(h.file_capabilities(&r), Ok((true, false)));
+        r.capabilities.retain(|c| c != "file-distribution");
+        assert_eq!(h.file_capabilities(&r), Ok((false, false)));
     }
     #[test]
     fn framing_roundtrip_and_hostile_bounds() {

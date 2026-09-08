@@ -884,6 +884,17 @@ impl Drop for Restore {
 pub fn run_from_env() -> Result<(), String> {
     sf_core::with_localizer(Localizer::embedded_en_us(), || {
         let args: Vec<_> = std::env::args_os().skip(1).collect();
+        if args.first().is_some_and(|a| a == "files") {
+            if args.len() < 3 {
+                return Err(t("files-custody-usage"));
+            }
+            println!(
+                "{}",
+                sf_bbs::files::run(&PathBuf::from(&args[1]), &args[2..])
+                    .map_err(|e| e.to_string())?
+            );
+            return Ok(());
+        }
         if args.first().is_some_and(|a| a == "events") {
             if args.len() < 3 {
                 return Err(t("events-usage"));

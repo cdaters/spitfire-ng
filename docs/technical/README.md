@@ -267,3 +267,11 @@ See the [account and posting identity contract](identity-policy.md) for schema 2
 ## C5 Events and CircuitNET operations
 
 [Native Events](events.md) defines scheduler authority, clocks, concurrency, lifecycle and networking integration. [Future shared Files obligations](files-future.md) records the separate archive/scanner design gate.
+
+## C6 shared Files authority
+
+[Native Files custody](files-custody.md) defines content identity, bounded archive
+inspection, scanner results, publication fences and payload-aware backup. The
+[CircuitNET 1.3 extension](circuitnet-transport.md#c6-file-distribution-phase-13)
+uses native Files and generic Events for bounded file distribution. See
+[M069](../research/m069-files-circuitnet-distribution.md) for current acceptance.

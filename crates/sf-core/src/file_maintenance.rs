@@ -958,7 +958,36 @@ impl RuntimeDatabase {
     ) -> Result<FileEntry, FileMaintenanceError> {
         self.authorize_file_admin(actor)?;
         let lifecycle = if accept { "active" } else { "tombstoned" };
+        let admission = if self.schema_version().map_err(FileError::Database)? >= 33 {
+            self.file_admission(file_id)
+                .map_err(|_| FileMaintenanceError::InvalidLifecycleTransition)?
+        } else {
+            None
+        };
+        if accept {
+            if let Some(admission) = &admission {
+                if admission.status != crate::files::AdmissionStatus::PendingApproval {
+                    return Err(FileMaintenanceError::InvalidLifecycleTransition);
+                }
+                let file = self
+                    .load_file_by_id(file_id)?
+                    .ok_or(FileMaintenanceError::FileUnavailable)?;
+                let policy = self
+                    .file_safety_policy(file.area_id)
+                    .map_err(|_| FileMaintenanceError::InvalidLifecycleTransition)?;
+                let mut inspected = admission.policy.clone();
+                inspected.approval_required = policy.approval_required;
+                if serde_json::to_string(&inspected).ok() != serde_json::to_string(&policy).ok() {
+                    return Err(FileMaintenanceError::InvalidLifecycleTransition);
+                }
+            }
+        }
         let transaction = self.connection.transaction()?;
+        if admission.is_some() {
+            let status = if accept { "published" } else { "rejected" };
+            transaction.execute("UPDATE file_validation SET status=?2,updated_at=CURRENT_TIMESTAMP WHERE file_id=?1",params![file_id.get(),status])?;
+            transaction.execute("INSERT INTO file_safety_history(file_id,operation,result) VALUES(?1,'legacy-review',?2)",params![file_id.get(),status])?;
+        }
         let changed = transaction.execute(
             "UPDATE files SET lifecycle=?2,state_version=state_version+1,reviewed_by_caller_id=?3,reviewed_at=CURRENT_TIMESTAMP,tombstoned_at=CASE WHEN ?2='tombstoned' THEN CURRENT_TIMESTAMP ELSE NULL END,updated_at=CURRENT_TIMESTAMP WHERE file_id=?1 AND state_version=?4 AND lifecycle='pending-review'",
             params![file_id.get(), lifecycle, actor.caller_id().map(CallerId::get), expected_version as i64],
@@ -1188,6 +1217,31 @@ impl RuntimeDatabase {
         description: &str,
         bytes: &[u8],
     ) -> Result<FileOperationResult, FileMaintenanceError> {
+        if self.schema_version().map_err(FileError::Database)? >= 33 {
+            self.authorize_file_admin(actor)?;
+            let area = self
+                .load_area_by_id(area_id)?
+                .ok_or(FileMaintenanceError::FileUnavailable)?;
+            if area.state_version != expected_area_version {
+                return Err(FileMaintenanceError::StaleConflict);
+            }
+            let imported = storage
+                .import_file(
+                    self,
+                    actor,
+                    &area,
+                    filename,
+                    description,
+                    &mut std::io::Cursor::new(bytes),
+                    "operator",
+                    None,
+                )
+                .map_err(|e| FileError::Maintenance(e.to_string()))?;
+            return Ok(FileOperationResult {
+                operation_id: format!("admission-{}", imported.file.id.get()),
+                file: imported.file,
+            });
+        }
         self.add_managed_file_committing(
             storage,
             actor,
@@ -1215,6 +1269,18 @@ impl RuntimeDatabase {
         commit: impl FnOnce(&rusqlite::Transaction<'_>, FileId) -> rusqlite::Result<()>,
     ) -> Result<FileOperationResult, FileMaintenanceError> {
         self.authorize_file_admin(actor)?;
+        if self.schema_version().map_err(FileError::Database)? >= 33 {
+            let protected: bool = self.connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM file_area_safety WHERE area_id=?1)",
+                [area_id.get()],
+                |r| r.get(0),
+            )?;
+            if protected {
+                // The legacy adapter's atomic callback assumes immediate publication.
+                // It cannot bypass an explicitly configured native admission policy.
+                return Err(FileMaintenanceError::InvalidLifecycleTransition);
+            }
+        }
         let area = self
             .load_area_by_id(area_id)?
             .ok_or(FileMaintenanceError::FileUnavailable)?;
@@ -1498,6 +1564,16 @@ impl RuntimeDatabase {
         let file = self
             .load_file_by_id(file_id)?
             .ok_or(FileMaintenanceError::FileUnavailable)?;
+        if self.schema_version().map_err(FileError::Database)? >= 33
+            && self
+                .file_admission(file_id)
+                .map_err(|_| FileMaintenanceError::FileUnavailable)?
+                .is_some()
+        {
+            // Destination policy requires fresh native admission. Legacy byte moves
+            // cannot carry a source area's safety approval into another area.
+            return Err(FileMaintenanceError::InvalidLifecycleTransition);
+        }
         let (source_root, _) = self
             .resolve_file_storage(file_id)
             .map_err(|_| FileMaintenanceError::FileUnavailable)?;
@@ -2222,7 +2298,7 @@ fn decode_text(
     })
 }
 
-fn declared_standard_zip_member_count(
+pub(crate) fn declared_standard_zip_member_count(
     input: &mut File,
 ) -> Result<Option<usize>, FileMaintenanceError> {
     const MAX_EOCD_SEARCH: u64 = 65_557;

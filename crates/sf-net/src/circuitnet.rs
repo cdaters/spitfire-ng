@@ -11,6 +11,7 @@
 
 //! Development/offline CircuitNET NG envelope; no legacy codec or I/O authority.
 pub mod control;
+pub mod files;
 pub mod transport;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

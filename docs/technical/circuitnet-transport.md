@@ -1,4 +1,4 @@
-# CircuitNET NG live transport and C4 controls
+# CircuitNET NG live transport, controls and files
 
 C3 establishes the live transport; C4 extends it with negotiated directed routing
 and typed Dossier controls. The C4 extension is specified below.
@@ -19,8 +19,8 @@ The node certificate/private key is its credential; a second password is absent.
 Application frames are a four-byte unsigned big-endian JSON byte length followed
 by strict UTF-8 JSON. Zero length and lengths above 4 MiB + 4096 reject before
 allocation. Hello/ACK/Close frames have a 4096-byte bound; C4 control-work bounds are below. Protocol identity is
-`CIRCUITNET-NG`, major 1, supported minor range 0 through 2. Minors 0–1 use the
-same baseline semantics; minor 2 has optional C4 capabilities; select the highest common minor. Unknown major,
+`CIRCUITNET-NG`, major 1, supported minor range 0 through 3. Minors 0–1 use the
+same baseline semantics; minor 2 has optional C4 capabilities and minor 3 optional file distribution; select the highest common minor. Unknown major,
 nonoverlapping minor ranges, identity/profile/role mismatches and missing required
 capabilities reject. Required capabilities: `atomic-batch`, `symmetric-poll`.
 
@@ -240,8 +240,70 @@ explicit feature supplies end-to-end encryption. C4 supplies no E2EE capability.
 ## C5 invocation policy
 
 Generic [SPITFIRE Events](events.md) may initiate the existing finite Poll session.
-Wire **1.2 and its capabilities remain unchanged**. Queue preparation is independent
+C5 retained wire **1.2 and its capabilities**; C6 adds the optional phase below. Queue preparation is independent
 of Event recurrence, and incoming symmetric Polls remain allowed by peer policy even
 when outbound initiation is scheduled/manual. Role is independent of TCP direction.
 TLS protects transport in transit; it does not encrypt conference content end-to-end
 or make directed traffic private after delivery.
+
+## C6 file-distribution phase (1.3)
+
+C6 is implemented and accepted.
+
+`file-distribution` enables the file phase only when both peers advertise it and
+minor 3 is negotiated. `file-hash-have` additionally permits payload omission for a new publication whose
+verified content is already owned;
+it has no effect without file distribution. No resume capability is advertised.
+Minor 0–2 peers retain exactly their earlier message/control phase sequence.
+
+For each direction of a Poll, controls (when negotiated) and the optional message
+Batch/ACK are followed by zero to eight file publications, then a null file offer.
+The initiator completes its entire sending phase before the reverse phase begins.
+Test Link sends no file work. Frames are bounded to 16 KiB for file metadata/results:
+
+| Type | Shape |
+| --- | --- |
+| File offer | `{"type":"file-offer","publication":{...}}` or `publication:null` |
+| Want bytes | `{"type":"file-want","want":{"decision":"send"}}` |
+| Have bytes | `{"type":"file-want","want":{"decision":"have"}}` |
+| Replay receipt | `{"type":"file-want","want":{"decision":"complete","receipt":{...}}}` |
+| File receipt | `{"type":"file-receipt","receipt":{...}}` |
+
+Publication fields are `network`, `id`, `origin`, `codename`, `sha256`, `size`,
+`filename`, `description`, `timestamp` and `path`. IDs use the existing validated
+origin-prefixed 128-bit random token spelling, in a separate file-publication
+namespace. No message row or message body carries file protocol authority. Hash
+identifies immutable content; ID identifies publication. Path starts at origin and
+ends at the sender, must equal the configured tree path, and cannot contain the
+receiver. Each forwarding node appends itself. Filename is a bounded basename and
+never an extraction path. Maximum transport payload is 64 MiB, additionally limited
+by mapping and native area policy. Description is bounded safe text.
+
+After `send`, binary payload framing replaces JSON until its terminator: four-byte
+unsigned big-endian chunk length, then 1–65,536 raw bytes; a zero length terminates.
+The receiver rejects excess advertised bytes, oversized chunks, wrong final length
+and SHA-256 mismatch. No multi-gigabyte allocation or base64 payload is used. Temporary
+payloads have generated private names. Incomplete streams are discarded and restarted
+from zero. File I/O waits have a 90-second bound inside the existing 120-second session
+ceiling. No second socket, TLS identity or scheduler is introduced.
+
+Receipt fields are `publication`, `sha256`, `outcome` and `reason`. Outcomes are
+`published`, `pending-approval`, `quarantined`, `rejected`; reasons are finite safe
+classes (`local-policy`, `native-admission-rejected`, `hash-mismatch`). A receipt is
+durable before transmission. Exact replay returns the retained result without
+reimport or repeated fanout; identity reuse with changed metadata rejects. The
+fingerprint excludes the per-hop path and includes immutable publication metadata.
+A hash mismatch produces a durable rejection, never a publication acknowledgement.
+
+Hash-have checks local bytes against size/hash, then new publication admission still
+uses receiving policy. Upstream clean assertions cannot substitute for local scanning;
+C6 does not transmit scanner claims. Delivery receipts are independent per neighbor.
+The existing finite session retry and Events recurrence govern retry; successful
+branches remain complete. [Native Files custody](files-custody.md) owns payloads,
+inspection, quarantine, area access and backup.
+
+TLS protects transfers between nodes. It does not make downloadable files private
+or end-to-end encrypted after delivery.
+
+A completed publication replay returns its durable receipt without payload regardless
+of hash-have support. Hash-have concerns a new publication sharing existing content.

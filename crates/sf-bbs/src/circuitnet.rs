@@ -103,6 +103,85 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
     let run_cap = LocalOperatorCapability::NetworkRun;
     let read_cap = LocalOperatorCapability::ReadConfiguration;
     match (*action, rest) {
+        ("file-map", [code, area, send, receive, maximum]) => {
+            let codename = codec(Codename::new(code))?;
+            let area_number = area.parse::<u16>().map_err(|_| usage())?;
+            let flag = |s: &str| match s {
+                "yes" => Ok(true),
+                "no" => Ok(false),
+                _ => Err(usage()),
+            };
+            let send = flag(send)?;
+            let receive = flag(receive)?;
+            let maximum_bytes = maximum.parse().map_err(|_| usage())?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let area = db
+                    .all_file_areas()
+                    .map_err(sf_core::files::FilesError::from)?
+                    .into_iter()
+                    .find(|a| a.number == area_number)
+                    .ok_or(Error::Policy)?;
+                let old = db
+                    .circuitnet_file_status(&network)?
+                    .mappings
+                    .into_iter()
+                    .find(|m| m.codename == codename);
+                db.circuitnet_file_map(
+                    actor,
+                    &network,
+                    &sf_core::circuitnet::files::Mapping {
+                        codename,
+                        area: area.id.get(),
+                        send,
+                        receive,
+                        maximum_bytes,
+                        version: old.map_or(0, |m| m.version),
+                    },
+                    now,
+                )
+            })?;
+        }
+        ("file-subscribe", [node, code, state]) => {
+            let neighbor = codec(NodeId::new(node))?;
+            let codename = codec(Codename::new(code))?;
+            let subscribed = match *state {
+                "yes" => true,
+                "no" => false,
+                _ => return Err(usage()),
+            };
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let old = db
+                    .circuitnet_file_status(&network)?
+                    .dossiers
+                    .into_iter()
+                    .find(|d| d.neighbor == neighbor && d.codename == codename);
+                db.circuitnet_file_subscribe(
+                    actor,
+                    &network,
+                    &sf_core::circuitnet::files::FileDossier {
+                        neighbor,
+                        codename,
+                        subscribed,
+                        version: old.map_or(0, |d| d.version),
+                    },
+                    now,
+                )
+            })?;
+        }
+        ("file-retry", [node, id]) => {
+            let neighbor = codec(NodeId::new(node))?;
+            let id = codec(sf_net::circuitnet::MessageId::new(id))?;
+            authority.circuitnet(run_cap, |db, _, actor| {
+                db.circuitnet_file_retry(actor, &network, &neighbor, &id, now)
+            })?;
+        }
+        ("file-status", []) => {
+            return authority.circuitnet(read_cap, |db, _, _| {
+                Ok(serde_json::to_string_pretty(
+                    &db.circuitnet_file_status(&network)?,
+                )?)
+            });
+        }
         ("stage-direct", [message, destination]) => {
             let message = message.parse::<i64>().map_err(|_| usage())?;
             let destination = codec(NodeId::new(destination))?;

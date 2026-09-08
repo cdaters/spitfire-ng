@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 32;
+pub const SCHEMA_VERSION: u32 = 33;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 32] = [
+const MIGRATIONS: [Migration; 33] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1552,6 +1552,11 @@ const MIGRATIONS: [Migration; 32] = [
         name: "native_events",
         sql: include_str!("events.sql"),
     },
+    Migration {
+        version: 33,
+        name: "native_files_custody",
+        sql: include_str!("files.sql"),
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1745,6 +1750,11 @@ impl RuntimeDatabase {
             validate_schema_19_snapshot(&self.connection)?;
         }
 
+        if required >= 33 {
+            self.validate_files_authority().map_err(|_| {
+                DatabaseError::IntegrityCheck("native Files authority is inconsistent".into())
+            })?;
+        }
         self.load_board_identity()?
             .ok_or(DatabaseError::MissingBoardIdentity)
     }
@@ -6600,6 +6610,47 @@ mod events_migration_tests {
         assert_eq!(retained, ("accepted".into(), 2, 7));
         assert_eq!(
             c.query_row("SELECT COUNT(*) FROM scheduled_events", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+    }
+}
+
+#[cfg(test)]
+mod native_files_migration_tests {
+    use super::*;
+    #[test]
+    fn schema_32_to_33_preserves_catalog_and_failure_is_atomic() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in &MIGRATIONS[..32] {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        let before: i64 = c
+            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))
+            .unwrap();
+        let broken=Migration{version:33,name:"native_files_custody",sql:"ALTER TABLE files ADD COLUMN safety_required INTEGER; CREATE TABLE file_content(x TEXT); CREATE TABLE files(collision TEXT);"};
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 32);
+        assert!(c.prepare("SELECT * FROM file_content").is_err());
+        apply_migration(&mut c, &MIGRATIONS[32]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 33);
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM files", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            before
+        );
+        assert_eq!(
+            c.query_row("SELECT COUNT(*) FROM file_validation", [], |r| r
                 .get::<_, i64>(0))
                 .unwrap(),
             0

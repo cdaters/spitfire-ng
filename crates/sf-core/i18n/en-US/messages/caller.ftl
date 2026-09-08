@@ -124,7 +124,7 @@ file-request-question = This file is offline or missing. Send a private request 
 file-request-created = Your private file request was recorded.
 file-request-unavailable = This file cannot be requested.
 file-upload-policy-denied = That filename is denied by board upload policy.
-file-upload-pending-review = Upload received for private Sysop review; it is not publicly available.
+file-upload-pending-review = Upload received for Sysop review; it is not yet available for download.
 file-upload-duplicate-warning = A related filename already exists. Continue upload? (Y/N): { " " }
 file-upload-duplicate-conflict = That exact filename already exists and cannot be uploaded.
 file-upload-name-prompt = Filename to upload (/A = abort; batch protocols use remote names): { " " }

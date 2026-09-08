@@ -188,6 +188,13 @@ impl Channel {
         self.socket.deadline = Instant::now() + Duration::from_secs(10);
         wire::read(self, limit)
     }
+    pub fn file_deadline(&mut self) {
+        self.socket.deadline = Instant::now() + Duration::from_secs(90);
+    }
+    pub fn receive_file(&mut self) -> Result<Frame, Error> {
+        self.file_deadline();
+        wire::read(self, envelope::files::METADATA_FRAME)
+    }
     pub fn close(&mut self) {
         self.conn.send_close_notify();
         let _ = self.flush();

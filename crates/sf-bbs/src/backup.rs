@@ -62,6 +62,7 @@ enum BackupEntryKind {
     SystemResource,
     DisplayResource,
     CatalogedFile,
+    NativeContent,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -253,8 +254,38 @@ pub fn backup_board(
     )?;
 
     let storage = FileStorage::open_existing(&paths)?;
+    if database.schema_version()? >= 33
+        && storage
+            .check_content(&database)
+            .map_err(|error| BoardBackupError::ResourceValidation(error.to_string()))?
+            .iter()
+            .any(|c| matches!(c.status.as_str(), "missing" | "corrupt"))
+    {
+        return Err(BoardBackupError::ResourceValidation(
+            "native content custody is inconsistent".into(),
+        )
+        .into());
+    }
     let catalog = database.managed_cataloged_files()?;
+    if database.schema_version()? >= 33 {
+        for (hash, size) in database.content_catalog()? {
+            let mut source = storage.open_content(&hash, size)?;
+            let relative = format!("native-content/{hash}");
+            let destination = staging.join(&relative);
+            create_parent_directories(&destination)?;
+            let (size_bytes, sha256) = copy_reader(&mut source, &destination)?;
+            entries.push(BackupEntry {
+                kind: BackupEntryKind::NativeContent,
+                path: relative,
+                size_bytes,
+                sha256,
+            });
+        }
+    }
     for (area, file) in &catalog {
+        if database.schema_version()? >= 33 && database.file_admission(file.id)?.is_some() {
+            continue;
+        }
         let mut source = storage.open_download(area, file)?;
         let relative = format!("files/{}/{}", area.storage_key, file.filename);
         let destination_path = staging.join(&relative);
@@ -517,6 +548,14 @@ fn validate_backup_directory(path: &Path) -> Result<ValidatedBackup, BoardBackup
 
     let mut expected_catalog = BTreeMap::new();
     for (area, file) in database.managed_cataloged_files()? {
+        if manifest.schema_version >= 33
+            && database
+                .file_admission(file.id)
+                .map_err(|e| BoardBackupError::ResourceValidation(e.to_string()))?
+                .is_some()
+        {
+            continue;
+        }
         expected_catalog.insert(
             format!("files/{}/{}", area.storage_key, file.filename),
             (file.size_bytes, file.sha256),
@@ -528,6 +567,25 @@ fn validate_backup_directory(path: &Path) -> Result<ValidatedBackup, BoardBackup
         .filter(|entry| entry.kind == BackupEntryKind::CatalogedFile)
         .map(|entry| (entry.path.clone(), (entry.size_bytes, entry.sha256.clone())))
         .collect::<BTreeMap<_, _>>();
+    let expected_content = if manifest.schema_version >= 33 {
+        database
+            .content_catalog()
+            .map_err(|e| BoardBackupError::ResourceValidation(e.to_string()))?
+            .into_iter()
+            .map(|(h, n)| (format!("native-content/{h}"), (n, h)))
+            .collect::<BTreeMap<_, _>>()
+    } else {
+        BTreeMap::new()
+    };
+    let declared_content = manifest
+        .entries
+        .iter()
+        .filter(|e| e.kind == BackupEntryKind::NativeContent)
+        .map(|e| (e.path.clone(), (e.size_bytes, e.sha256.clone())))
+        .collect::<BTreeMap<_, _>>();
+    if expected_content != declared_content {
+        return Err(BoardBackupError::CatalogInventoryMismatch);
+    }
     if expected_catalog != declared_catalog {
         return Err(BoardBackupError::CatalogInventoryMismatch);
     }
@@ -579,6 +637,10 @@ fn stage_restored_board(
                 .get(LogicalPath::Display)
                 .join(strip_prefix(&entry.path, "resources/display/")?),
             BackupEntryKind::CatalogedFile => paths.get(LogicalPath::External).join(&entry.path),
+            BackupEntryKind::NativeContent => paths
+                .get(LogicalPath::External)
+                .join("files/.content")
+                .join(&entry.sha256),
         };
         create_parent_directories(&destination)?;
         let copied = copy_entry_to_path(&backup.root.join(&entry.path), &destination)?;
@@ -668,6 +730,11 @@ fn validate_staged_board(
             })?;
     }
     let storage = FileStorage::new(&paths)?;
+    if backup.manifest.schema_version >= 33 {
+        storage
+            .rebuild_restored_content(&database)
+            .map_err(|error| BoardBackupError::ResourceValidation(error.to_string()))?;
+    }
     for (area, file) in database.managed_cataloged_files()? {
         storage.open_download(&area, &file)?;
     }
@@ -973,6 +1040,7 @@ fn validate_entry_location(entry: &BackupEntry, config_name: &str) -> Result<(),
         BackupEntryKind::Database => entry.path == DATABASE_BACKUP_PATH,
         BackupEntryKind::SystemResource => entry.path.starts_with("resources/system/"),
         BackupEntryKind::DisplayResource => entry.path.starts_with("resources/display/"),
+        BackupEntryKind::NativeContent => entry.path == format!("native-content/{}", entry.sha256),
         BackupEntryKind::CatalogedFile => {
             let components = entry.path.split('/').collect::<Vec<_>>();
             components.len() == 3 && components.first() == Some(&"files")
@@ -1406,7 +1474,7 @@ mod tests {
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
         // Synthetic old backups must not accidentally retain schema-32 authority.
-        connection.execute_batch("DROP TRIGGER IF EXISTS native_message_preparation; DROP TRIGGER IF EXISTS network_queue_activity; DROP TRIGGER IF EXISTS circuitnet_control_activity; DROP TRIGGER IF EXISTS ftn_file_activity_wakeup; DROP TABLE IF EXISTS scheduled_event_history; DROP TABLE IF EXISTS scheduled_events; DROP TABLE IF EXISTS network_preparation;").unwrap();
+        connection.execute_batch("DROP TRIGGER IF EXISTS circuitnet_file_activity; DROP TRIGGER IF EXISTS file_safety_fence; DROP TRIGGER IF EXISTS file_content_identity_fence; DROP TRIGGER IF EXISTS file_publication_activity; DROP TABLE IF EXISTS file_safety_history; DROP TABLE IF EXISTS file_validation; DROP TABLE IF EXISTS file_content; DROP TABLE IF EXISTS file_area_safety; ALTER TABLE files DROP COLUMN safety_required; DROP TRIGGER IF EXISTS native_message_preparation; DROP TRIGGER IF EXISTS network_queue_activity; DROP TRIGGER IF EXISTS circuitnet_control_activity; DROP TRIGGER IF EXISTS ftn_file_activity_wakeup; DROP TABLE IF EXISTS scheduled_event_history; DROP TABLE IF EXISTS scheduled_events; DROP TABLE IF EXISTS network_preparation;").unwrap();
         if connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=28)",

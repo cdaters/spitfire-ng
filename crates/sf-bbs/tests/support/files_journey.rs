@@ -76,6 +76,14 @@ fn configure(b: &HubBoard, subscriptions: &[(&str, u8)]) {
     }
 }
 fn native_file(b: &HubBoard, area: u16, name: &str, bytes: &[u8]) -> i64 {
+    // Native admission validates archive content before FTN can publish it.
+    // Keep this protocol fixture a genuine harmless ZIP, not renamed plain text.
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    archive
+        .start_file("README.TXT", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    std::io::Write::write_all(&mut archive, bytes).unwrap();
+    let bytes = archive.finish().unwrap().into_inner();
     let mut db = RuntimeDatabase::open(b.board.paths.database()).unwrap();
     let storage = FileStorage::open_existing(&b.board.paths).unwrap();
     let area = db
@@ -91,7 +99,7 @@ fn native_file(b: &HubBoard, area: u16, name: &str, bytes: &[u8]) -> i64 {
         area.state_version,
         name,
         "Synthetic file-network journey",
-        bytes,
+        &bytes,
     )
     .unwrap()
     .file

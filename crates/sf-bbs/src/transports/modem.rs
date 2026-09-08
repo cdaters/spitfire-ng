@@ -312,6 +312,9 @@ mod tests {
         // and Telnet because host PTY line disciplines reserve controls.
         let expected = b"\x01MODEM-BINARY\xff".to_vec();
         let peer_expected = expected.clone();
+        // PTY writes are immediately visible. Draining the simulated peer here
+        // can deadlock against the modem's required output drain on macOS;
+        // read the next command instead. Production serial flushing is unchanged.
         let peer = thread::spawn(move || {
             let mut command = Vec::new();
             loop {
@@ -324,7 +327,6 @@ mod tests {
             }
             assert_eq!(command, b"AT&F");
             master.write_all(b"OK\r\nRING\r\n").unwrap();
-            master.flush().unwrap();
             command.clear();
             loop {
                 let mut byte = [0_u8; 1];
@@ -337,7 +339,6 @@ mod tests {
             assert_eq!(command, b"ATA");
             master.write_all(b"CONNECT 14400\r\n").unwrap();
             master.write_all(&peer_expected).unwrap();
-            master.flush().unwrap();
             let mut returned = vec![0_u8; peer_expected.len()];
             master.read_exact(&mut returned).unwrap();
             assert_eq!(returned, peer_expected);

@@ -5,7 +5,7 @@ Current source implements N1–N6 networking and [N7 FTN file networking](ftn-fi
 
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 32)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 33)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -191,3 +191,10 @@ See the [account and posting identity contract](../technical/identity-policy.md)
 ## C5 Events and CircuitNET operations
 
 [Events](events.md) explains queue preparation, exchange policies, Run Now and recovery. [CircuitNET role guides and distribution drafts](../circuitnet-ng/README.md) support END/HOST/ROOT operation.
+
+## C6 native Files
+
+[Files](files.md) explains native areas, original content, safe imports, DIZ,
+scanner policy and quarantine. [CircuitNET](circuitnet.md#file-distribution-c6)
+explains explicitly configured file distribution and the existing Event policies.
+C6 acceptance/publication status is recorded in [M069](../research/m069-files-circuitnet-distribution.md).

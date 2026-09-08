@@ -251,3 +251,11 @@ See the [identity contract](technical/identity-policy.md), [caller instructions]
 ## C5 Events and CircuitNET operations
 
 [Events manual](manual/events.md), [scheduler contract](technical/events.md), [historical Event dossier](research/m067-spitfire-events-network-scheduling.md) and [CircuitNET distribution drafts](circuitnet-ng/README.md) describe C5.
+
+## Native Files custody and CircuitNET distribution (C6)
+
+- [Files manual](manual/files.md): import, DIZ, approval, scanner policy and quarantine.
+- [Files custody contract](technical/files-custody.md): archive support matrix, native
+  content identity, scanner interface, backup and reference safety.
+- [C6 canonical report](research/m069-files-circuitnet-distribution.md): historical gate,
+  implementation decisions and acceptance/publication status.

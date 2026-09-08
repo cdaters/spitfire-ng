@@ -1167,3 +1167,27 @@ events-usage = sfconfig events BOARD list | history ID | save DEFINITION.json | 
 events-all-peers = All Eligible Neighbors
 events-seconds = seconds
 events-days = Days (Sunday = 0)
+
+# Native Files custody and CircuitNET distribution (C6).
+files-custody-usage = sfconfig files CONFIG areas | area NUMBER KEY NAME | edit-area AREA NAME DESCRIPTION READ UPLOAD | enable-area AREA yes/no | limits AREA SOURCE EXPANDED MEMBER MEMBERS NESTING RATIO | policy AREA required/optional/disabled approval/automatic | scanner AREA ADDRESS/none | import AREA PATH FILENAME DESCRIPTION | list AREA | status | approve ID | reject ID | rescan ID | description ID use/ignore | description ID edit TEXT | integrity
+files-native = Native Files
+files-area = File Area
+files-import = Import
+files-diz-found = FILE_ID.DIZ Found
+files-use-description = Use Description
+files-quarantine = Quarantine
+files-scan = Scan
+files-rescan = Rescan
+files-malware = Malware Detected
+files-scanner-unavailable = Scanner Unavailable
+files-archive-invalid = Archive Invalid
+files-archive-encrypted = Archive Encrypted
+files-pending-approval = Pending Approval
+files-approved = Approved
+files-rejected = Rejected
+files-duplicate-content = Duplicate Content
+files-hash = File Hash
+files-distribution = File Distribution
+files-area-codename = File Area Codename
+files-subscription = File Subscription
+files-visibility = Transfer is encrypted in transit. Published files follow this BBS's File Area access rules.

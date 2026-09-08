@@ -11,6 +11,7 @@
 
 //! Native CircuitNET NG policy, publication, queue and offline receipt authority.
 pub mod control;
+pub mod files;
 pub mod live;
 use crate::{network::NetworkArtifactStore, RuntimeDatabase};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -21,6 +22,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    Files(#[from] crate::files::FilesError),
     #[error("CircuitNET policy does not authorize this operation")]
     Policy,
     #[error("CircuitNET authority changed or identity conflicts")]
@@ -210,7 +213,7 @@ impl RuntimeDatabase {
                     return Err(Error::Conflict);
                 }
                 let retained: bool = tx.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM circuitnet_messages WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_controls WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_destinations WHERE network=?1)",
+                    "SELECT EXISTS(SELECT 1 FROM circuitnet_messages WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_controls WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_destinations WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_file_publications WHERE network=?1)",
                     [value.network.as_str()],
                     |r| r.get(0),
                 )?;

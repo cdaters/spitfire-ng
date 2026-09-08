@@ -757,6 +757,14 @@ fn native_name_collision_and_long_hatch_preserve_content_identity() {
         b.db.load_area_by_id(FileAreaId::new(b.area.native_area).unwrap())
             .unwrap()
             .unwrap();
+    // Native C6 admission validates actual archives; this filename fixture must
+    // contain a real ZIP, rather than text carrying a .ZIP extension.
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    archive
+        .start_file("README.TXT", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    std::io::Write::write_all(&mut archive, b"new hatch content").unwrap();
+    let native_zip = archive.finish().unwrap().into_inner();
     let file =
         b.db.add_managed_file(
             &b.storage,
@@ -765,7 +773,7 @@ fn native_name_collision_and_long_hatch_preserve_content_identity() {
             area.state_version,
             "Long-Native-File-Name.ZIP",
             "Preserved long native metadata",
-            b"new hatch content",
+            &native_zip,
         )
         .unwrap()
         .file;

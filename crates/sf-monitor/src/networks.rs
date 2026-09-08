@@ -468,6 +468,8 @@ fn rows(model: &MonitorModel) -> Vec<String> {
             t("events-next"),time(e.next_due),t("events-last"),time(e.last_completed))).collect(),
         Section::Circuitnet => s.circuitnet.iter().flat_map(|n| {
             let mut lines=vec![format!("{} / {} / {:?} | {}: {} | {}: {}",n.network,n.local,n.role,t("circuitnet-listener"),n.listening,t("circuitnet-authentication"),n.credential)];
+            lines.push(format!("{}: {} / {}: {} / {}: {}",t("files-distribution"),n.files.pending,t("files-area-codename"),n.files.mappings.len(),t("files-subscription"),n.files.dossiers.iter().filter(|d|d.subscribed).count()));
+            if let Some(files)=&s.native_files {lines.push(format!("{}: {} / {}: {} / {}: {} / {}: {}",t("files-native"),files.published,t("files-pending-approval"),files.pending_approval,t("files-quarantine"),files.quarantined,t("files-scanner-unavailable"),files.scanner_unavailable));}
             lines.extend(n.peers.iter().map(|p|format!("{} {:?} / {}:{} | {}: {} | {}: {} | {}: {} | {}: {} | {}: {} | {}",
                 p.node,p.role,p.host,p.port,t("circuitnet-held"),p.held,t("networks-queues"),p.queued,
                 t("circuitnet-last-attempt"),time(p.health.as_ref().map(|h|h.last_attempt)),t("circuitnet-last-contact"),time(p.health.as_ref().and_then(|h|h.last_success)),

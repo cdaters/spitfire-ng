@@ -601,6 +601,14 @@ impl RuntimeDatabase {
     }
 
     pub fn insert_file_entry(&mut self, entry: &NewFileEntry) -> Result<FileEntry, FileError> {
+        self.insert_file_entry_with_custody(entry, false)
+    }
+
+    pub(crate) fn insert_file_entry_with_custody(
+        &mut self,
+        entry: &NewFileEntry,
+        custody: bool,
+    ) -> Result<FileEntry, FileError> {
         validate_new_file(entry)?;
         let normalized = normalize_filename(&entry.filename)?;
         let schema = self.schema_version()?;
@@ -635,6 +643,14 @@ impl RuntimeDatabase {
             )
             .map_err(|error| duplicate_file_error(error, &entry.filename))?;
         let id = FileId::new(transaction.last_insert_rowid())?;
+        if custody && schema >= 33 {
+            transaction
+                .execute(
+                    "UPDATE files SET safety_required=1 WHERE file_id=?1",
+                    [id.get()],
+                )
+                .map_err(FileError::Sqlite)?;
+        }
         if schema >= 16 {
             let mapped = transaction
                 .execute(
@@ -1365,7 +1381,7 @@ fn sqlite_i64(value: u64) -> Result<i64, FileError> {
 
 #[derive(Clone, Debug)]
 pub struct FileStorage {
-    files_root: PathBuf,
+    pub(crate) files_root: PathBuf,
     staging_root: PathBuf,
 }
 
@@ -1824,10 +1840,21 @@ impl FileStorage {
                 source,
             })?;
         let (size, hash) = hash_reader(&mut staged_file)?;
-        if size > current_area.maximum_upload_bytes {
+        let maximum = if database.schema_version()? >= 33 {
+            current_area.maximum_upload_bytes.min(
+                database
+                    .file_safety_policy(current_area.id)
+                    .map_err(|e| FileError::Maintenance(e.to_string()))?
+                    .archives
+                    .source_bytes,
+            )
+        } else {
+            current_area.maximum_upload_bytes
+        };
+        if size > maximum {
             return Err(FileError::UploadTooLarge {
                 actual: size,
-                maximum: current_area.maximum_upload_bytes,
+                maximum,
             });
         }
         let directory = self.ensure_area(&current_area)?;
@@ -1925,7 +1952,7 @@ impl FileStorage {
             uploaded_at,
             uploader_caller_id: Some(caller.id),
             uploader_name: caller.display_name,
-            lifecycle: if pending_review {
+            lifecycle: if pending_review || database.schema_version()? >= 33 {
                 FileLifecycle::PendingReview
             } else {
                 FileLifecycle::Active
@@ -1938,7 +1965,7 @@ impl FileStorage {
                 params![operation_id],
             )
             .map_err(FileError::Sqlite)?;
-        let result = database.insert_file_entry(&entry);
+        let result = database.insert_file_entry_with_custody(&entry, true);
         if result.is_err() {
             let _ = fs::remove_file(&destination);
             let _ = database.connection.execute(
@@ -2000,6 +2027,11 @@ impl FileStorage {
         staged.committed = true;
         let _ = fs::remove_file(&staged.path);
         let _ = fs::remove_dir(&staged.session_directory);
+        if database.schema_version()? >= 33 {
+            return self
+                .admit_completed_upload(database, &current_area, &file, pending_review)
+                .map_err(|error| FileError::Maintenance(error.to_string()));
+        }
         Ok(file)
     }
 

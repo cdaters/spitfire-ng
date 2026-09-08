@@ -87,6 +87,12 @@ pub struct Health {
     pub last_success: Option<i64>,
     pub result: String,
     pub sent: u32,
+    #[serde(default)]
+    pub files_sent: u32,
+    #[serde(default)]
+    pub files_received: u32,
+    #[serde(default)]
+    pub file_bytes: u64,
     pub accepted: u32,
     pub duplicates: u32,
     pub rejected: u32,
