@@ -1,33 +1,50 @@
-# Reproducible Network Kit source outline
+# Reproducible Network Kit build
 
-Canonical human sources are the parent Markdown files and NODE-APPLICATION.txt.
-Canonical machine authority is config/catalog.json plus its independently enrolled
-catalog-authority.json. The review/disposition artifact is explanatory metadata.
-No duplicate hand-edited Charter or Rules lives in this directory.
-
-From the repository root:
+Canonical member documents are the parent Markdown files. NODE-APPLICATION.txt,
+CONFERENCES.md, CONFERENCE-CHANGES.md and JOINING-INFO.md are derived editions.
+The signed catalog and immutable predecessor history live in config/. Release
+joining/contact fields come from config/release.json. No duplicate hand-edited
+Charter or Rules is maintained.
 
 ```sh
 cargo build -p sf-net --example catalog-artifact --offline
-python3 tools/build-circuitnet-kit.py --output dist --check
-python3 tools/build-circuitnet-kit.py --output dist
+python3 tools/build-circuitnet-kit.py --update-docs --check
+python3 -m unittest discover -s tools/tests -p 'test_circuitnet_kit.py'
+python3 tools/build-circuitnet-kit.py --output dist/network-kit-1.0
 ```
 
-The builder verifies catalog signatures with the native artifact utility, checks the
-revision/hash chain, generates CONFERENCES.md and CONFERENCE-CHANGES.md, and copies
-only its explicit rights-safe allowlist. `--check` verifies checked-in generated docs
-without changing them. `--update-docs` regenerates those two canonical derived docs.
+The release builder verifies signatures and consecutive hashes before generating
+anything. `--check` checks generated sources; `--update-docs` refreshes them. An
+ordinary build rejects stale generated files and an existing output directory.
+Set `--source-commit` to the exact PUBLIC source commit for the final release build.
+Without it, RELEASE.TXT explicitly says candidate and identifies source contents
+by SHA-256. A private checkpoint is never guessed from the current checkout.
 
-Output is `circuitnet-ng-network-kit-1.0.zip` and an expanded tree of the same name.
-It contains introduction, Charter/Rules, conferences/changes, joining/application,
-END/HOST/ROOT, catalog administration, security, protocol/specification, NOTICE and
-licenses; machine catalog, authority pin, review and safe example profile; 80-column
-plain-text human forms; and MANIFEST.json listing every other file's size/SHA-256.
-The manifest excludes itself to avoid a recursive self-hash. Sorted paths, fixed ZIP
-timestamps/permissions and stored entries make identical input produce identical
-archive bytes. Generated archives remain outside version control.
+The ZIP has literal root README.TXT and FILE_ID.DIZ. Root BBS editions are ASCII,
+CRLF and at most 79 columns. The purpose-built renderer preserves paragraphs,
+lists, literal commands/topology and link destinations; tables become labeled
+records. CONFS is generated as conference entries, never flattened table text.
+Rich Markdown lives under markdown/, protocol material under technical/, public
+catalog/config artifacts under config/. The compatibility source application uses
+repository LF; delivered BBS text always uses CRLF.
 
-No raw historical corpus, private report, keys, real server configuration, acceptance
-artifact, application submission or software binary is allowed. Future CircuitNET
-Files distribution requires deliberate mapping/subscription/governance configuration;
-the builder starts no daemon, Event or network transfer.
+MANIFEST.json lists payload names, sizes and SHA-256, excluding the two manifests.
+MANIFEST.sha256 additionally covers MANIFEST.json, excluding only itself. A ZIP
+checksum sidecar is generated outside the archive. Sorted entries, fixed ZIP
+metadata and unchanged source inputs reproduce identical bytes. No wall-clock
+build timestamp enters the package. The revised build supersedes the earlier
+pre-release candidate; do not offer two different artifacts as the current 1.0.
+
+The allowlist excludes historical proprietary material, private research/acceptance
+files, applications, credentials and private keys. A public authority is not a secret.
+The manifest is an integrity inventory, not a substitute for independently verified
+publication provenance and catalog authority. See the included verification guide.
+
+Current history uses the founding authority. A future release after key replacement
+must add retained public transitions and epoch-aware build validation; this builder
+fails signature verification rather than presenting old history as signed by a new
+key. Existing nodes already have the usable explicit replacement/recovery procedure
+in KEY-CUSTODY.md. Automatic trust replacement from a kit is never permitted.
+
+The builder starts no daemon, Event or network transfer. Future distribution through
+CircuitNET Files requires deliberate area/subscription configuration and governance.

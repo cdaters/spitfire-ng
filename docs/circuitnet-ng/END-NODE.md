@@ -1,32 +1,169 @@
-# Operating a CircuitNET NG END
+# Set up an END node
 
-Configure one upstream HOST and no children. Use a stable unique Node ID and the
-same explicit network tree as your neighbors. Request only your own Dossier changes
-at that HOST; it chooses approval, auto-approve or disabled remote changes. For a
-firewall/NAT installation, an outbound Hybrid or Scheduled Poll can collect mail
-without exposing an inbound listener. Route Test confirms the first hop is your
-HOST. An END never carries unrelated transit traffic.
+Start here after membership approval. Have your assigned Node ID, parent HOST,
+approved topology, HOST certificate and connection details, plus the independently
+confirmed catalog authority fingerprint. Read [OPERATIONS](OPERATIONS.md) for
+command conventions and permissions. Examples use MYBBS and MYHOST; replace them.
 
-Before enabling unattended exchange, configure native CNTEST mappings and Dossiers,
-Test Link, run Route Test, and perform one Poll Now. Create an Event with the intended
-profile/neighbor, schedule and timezone. Watch next due, last result, peer health and
-queued work in Events and CircuitNET Networks. Enabled listeners alone do not initiate
-outbound calls. Normal fanout requires a Dossier; directed traffic follows its typed
-route and still requires an authorized receive mapping at the destination.
+## 1. Configure your board and identity
 
-If mail does not move, follow the [operator troubleshooting path](../manual/events.md#why-didnt-this-message-move).
-Keep cold backups, review pending requests and failed Events, and test recovery on
-disposable boards. Directed conference traffic remains a conference message, and
-transport encryption does not change who may read it after delivery.
+Stop the board. Configure the approved tree. This small example shows the shape;
+use the complete approved tree supplied for your network:
 
-See [CircuitNET commands](../manual/circuitnet.md) and [Events](../manual/events.md).
+```
+sfconfig circuitnet spitfire.toml init circuitnet-ng MYBBS \
+  "CircuitNET NG" --live ROOT:ROOT:- MYHOST:HOST:ROOT \
+  MYBBS:END:MYHOST
+```
 
-## Catalog-enabled membership
+Generate a unique node certificate and private key on your own system using the
+procedure in [NODE-IDENTITY](NODE-IDENTITY.md), or follow the approved enrollment
+procedure from your HOST. Exchange only the public certificate. Confirm the HOST
+certificate fingerprint through your agreed contact before enrolling it.
 
-Obtain Network Kit 1.0, review Charter/Rules and apply for an approved Node ID.
-Enroll the catalog pin separately from TLS identity and import its signed seed.
-Poll your parent to sync revisions, then create/map/ignore areas deliberately.
-Request only desired Active-area subscriptions; core omissions require an agreed
-remedy. An END behind NAT may rely on scheduled outbound Polls for both catalog
-updates and incoming traffic. Catalog retirement leaves a local archive; it does
-not erase messages. Use Catalog Administration for mapping and recovery details.
+```
+sfconfig circuitnet spitfire.toml identity circuitnet-ng \
+  identity.der identity-private.der
+sfconfig circuitnet spitfire.toml listener circuitnet-ng off
+sfconfig circuitnet spitfire.toml peer circuitnet-ng MYHOST \
+  HOST_ADDRESS HOST_PORT HOST_CERT_NAME host-public.der yes yes
+```
+
+HOST_CERT_NAME must match the HOST certificate's server name. These are enrollment
+values, not names to guess. Listener off is appropriate for outbound-polling ENDs.
+The HOST must also enroll your public certificate and allow inbound calls from
+your assigned identity before Test Link can succeed.
+
+## 2. Enroll the catalog
+
+Unzip the kit into a directory named `circuitnet-kit` inside your board directory.
+Keep running these commands from the board directory, where spitfire.toml lives.
+Check [VERIFICATION](VERIFICATION.md) first. Confirm the authority independently,
+then enroll it and import the retained seed revisions in order:
+
+```
+sfconfig circuitnet spitfire.toml catalog-pin circuitnet-ng \
+  circuitnet-kit/config/catalog-authority.json
+sfconfig circuitnet spitfire.toml catalog-import circuitnet-ng \
+  circuitnet-kit/config/catalog-history/000001.json
+sfconfig circuitnet spitfire.toml catalog-import circuitnet-ng \
+  circuitnet-kit/config/catalog.json
+```
+
+This build's current revision is 2. A later kit may include more predecessor files;
+import them in numeric order before its current catalog. Existing boards keep their
+pin and history; use the documented replacement process for an announced key change.
+
+## 3. Test the link and synchronize
+
+```
+spitfire run spitfire.toml
+```
+
+In another terminal:
+
+```
+sfconfig circuitnet spitfire.toml test-link circuitnet-ng MYHOST
+sfconfig circuitnet spitfire.toml poll circuitnet-ng MYHOST
+sfconfig circuitnet spitfire.toml live-status circuitnet-ng
+```
+
+Test Link verifies the authenticated neighbor. Poll also synchronizes newer catalog
+revisions and exchanges eligible work. If the HOST is several revisions ahead,
+repeat Poll until status agrees. Failure is not a reason to trust a new certificate
+or catalog key without verification.
+
+## 4. Choose local conferences
+
+Stop the board gracefully. Inspect the catalog:
+
+```
+sfconfig circuitnet spitfire.toml catalog-list circuitnet-ng
+```
+
+Choose unused local conference numbers. These examples use 17 and 18 only if they
+are free on your board:
+
+```
+sfconfig circuitnet spitfire.toml catalog-create-map circuitnet-ng \
+  SUPPORT 17
+sfconfig circuitnet spitfire.toml catalog-create-map circuitnet-ng \
+  CHITCHAT 18
+```
+
+SUPPORT is required and restricted to Sysops and verified visiting Sysops.
+CHITCHAT is required and public to authorized callers. New restricted mappings
+set local read/post security to 9999; the board's Sysop rule still grants its
+operators access. Do not lower those levels to give ordinary callers access.
+Grant a verified visiting Sysop an explicit privileged conference security level
+through local conference administration; catalog membership grants no account rights.
+Use a dedicated level assigned only to verified visitors, not a level shared with
+ordinary callers. Local access grants apply to every account at the granted level.
+
+Use `catalog-map circuitnet-ng CODENAME NUMBER` after the same command prefix to
+map an existing conference. Restricted areas require read/post security 9999.
+Use `catalog-ignore circuitnet-ng CODENAME` for an optional area you do not want.
+Neither creation nor mapping automatically subscribes you.
+
+## 5. Request subscriptions
+
+Restart the board. Request each desired active area at your HOST:
+
+```
+sfconfig circuitnet spitfire.toml remote-subscribe circuitnet-ng \
+  SUPPORT
+sfconfig circuitnet spitfire.toml remote-subscribe circuitnet-ng \
+  CHITCHAT
+sfconfig circuitnet spitfire.toml poll circuitnet-ng MYHOST
+sfconfig circuitnet spitfire.toml query-subscriptions circuitnet-ng
+```
+
+The default HOST policy requires operator approval. Poll again after approval and
+check the returned result. Your HOST also arranges its subscription to traffic
+from your board; confirm both directions together. Consult [HOST-NODE](HOST-NODE.md)
+for local Dossier management. A pending request does not enable distribution.
+
+## 6. Set an exchange schedule
+
+Save this as `exchange.json`, replacing MYHOST with your assigned parent:
+
+```
+{
+  "id": "circuitnet-upstream",
+  "name": "CircuitNET upstream exchange",
+  "enabled": true,
+  "action": {
+    "kind": "circuitnet",
+    "network": "circuitnet-ng",
+    "node": "MYHOST"
+  },
+  "schedule": {"kind": "interval", "seconds": 900},
+  "timezone": "UTC",
+  "policy": "hybrid",
+  "missed": "run-once",
+  "minimum_spacing_seconds": 30
+}
+```
+
+```
+sfconfig events spitfire.toml save exchange.json
+sfconfig events spitfire.toml list
+sfconfig events spitfire.toml run circuitnet-upstream
+```
+
+Hybrid attempts prompt work and scheduled catch-up. Scheduled waits for the Event;
+Manual requires Poll/Run Now; Immediate reacts to eligible queued work. These
+choices affect exchange timing, not whether a saved message is queued. Use one
+Event for this target, not a second timer for files or catalogs.
+
+## 7. Verify a message in both directions
+
+Arrange a brief operator test in SUPPORT with your HOST. Post from the mapped
+local SUPPORT conference as an authorized Sysop, Poll and ask the HOST to confirm
+one received post. Have the HOST reply, Poll again and confirm the reply locally.
+Check the expected posting identity and that ordinary callers cannot browse SUPPORT.
+Use CHITCHAT for relevant public introductions after the test.
+
+If nothing arrives, follow [OPERATIONS](OPERATIONS.md): catalog/mapping, Dossier,
+approval, hold, Event, Test Link, Poll and receipt. Do not create an unofficial
+conference to work around a rejected codename.

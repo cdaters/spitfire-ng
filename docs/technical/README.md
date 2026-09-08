@@ -280,3 +280,8 @@ uses native Files and generic Events for bounded file distribution. See
 
 [Catalog schema, signing, chain and local generations](circuitnet-catalog.md) define
 independent network identity, rollback protection and existing TLS/Events integration.
+
+## Catalog access and signing-key recovery
+
+See [Catalog access and signing-key recovery](circuitnet-catalog.md) for the revised kit, Sysop access, generated identities
+and deliberate authority replacement. Member setup starts with the kit README.

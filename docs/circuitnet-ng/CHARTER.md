@@ -20,6 +20,9 @@ reports about its users. SUPPORT and CHITCHAT are the initial core conferences:
 one supports network operations and one supports common caller participation.
 A node unable to map a core area must report the limitation and agree a remedy;
 software reports compliance attention rather than creating conferences automatically.
+SUPPORT, SYSOP, SPITFIRE and DOORS are restricted to Sysops and verified visiting
+Sysops; the latter three are optional. Local boards enforce access and verify
+visitors. Catalog presence grants no account privileges.
 Other catalog areas are optional. Catalog presence never subscribes a node.
 
 ## 2. Founding administration and transition
@@ -40,6 +43,15 @@ than seven willing candidates, fill available seats and publish a new nomination
 round every 90 days until seven seats are filled. Before five seats are filled,
 only documented bootstrap administration continues; do not invent a committee quorum.
 
+The founder appoints an interim Secretary and publishes the appointment. The interim
+Secretary administers the first nominations and ballot, with an uninvolved member
+checking the tally where available; a candidate does not certify their own result
+alone. Bootstrap authority ends when at least five elected representatives convene
+the first quorate committee meeting, appoint the normal Administrator and Secretary,
+and publish the dated handoff. The founder then has only the offices or permissions
+conferred through the normal process. The committee appoints the Secretary from
+willing members; the Secretary need not hold a committee seat.
+
 ## 3. Offices and technical roles
 
 The Operations Committee has **seven** independently operated member representatives,
@@ -51,6 +63,17 @@ Vacancies may be filled for the remaining term by a committee majority after ope
 nominations. Five members constitute quorum; ordinary decisions require a majority
 of votes cast at a quorate meeting. Conflicted members disclose the conflict and
 abstain; postpone a non-emergency decision when an uninvolved quorum is unavailable.
+
+If later vacancies reduce the committee below five, founding powers do not return.
+The serving Administrator continues routine operations and bounded emergency safety
+measures only. The Secretary announces member elections for vacant seats within
+14 days and completes the ballot within 45 days, repeating nominations if needed.
+During this gap there are no ordinary Charter amendments, new conference approvals
+or permanent policy changes. Emergency measures require published seven-day reviews
+and an independent member's review where available; restore normal committee review
+at its first quorate meeting. Publish why any temporary measure must continue.
+If both Administrator and Secretary are unavailable, remaining representatives name
+interim record-keeping and service custodians solely to organize that recovery ballot.
 
 The committee appoints a Network Administrator to carry out decisions and coordinate
 reliable operation. **ROOT is a protocol/topology role; Network Administrator is a
@@ -145,7 +168,8 @@ identity, or initiate traffic against unrelated systems.
 Publish a proposed Charter amendment for at least 30 days. After a quorate committee
 recommends it, ratification requires two thirds of votes cast with at least half of
 independent member Sysops participating. During bootstrap, amendments require the
-same member ratification where multiple members exist; a sole founder must publish
+same member ratification where multiple members exist, with committee recommendation
+explicitly waived until the first committee takes office; a sole founder must publish
 a dated rationale and place amendments before the first committee for review.
 Version and retain every adopted Charter and its decision reference. Rules and routine
 operating policy changes follow the ordinary proposal process. Keep administration

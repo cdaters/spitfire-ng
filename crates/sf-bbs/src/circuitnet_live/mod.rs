@@ -546,6 +546,7 @@ struct Session<'a> {
     files: bool,
     hash_have: bool,
     catalog: bool,
+    catalog_access: bool,
 }
 impl<'a> Session<'a> {
     fn new(
@@ -572,6 +573,7 @@ impl<'a> Session<'a> {
             files: false,
             hash_have: false,
             catalog: false,
+            catalog_access: false,
         }
     }
     fn admitted(&self) -> Result<RuntimeDatabase, Error> {
@@ -613,6 +615,7 @@ impl<'a> Session<'a> {
         self.admitted()?;
         (self.directed, self.controls) = local.c4_capabilities(&remote)?;
         self.catalog = local.catalog_capability(&remote)?;
+        self.catalog_access = local.catalog_access_capability(&remote)?;
         (self.files, self.hash_have) = local.file_capabilities(&remote)?;
         self.health.protocol_minor = Some(minor);
         Ok(local)
@@ -769,8 +772,25 @@ impl<'a> Session<'a> {
             self.admitted()?
                 .circuitnet_catalog_status(&self.profile.network),
         )?;
-        let revision = if child { status.revision } else { 0 };
-        let hash = if child { status.hash } else { None };
+        let mut revision = if child { status.revision } else { 0 };
+        let mut hash = if child { status.hash } else { None };
+        if child && !self.catalog_access {
+            while revision > 0 {
+                let value = custody(
+                    self.admitted()?
+                        .circuitnet_catalog_revision(&self.profile.network, revision),
+                )?
+                .ok_or(Error::Custody)?;
+                if value.body.schema == 1 {
+                    hash = Some(value.hash);
+                    break;
+                }
+                revision -= 1;
+            }
+            if revision == 0 {
+                hash = None;
+            }
+        }
         ch.send(&Frame::CatalogHead { revision, hash })?;
         let Frame::CatalogRequest {
             revision: remote,
@@ -875,7 +895,11 @@ impl<'a> Session<'a> {
             let Some(catalog) = catalog else {
                 return Ok(());
             };
-            if !enabled || count == 64 || catalog.body.revision > revision {
+            if !enabled
+                || count == 64
+                || catalog.body.revision > revision
+                || (catalog.body.schema > 1 && !self.catalog_access)
+            {
                 return Err(Error::MalformedFrame);
             }
             custody(self.admitted()?.circuitnet_catalog_receive(
@@ -963,6 +987,7 @@ impl<'a> Session<'a> {
                 &self.profile.network,
                 &self.peer.node,
                 core::MessageCapabilities {
+                    catalog_access: self.catalog_access,
                     directed: self.directed,
                     catalog: self.catalog,
                 },

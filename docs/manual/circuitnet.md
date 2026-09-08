@@ -535,3 +535,25 @@ identity and never reassigns historical traffic. Older peers without catalog-syn
 retain their accepted feature set; generation-bound conference work waits for an
 identity-capable peer. Public/directed traffic is still conference traffic, and
 transport encryption does not provide stored-message secrecy.
+
+
+## Network Kit operator access and key recovery
+
+Start a new member setup with the included [END walkthrough](../circuitnet-ng/END-NODE.md).
+It covers enrollment, catalog import, local choices, Dossier approval, Events and an
+arranged SUPPORT test. SUPPORT is Sysop/verified-visiting-Sysop only and required;
+SYSOP, SPITFIRE and DOORS preserve that same historical access restriction but are
+optional. Catalog availability grants no caller rights. New restricted mappings use
+read/post security 9999; verify visiting operators before granting native privileged
+conference access. Weak mappings stop new network movement and need local attention.
+
+Normal catalog creation uses name, codename, description, access and core choice.
+Immutable identities are automatically generated; ordinary lists use familiar names.
+Advanced details retain IDs for audit/history. See [Catalog administration](../circuitnet-ng/CATALOG-ADMIN.md).
+
+Catalog signing keys are separate from node TLS keys and need not remain on ROOT.
+[Key custody/recovery](../circuitnet-ng/KEY-CUSTODY.md) documents protected signing,
+backup, planned dual-signed rotation and explicit local emergency trust replacement.
+Each node must verify the new fingerprint and exact checkpoint; neither an arriving
+catalog nor ordinary pin configuration silently replaces authority. Old signatures
+and epochs remain verifiable and backup/restore cannot erase known newer trust state.

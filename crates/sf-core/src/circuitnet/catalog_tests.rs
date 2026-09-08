@@ -39,6 +39,7 @@ fn initial(a: &Authority) -> Body {
         rationale: "Synthetic initial scope".into(),
         intent: Intent::Ordinary,
         entries: vec![Entry {
+            access: sf_net::circuitnet::catalog::Access::Public,
             id: "1".repeat(32),
             codename: code("CNTEST"),
             display_name: "Synthetic catalog".into(),
@@ -137,6 +138,7 @@ fn catalog_pin_mapping_dossier_no_auto_create_or_subscribe() {
             &net(),
             &node("END1"),
             MessageCapabilities {
+                catalog_access: true,
                 directed: true,
                 catalog: false
             },
@@ -454,4 +456,448 @@ fn catalog_partial_catchup_remains_generic_event_work_and_head_forks_are_audited
         end.db.circuitnet_catalog_status(&net()).unwrap().revision,
         2
     );
+}
+
+#[test]
+fn catalog_human_creation_generates_identity_and_reuse_preserves_old_traffic() {
+    let mut b = board("HOST");
+    let key = Signed::generate_key().unwrap();
+    let a = setup(&mut b, &key);
+    let mut body = initial(&a);
+    body.entries.clear();
+    let input = crate::circuitnet::catalog::ConferenceInput {
+        codename: code("BASKETS"),
+        display_name: "Underwater Basket Weaving".into(),
+        description: "A synthetic discussion area".into(),
+        category: "hobbies".into(),
+        required: false,
+        access: catalog::Access::Public,
+    };
+    body.add_conference(input.clone(), false).unwrap();
+    let id = body.select("BASKETS").unwrap().id.clone();
+    b.db.connection
+        .execute(
+            "DELETE FROM circuitnet_mappings WHERE network=?1",
+            [net().as_str()],
+        )
+        .unwrap();
+    assert_eq!(id.len(), 32);
+    let first =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 4)
+            .unwrap();
+    b.db.circuitnet_catalog_choose("operator", &net(), &id, Some(b.conference.get()), 5)
+        .unwrap();
+    let m = post(&mut b, "Original generation", None);
+    b.db.circuitnet_scan(&net(), 0, 11).unwrap();
+    let mut body = next(&first);
+    body.set_lifecycle("BASKETS", Lifecycle::Retired).unwrap();
+    let retired =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 12)
+            .unwrap();
+    let mut body = next(&retired);
+    body.set_lifecycle("BASKETS", Lifecycle::Active).unwrap();
+    assert_eq!(body.select("BASKETS").unwrap().id, id);
+    let resumed =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 13)
+            .unwrap();
+    let mut body = next(&resumed);
+    body.set_lifecycle("BASKETS", Lifecycle::Retired).unwrap();
+    let retired =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 14)
+            .unwrap();
+    let mut body = next(&retired);
+    assert!(body.add_conference(input.clone(), false).is_err());
+    body.add_conference(input, true).unwrap();
+    assert_ne!(body.select("BASKETS").unwrap().id, id);
+    b.db.circuitnet_catalog_publish("operator", body, &key, 15)
+        .unwrap();
+    let historical: String =
+        b.db.connection
+            .query_row(
+                "SELECT conference_identity FROM circuitnet_messages WHERE message_id=?1",
+                [m.id.get()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(historical, id);
+}
+
+#[test]
+fn catalog_sysop_areas_do_not_grant_callers_or_old_peers_access() {
+    let mut host = board("HOST");
+    let mut end = board("END1");
+    let key = Signed::generate_key().unwrap();
+    let a = setup(&mut host, &key);
+    setup(&mut end, &key);
+    let mut body = initial(&a);
+    body.schema = 2;
+    body.entries[0].access = catalog::Access::Sysops;
+    let s = host
+        .db
+        .circuitnet_catalog_publish("operator", body, &key, 4)
+        .unwrap();
+    end.db
+        .circuitnet_catalog_receive("HOST", &net(), &s, 4)
+        .unwrap();
+    for b in [&mut host, &mut end] {
+        assert!(b
+            .db
+            .circuitnet_catalog_choose(
+                "operator",
+                &net(),
+                &s.body.entries[0].id,
+                Some(b.conference.get()),
+                5
+            )
+            .is_err());
+        b.db.connection.execute("UPDATE message_conferences SET read_security=9999,post_security=9999 WHERE conference_id=?1",[b.conference.get()]).unwrap();
+        choose(b);
+    }
+    subscribe(&mut host, "END1");
+    subscribe(&mut end, "HOST");
+    post(&mut host, "Operator conference", None);
+    host.db.circuitnet_scan(&net(), 0, 11).unwrap();
+    assert!(matches!(
+        host.db.circuitnet_prepare_catalog_neighbor(
+            &host.store,
+            &net(),
+            &node("END1"),
+            MessageCapabilities {
+                directed: true,
+                catalog: true,
+                catalog_access: false
+            },
+            12
+        ),
+        Err(Error::Empty)
+    ));
+    let prepared = host
+        .db
+        .circuitnet_prepare_neighbor(&host.store, &net(), &node("END1"), 12)
+        .unwrap();
+    end.db
+        .circuitnet_import(&end.store, &net(), &node("HOST"), &prepared.bytes, 13)
+        .unwrap();
+    let hash = CredentialHasher::new(&PasswordHashConfig {
+        memory_kib: 8,
+        iterations: 1,
+        parallelism: 1,
+    })
+    .unwrap()
+    .hash(b"synthetic password")
+    .unwrap();
+    let ordinary = end
+        .db
+        .create_caller(
+            b"Ordinary",
+            &hash,
+            SecurityLevel::new(10).unwrap(),
+            CallerState::Active,
+            false,
+            1,
+        )
+        .unwrap();
+    let visitor = end
+        .db
+        .create_caller(
+            b"Verified visitor",
+            &hash,
+            SecurityLevel::new(40).unwrap(),
+            CallerState::Active,
+            false,
+            1,
+        )
+        .unwrap();
+    let actor = MessageActor::new(ordinary.id, SecurityLevel::new(100).unwrap());
+    assert!(!end
+        .db
+        .conferences(actor)
+        .unwrap()
+        .iter()
+        .any(|c| c.id == end.conference));
+    assert!(end.db.conference(actor, 17).is_err());
+    assert!(end.db.messages(actor, end.conference).is_err());
+    assert!(end.db.replace_queue(actor, &[17]).is_err());
+    let visiting = MessageActor::new(visitor.id, SecurityLevel::new(100).unwrap());
+    assert!(end.db.conference(visiting, 17).is_err());
+    end.db
+        .connection
+        .execute(
+            "INSERT INTO conference_privileged_security VALUES(?1,40)",
+            [end.conference.get()],
+        )
+        .unwrap();
+    assert!(end.db.conference(visiting, 17).is_ok());
+    assert!(end.db.conference(actor, 17).is_err());
+    end.db
+        .connection
+        .execute(
+            "UPDATE message_conferences SET read_security=10 WHERE conference_id=?1",
+            [end.conference.get()],
+        )
+        .unwrap();
+    assert!(!catalog::mapped(
+        &end.db.connection,
+        &net(),
+        &code("CNTEST"),
+        end.conference.get()
+    )
+    .unwrap());
+}
+
+#[test]
+fn catalog_key_rotation_emergency_recovery_restart_and_backup_preserve_epochs() {
+    use sf_net::circuitnet::catalog::keys::{Change, Mode, Transition};
+    let mut b = board("HOST");
+    let old = Signed::generate_key().unwrap();
+    let a = setup(&mut b, &old);
+    let first =
+        b.db.circuitnet_catalog_publish("operator", initial(&a), &old, 4)
+            .unwrap();
+    let before = b._temp.path().join("before-key.sqlite3");
+    b.db.backup_to(&before).unwrap();
+    let mut previous = a;
+    let mut checkpoint = first;
+    let mut oldkey = old;
+    for mode in [Mode::Planned, Mode::Emergency] {
+        let new = Signed::generate_key().unwrap();
+        let mut replacement = previous.clone();
+        replacement.public_key = Signed::public_key(&new).unwrap();
+        let t = Transition::sign(
+            Change {
+                format: "circuitnet-ng-catalog-key".into(),
+                previous: previous.clone(),
+                replacement: replacement.clone(),
+                revision: checkpoint.body.revision,
+                catalog_hash: checkpoint.hash.clone(),
+                mode,
+                published_at: 20,
+                reference: "synthetic reviewed replacement".into(),
+                rationale: "Synthetic recovery test".into(),
+            },
+            if mode == Mode::Planned {
+                Some(&oldkey)
+            } else {
+                None
+            },
+            &new,
+        )
+        .unwrap();
+        assert!(b
+            .db
+            .circuitnet_catalog_replace_key("operator", &net(), &t, &"0".repeat(64), 21)
+            .is_err());
+        let mut wrong = t.clone();
+        wrong.new_signature = "0".repeat(128);
+        assert!(b
+            .db
+            .circuitnet_catalog_replace_key(
+                "operator",
+                &net(),
+                &wrong,
+                &replacement.fingerprint().unwrap(),
+                21
+            )
+            .is_err());
+        let fingerprint = replacement.fingerprint().unwrap();
+        assert!(b
+            .db
+            .circuitnet_catalog_replace_key("operator", &net(), &t, &fingerprint, 22)
+            .unwrap());
+        assert!(!b
+            .db
+            .circuitnet_catalog_replace_key("operator", &net(), &t, &fingerprint, 22)
+            .unwrap());
+        b.db.validate_catalog_authority().unwrap();
+        assert!(b
+            .db
+            .circuitnet_catalog_publish("operator", next(&checkpoint), &oldkey, 23)
+            .is_err());
+        checkpoint =
+            b.db.circuitnet_catalog_publish("operator", next(&checkpoint), &new, 24)
+                .unwrap();
+        b.db.validate_catalog_authority().unwrap();
+        previous = replacement;
+        oldkey = new;
+    }
+    let reopened = RuntimeDatabase::open(&b._temp.path().join("native.sqlite3")).unwrap();
+    reopened.validate_catalog_authority().unwrap();
+    let saved = b._temp.path().join("after-key.sqlite3");
+    b.db.backup_to(&saved).unwrap();
+    let restored = RuntimeDatabase::open(&saved).unwrap();
+    restored.validate_catalog_authority().unwrap();
+    b.db.circuitnet_catalog_check_restore(&restored).unwrap();
+    assert!(b
+        .db
+        .circuitnet_catalog_check_restore(&RuntimeDatabase::open(&before).unwrap())
+        .is_err());
+    assert_eq!(
+        b.db.circuitnet_catalog_status(&net())
+            .unwrap()
+            .authority
+            .unwrap(),
+        previous
+    );
+    assert!(b
+        .db
+        .connection
+        .execute("DELETE FROM circuitnet_catalog_keys", [])
+        .is_err());
+}
+
+#[test]
+fn catalog_schema_one_peer_skips_new_public_generations_without_blocking_old_work() {
+    let mut host = board("HOST");
+    let mut end = board("END1");
+    let key = Signed::generate_key().unwrap();
+    let a = setup(&mut host, &key);
+    setup(&mut end, &key);
+    let first = host
+        .db
+        .circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+        .unwrap();
+    end.db
+        .circuitnet_catalog_receive("HOST", &net(), &first, 4)
+        .unwrap();
+    choose(&mut host);
+    choose(&mut end);
+    subscribe(&mut host, "END1");
+    subscribe(&mut end, "HOST");
+    let original = host.conference;
+    let mut body = next(&first);
+    body.add_conference(
+        catalog::ConferenceInput {
+            codename: code("NEWAREA"),
+            display_name: "New area".into(),
+            description: "New public scope".into(),
+            category: "test".into(),
+            required: false,
+            access: catalog::Access::Public,
+        },
+        false,
+    )
+    .unwrap();
+    let new_id = body.select("NEWAREA").unwrap().id.clone();
+    host.db
+        .circuitnet_catalog_publish("operator", body, &key, 5)
+        .unwrap();
+    let definition = ConferenceDefinition {
+        posting_identity: None,
+        number: 42,
+        name: "New local".into(),
+        description: "Synthetic".into(),
+        access_mode: ConferenceAccessMode::AtLeast,
+        read_security: SecurityLevel::new(10).unwrap(),
+        post_security: SecurityLevel::new(10).unwrap(),
+        public_only: true,
+        caller_deletion_enabled: false,
+        maximum_lines: 99,
+        privileged_security_levels: vec![],
+    };
+    host.db
+        .circuitnet_catalog_create_map("operator", &net(), &new_id, &definition, 6)
+        .unwrap();
+    host.conference = host.db.conference(host.actor, 42).unwrap().id;
+    host.db
+        .circuitnet_subscribe(
+            "operator",
+            &net(),
+            &Dossier {
+                neighbor: node("END1"),
+                codename: code("NEWAREA"),
+                subscribed: true,
+                version: 0,
+            },
+            7,
+        )
+        .unwrap();
+    post(&mut host, "New identity waits", None);
+    host.db.circuitnet_scan(&net(), 0, 10).unwrap();
+    // Freeze an offer to a capable peer, then retry against the older capability.
+    host.db
+        .circuitnet_prepare_neighbor(&host.store, &net(), &node("END1"), 11)
+        .unwrap();
+    host.conference = original;
+    post(&mut host, "Known identity still moves", None);
+    host.db.circuitnet_scan(&net(), 0, 12).unwrap();
+    let prepared = host
+        .db
+        .circuitnet_prepare_catalog_neighbor(
+            &host.store,
+            &net(),
+            &node("END1"),
+            MessageCapabilities {
+                directed: true,
+                catalog: true,
+                catalog_access: false,
+            },
+            13,
+        )
+        .unwrap();
+    let batch = Batch::decode(&prepared.bytes).unwrap();
+    assert_eq!(batch.messages.len(), 1);
+    assert_eq!(batch.messages[0].codename, code("CNTEST"));
+    assert_eq!(
+        end.db
+            .circuitnet_import(&end.store, &net(), &node("HOST"), &prepared.bytes, 14)
+            .unwrap()
+            .imported,
+        1
+    );
+}
+
+#[test]
+fn catalog_key_lost_before_first_publication_can_be_replaced_at_same_checkpoint() {
+    use sf_net::circuitnet::catalog::keys::{Change, Mode, Transition};
+    let mut b = board("HOST");
+    let old = Signed::generate_key().unwrap();
+    let a = setup(&mut b, &old);
+    let first =
+        b.db.circuitnet_catalog_publish("operator", initial(&a), &old, 4)
+            .unwrap();
+    let lost = Signed::generate_key().unwrap();
+    let replacement = Signed::generate_key().unwrap();
+    let mut previous = a;
+    for key in [&lost, &replacement] {
+        let mut authority = previous.clone();
+        authority.public_key = Signed::public_key(key).unwrap();
+        let transition = Transition::sign(
+            Change {
+                format: "circuitnet-ng-catalog-key".into(),
+                previous: previous.clone(),
+                replacement: authority.clone(),
+                revision: 1,
+                catalog_hash: first.hash.clone(),
+                mode: Mode::Emergency,
+                published_at: 5,
+                reference: "synthetic-emergency".into(),
+                rationale: "Replace unavailable key without requiring it to publish".into(),
+            },
+            None,
+            key,
+        )
+        .unwrap();
+        b.db.circuitnet_catalog_replace_key(
+            "local-operator",
+            &net(),
+            &transition,
+            &authority.fingerprint().unwrap(),
+            5,
+        )
+        .unwrap();
+        previous = authority;
+    }
+    b.db.validate_catalog_authority().unwrap();
+    let signed =
+        b.db.circuitnet_catalog_publish("operator", next(&first), &replacement, 6)
+            .unwrap();
+    assert_eq!(signed.body.revision, 2);
+    signed.verify(&previous).unwrap();
+    b.db.validate_catalog_authority().unwrap();
+    let backup = b._temp.path().join("same-checkpoint.sqlite3");
+    b.db.backup_to(&backup).unwrap();
+    RuntimeDatabase::open(&backup)
+        .unwrap()
+        .validate_catalog_authority()
+        .unwrap();
 }

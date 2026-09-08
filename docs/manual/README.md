@@ -204,3 +204,8 @@ C6 acceptance/publication status is recorded in [M069](../research/m069-files-ci
 [Catalog Administration](../circuitnet-ng/CATALOG-ADMIN.md) covers signed publication,
 local create/map/ignore, retirement and recovery. [Network Kit](../circuitnet-ng/README.md)
 contains Charter/Rules 1.0, joining/application and role guides.
+
+## Network Kit role and recovery guides
+
+See [Network Kit role and recovery guides](../circuitnet-ng/README.md) for the revised kit, Sysop access, generated identities
+and deliberate authority replacement. Member setup starts with the kit README.

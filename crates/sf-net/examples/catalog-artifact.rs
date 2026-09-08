@@ -60,6 +60,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let body: Body = serde_json::from_slice(&read(body)?)?;
             write(output, &Signed::sign(body, &read(key)?)?.encode()?)?;
         }
+        [operation @ ("rotate" | "recover"), catalog, authority, old_key, new_key, output, reference, rationale] =>
+        {
+            use sf_net::circuitnet::catalog::keys::{Change, Mode, Transition};
+            let current = Signed::decode(&read(catalog)?)?;
+            let previous: Authority = serde_json::from_slice(&read(authority)?)?;
+            current.verify(&previous)?;
+            let secret = read(new_key)?;
+            let mut replacement = previous.clone();
+            replacement.public_key = Signed::public_key(&secret)?;
+            let old = if *operation == "rotate" {
+                Some(read(old_key)?)
+            } else {
+                if *old_key != "emergency" {
+                    return Err("recover requires literal emergency".into());
+                }
+                None
+            };
+            let change = Change {
+                format: "circuitnet-ng-catalog-key".into(),
+                previous,
+                replacement,
+                revision: current.body.revision,
+                catalog_hash: current.hash,
+                mode: if old.is_some() {
+                    Mode::Planned
+                } else {
+                    Mode::Emergency
+                },
+                published_at: chrono::Utc::now().timestamp(),
+                reference: (*reference).into(),
+                rationale: (*rationale).into(),
+            };
+            let value = Transition::sign(change, old.as_deref(), &secret)?;
+            write(output, &serde_json::to_vec_pretty(&value)?)?;
+            println!(
+                "replacement fingerprint {}",
+                value.change.replacement.fingerprint()?
+            );
+        }
         ["validate", catalog, authority] => {
             let s = Signed::decode(&read(catalog)?)?;
             let a: Authority = serde_json::from_slice(&read(authority)?)?;

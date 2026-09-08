@@ -363,6 +363,7 @@ impl RuntimeDatabase {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MessageCapabilities {
+    pub catalog_access: bool,
     pub directed: bool,
     pub catalog: bool,
 }
@@ -666,6 +667,7 @@ impl RuntimeDatabase {
             network,
             neighbor,
             MessageCapabilities {
+                catalog_access: true,
                 directed,
                 catalog: true,
             },
@@ -680,7 +682,11 @@ impl RuntimeDatabase {
         capabilities: MessageCapabilities,
         now: i64,
     ) -> Result<Prepared, Error> {
-        let MessageCapabilities { directed, catalog } = capabilities;
+        let MessageCapabilities {
+            directed,
+            catalog,
+            catalog_access,
+        } = capabilities;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -690,9 +696,19 @@ impl RuntimeDatabase {
         if !p.enabled {
             return Err(Error::Policy);
         }
+        let compatible = if !catalog {
+            Some(vec![])
+        } else if !catalog_access {
+            catalog::schema_one_generations(&tx, network)?
+        } else {
+            None
+        };
+        let compatible = compatible
+            .map(|ids| serde_json::to_string(&ids))
+            .transpose()?;
         // Finish an existing immutable offer before adding newly posted traffic.
-        let prior:Option<String>=tx.query_row("SELECT q.artifact_id FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('ready','retry') AND q.artifact_id IS NOT NULL AND q.attempts<12 AND (?3 OR m.destination IS NULL) AND (?3 OR NOT EXISTS(SELECT 1 FROM circuitnet_batch_members bm JOIN circuitnet_deliveries bd USING(queue_id) JOIN circuitnet_messages cm USING(network,identity) WHERE bm.artifact=q.artifact_id AND cm.destination IS NOT NULL)) ORDER BY m.message_id LIMIT 1",params![network.as_str(),neighbor.as_str(),directed],|r|r.get(0)).optional()?;
-        let candidates:Vec<(String,String)>=tx.prepare("SELECT q.queue_id,d.identity FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('pending','ready','retry') AND q.attempts<12 AND (?3 IS NULL OR q.artifact_id=?3) AND (?4 OR m.destination IS NULL) AND (?4 OR q.artifact_id IS NULL OR NOT EXISTS(SELECT 1 FROM circuitnet_batch_members bm JOIN circuitnet_deliveries bd USING(queue_id) JOIN circuitnet_messages cm USING(network,identity) WHERE bm.artifact=q.artifact_id AND cm.destination IS NOT NULL)) ORDER BY m.message_id LIMIT 1000")?.query_map(params![network.as_str(),neighbor.as_str(),prior,directed],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<Result<_,_>>()?;
+        let prior:Option<String>=tx.query_row("SELECT q.artifact_id FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('ready','retry') AND q.artifact_id IS NOT NULL AND q.attempts<12 AND (?4 IS NULL OR m.conference_identity IS NULL OR m.conference_identity IN (SELECT value FROM json_each(?4))) AND (?3 OR m.destination IS NULL) AND (?3 OR NOT EXISTS(SELECT 1 FROM circuitnet_batch_members bm JOIN circuitnet_deliveries bd USING(queue_id) JOIN circuitnet_messages cm USING(network,identity) WHERE bm.artifact=q.artifact_id AND cm.destination IS NOT NULL)) ORDER BY m.message_id LIMIT 1",params![network.as_str(),neighbor.as_str(),directed,compatible],|r|r.get(0)).optional()?;
+        let candidates:Vec<(String,String)>=tx.prepare("SELECT q.queue_id,d.identity FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) JOIN circuitnet_messages m USING(network,identity) WHERE d.network=?1 AND d.neighbor=?2 AND q.state IN('pending','ready','retry') AND q.attempts<12 AND (?5 IS NULL OR m.conference_identity IS NULL OR m.conference_identity IN (SELECT value FROM json_each(?5))) AND (?3 IS NULL OR q.artifact_id=?3) AND (?4 OR m.destination IS NULL) AND (?4 OR q.artifact_id IS NULL OR NOT EXISTS(SELECT 1 FROM circuitnet_batch_members bm JOIN circuitnet_deliveries bd USING(queue_id) JOIN circuitnet_messages cm USING(network,identity) WHERE bm.artifact=q.artifact_id AND cm.destination IS NOT NULL)) ORDER BY m.message_id LIMIT 1000")?.query_map(params![network.as_str(),neighbor.as_str(),prior,directed,compatible],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<Result<_,_>>()?;
         let mut messages = vec![];
         let mut encoded_bytes = 1024;
         let mut queues = vec![];
@@ -712,6 +728,12 @@ impl RuntimeDatabase {
             .is_err()
             {
                 tx.execute("UPDATE network_outbound_queue SET state='held',reason='circuitnet-identity',version=version+1 WHERE queue_id=?1",[&q])?;
+                continue;
+            }
+            if !catalog_access
+                && catalog::active(&tx, network, &m.codename, false)?
+                    .is_some_and(|e| e.access == catalog::Access::Sysops)
+            {
                 continue;
             }
             if m.conference_identity.is_some() && !catalog {

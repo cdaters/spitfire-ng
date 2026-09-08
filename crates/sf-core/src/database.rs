@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 34;
+pub const SCHEMA_VERSION: u32 = 35;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 34] = [
+const MIGRATIONS: [Migration; 35] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1561,6 +1561,11 @@ const MIGRATIONS: [Migration; 34] = [
         version: 34,
         name: "circuitnet_catalog_authority",
         sql: include_str!("circuitnet_catalog.sql"),
+    },
+    Migration {
+        version: 35,
+        name: "circuitnet_catalog_key_history",
+        sql: include_str!("circuitnet_catalog_keys.sql"),
     },
 ];
 
@@ -6714,6 +6719,62 @@ mod catalog_migration_tests {
             .unwrap(),
             0
         );
+        assert!(c
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .next()
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[cfg(test)]
+mod catalog_key_migration_tests {
+    use super::*;
+    #[test]
+    fn schema_34_to_35_seeds_immutable_key_epoch_and_failure_is_atomic() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in &MIGRATIONS[..34] {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        c.execute(
+            "INSERT INTO circuitnet_profiles VALUES('synthetic','retained-profile',1)",
+            [],
+        )
+        .unwrap();
+        c.execute("INSERT INTO circuitnet_catalog_authority VALUES('synthetic','retained-public-authority')", []).unwrap();
+        let broken = Migration { version:35, name:MIGRATIONS[34].name,
+            sql:"CREATE TABLE circuitnet_catalog_keys(network TEXT); CREATE TABLE circuitnet_profiles(conflict TEXT);" };
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 34);
+        apply_migration(&mut c, &MIGRATIONS[34]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 35);
+        let row: (i64, String, Option<String>) = c
+            .query_row(
+                "SELECT first_revision,authority,transition_object FROM circuitnet_catalog_keys",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, (1, "retained-public-authority".into(), None));
+        assert!(c
+            .execute(
+                "UPDATE circuitnet_catalog_authority SET authority='silent-replacement'",
+                []
+            )
+            .is_err());
+        assert!(c
+            .execute(
+                "UPDATE circuitnet_catalog_keys SET authority='silent-replacement'",
+                []
+            )
+            .is_err());
+        assert!(c
+            .execute("DELETE FROM circuitnet_catalog_keys", [])
+            .is_err());
         assert!(c
             .prepare("PRAGMA foreign_key_check")
             .unwrap()

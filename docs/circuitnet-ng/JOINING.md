@@ -1,40 +1,45 @@
 # Joining CircuitNET NG
 
-Network Kit 1.0. This kit supplies documentation and a signed initial catalog; it is
-not a software binary release, automatic enrollment or a live-server directory.
+## Before applying
 
-1. Obtain the kit from the network's published distribution location. Verify its
-   manifest and compare the catalog authority fingerprint through the Administrator's
-   independently established contact. A key supplied alongside a file is not, by
-   itself, proof that it belongs to the intended network.
-2. Review Charter 1.0, Rules 1.0 and security/visibility guidance. Submit the
-   NODE-APPLICATION.txt privately using the current joining notice's contact method.
-   Send no passwords, keys or tokens; credential enrollment happens after approval.
-3. Request an available Node ID or accept one assigned by the Administrator. IDs
-   retain 1–8 alphanumeric wire semantics, uppercase normalization and network-wide
-   uniqueness. The Administrator/Secretary maintains the authoritative assignment
-   record, including inactive/retired IDs; requested IDs are not self-assigned.
-4. Agree END/HOST role, parent, explicit tree and poll expectations. An ordinary END
-   can initiate polls behind NAT/firewalls; neither a static IP nor inbound reachability
-   is required. HOSTs must provide the service their children need.
-5. Configure the profile and topology. Enroll TLS identities separately through the
-   agreed secure administrative procedure; pin catalog publisher/ID/public key as
-   independently verified. Test Link verifies the direct neighbor's transport binding.
-6. Import the signed seed, then Poll/Exchange with your parent to sync consecutive
-   authoritative revisions. Do not import arbitrary unsigned JSON as official state.
-7. Review available conferences. Create a local native conference with a number you
-   choose, map an existing eligible conference, or ignore an optional area. Address
-   core-area compliance notices. Catalog synchronization does not create or subscribe.
-8. Request your own active-area subscriptions from your direct HOST. Under default
-   remote policy, wait for operator approval and confirm the result. Configure necessary
-   upstream/downstream Dossiers, then choose C5 Events and exchange policy.
-9. Exchange an agreed test post, verify origin/mapping/delivery and establish backup
-   and recovery practice. Use the END/HOST/ROOT and Catalog Administration guides.
+Read the [Charter](CHARTER.md), [Rules](RULES.md) and
+[conference list](CONFERENCES.md). Check [current joining information](JOINING-INFO.md)
+for application availability and the approved contact. If applications are not
+open, keep your completed form locally and check that information again later.
+There is no implied submission address.
 
-The minimal Node Registry is a human Administrator/Secretary assignment record in C7:
-Node ID, BBS name, role, parent, active/inactive/retired state and approval/retirement
-references. Public contact is opt-in. Distributed registry sync is deferred; the
-explicit configured topology remains routing authority. Do not reuse an old Node ID
-until retired credentials and uncertain queues are reconciled through a recorded
-administrative decision. C7's conference-generation feature does not silently solve
-Node ID reassignment.
+The network begins under a Founding Network Administrator. That person approves
+initial members and Node IDs, maintains records and arranges upstream HOSTs until
+the Charter's committee transition takes effect. ROOT is a technical routing role;
+it does not itself grant permanent governance authority.
+
+## Apply
+
+Complete [the application](NODE-APPLICATION.md). Supply a working contact and only
+information you intend the administrators to use. Public listing of your contact
+or address needs your explicit consent. Do not send passwords or private keys.
+
+Most boards join as END nodes. An END does not need a static IP or an inbound
+listener: it can poll its HOST from behind NAT or a firewall. Request HOST status
+only if you can reliably serve downstream boards.
+
+You may request a 1-8 character alphanumeric Node ID. The Administrator checks
+network-wide uniqueness and confirms the assignment. An application alone does
+not reserve an ID. The Secretary retains assignment and retirement history;
+private application details are not automatically published in a node registry.
+
+## After approval
+
+You should receive your Node ID, role, parent HOST, approved tree configuration,
+HOST contact, connection address and port, certificate-enrollment instructions,
+and the catalog authority fingerprint through an agreed administrative channel.
+No live endpoint or port is assigned by this kit's example file.
+
+Enroll credentials separately, then follow [END-NODE](END-NODE.md): configure the
+profile, verify the HOST, import the catalog, choose local mappings, request
+subscriptions and set an exchange Event. Arrange a short operator test in SUPPORT
+with your HOST before posting it. Public conversation can use CHITCHAT.
+
+Tell your HOST about planned outages and changes to connection or certificate
+information. Node retirement and reassignment are recorded; old identity and
+traffic history are not silently erased.

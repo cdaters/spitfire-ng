@@ -1,25 +1,23 @@
 <p align="center">
 
-C7 is complete and accepted: signed network conference catalogs, explicit
-local mapping choices, Charter/Rules 1.0 and Network Kit 1.0. Schema **34**,
-CIRCUITNET-NG **1.4 / catalog-sync**, operator IPC **17**, en-US **1.31.0**.
-Network identity stays independent of local conference numbers. Reactivation preserves
-identity; deliberate reuse requires a new identity and retained history. Existing
-transport and Events move signed revisions. No election engine, private-mail feature,
-file request or production network operation is introduced.
-
-[Catalog administration](docs/circuitnet-ng/CATALOG-ADMIN.md),
-[Network Kit](docs/circuitnet-ng/README.md),
-[C7 report](docs/research/m070-circuitnet-governance-catalog-distribution.md).
-Stop for C7 review after acceptance; do not begin C8.
-
-## Previous accepted state
-
-
   <img src="docs/assets/branding/spitfire-ng-banner.png"
        alt="SPITFIRE NG — Next Generation BBS Software"
        width="1200">
 </p>
+
+C7.1 is complete and accepted: the revised Network Kit 1.0 has a root README.TXT,
+FILE_ID.DIZ and intentional ASCII/CRLF BBS editions, complete role/joining guides,
+historical Sysop-area policy and operational catalog signing-key recovery.
+Schema **35**, wire **1.4 / catalog-sync / catalog-access**, en-US **1.32.0**.
+Conference IDs are generated automatically; local numbers/access remain local.
+Catalog revision 2 retains the 46 identities and original signed history.
+Applications are explicitly not yet open until public contact metadata is supplied.
+
+[Network Kit](docs/circuitnet-ng/README.md),
+[Key custody/recovery](docs/circuitnet-ng/KEY-CUSTODY.md),
+[C7.1 report](docs/research/m071-circuitnet-network-kit-release-readiness.md).
+C1-C7 remain accepted. No production or external BBS traffic, no C8 work.
+Stop for review before another milestone.
 
 # SPITFIRE NG
 

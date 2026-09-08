@@ -109,6 +109,89 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
             write(output, &key)?;
             return Ok(sf_net::circuitnet::catalog::Signed::public_key(&key).map_err(Error::from)?);
         }
+        ("catalog-replace-key", [input, fingerprint, "confirm-key-replacement"]) => {
+            let transition: sf_net::circuitnet::catalog::keys::Transition =
+                serde_json::from_slice(&read(input)?).map_err(Error::from)?;
+            let changed = authority.circuitnet(config_cap, |db, _, actor| {
+                db.circuitnet_catalog_replace_key(actor, &network, &transition, fingerprint, now)
+            })?;
+            return Ok(crate::op(if changed {
+                "catalog-key-replaced"
+            } else {
+                "catalog-key-unchanged"
+            }));
+        }
+        (
+            "catalog-add" | "catalog-reuse" | "catalog-edit",
+            [code, name, description, access, requirement, output, reference, rationale],
+        ) => {
+            let access = match *access {
+                "public" => catalog::Access::Public,
+                "sysops" => catalog::Access::Sysops,
+                _ => return Err(usage()),
+            };
+            let required = match *requirement {
+                "required" => true,
+                "optional" => false,
+                _ => return Err(usage()),
+            };
+            let body = authority.circuitnet(config_cap, |db, _, actor| {
+                let mut body =
+                    db.circuitnet_catalog_draft(actor, &network, reference, rationale, now)?;
+                if *action == "catalog-edit" {
+                    let id = body.select(code)?.id.clone();
+                    let entry = body
+                        .entries
+                        .iter_mut()
+                        .find(|e| e.id == id)
+                        .ok_or(Error::Policy)?;
+                    entry.display_name = (*name).into();
+                    entry.description = (*description).into();
+                    entry.access = access;
+                    entry.required = required;
+                    entry.effective_revision = body.revision;
+                    body.schema = 2;
+                    body.validate()?;
+                } else {
+                    body.add_conference(
+                        catalog::ConferenceInput {
+                            codename: Codename::new(code)?,
+                            display_name: (*name).into(),
+                            description: (*description).into(),
+                            category: "general".into(),
+                            required,
+                            access,
+                        },
+                        *action == "catalog-reuse",
+                    )?;
+                }
+                Ok(body)
+            })?;
+            write(
+                output,
+                &serde_json::to_vec_pretty(&body).map_err(Error::from)?,
+            )?;
+        }
+        (
+            "catalog-retire" | "catalog-deprecate" | "catalog-reactivate",
+            [selector, output, reference, rationale],
+        ) => {
+            let body = authority.circuitnet(config_cap, |db, _, actor| {
+                let mut body =
+                    db.circuitnet_catalog_draft(actor, &network, reference, rationale, now)?;
+                let status = match *action {
+                    "catalog-retire" => catalog::Lifecycle::Retired,
+                    "catalog-deprecate" => catalog::Lifecycle::Deprecated,
+                    _ => catalog::Lifecycle::Active,
+                };
+                body.set_lifecycle(selector, status)?;
+                Ok(body)
+            })?;
+            write(
+                output,
+                &serde_json::to_vec_pretty(&body).map_err(Error::from)?,
+            )?;
+        }
         ("catalog-pin", [input]) => {
             let a: catalog::Authority =
                 serde_json::from_slice(&read(input)?).map_err(Error::from)?;
@@ -181,17 +264,59 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
                 )?)
             })
         }
-        ("catalog-list", []) => {
+        ("catalog-details", []) => {
             return authority.circuitnet(read_cap, |db, _, _| {
                 Ok(serde_json::to_string_pretty(
                     &db.circuitnet_catalog_entries(&network)?,
                 )?)
             })
         }
-        ("catalog-ignore", [id]) => authority.circuitnet(config_cap, |db, _, actor| {
+        ("catalog-list", []) => {
+            return authority.circuitnet(read_cap, |db, _, _| {
+                Ok(db
+                    .circuitnet_catalog_entries(&network)?
+                    .into_iter()
+                    .map(|e| {
+                        format!(
+                            "{} | {} | {} | {} | {} | {}",
+                            e.entry.codename,
+                            e.entry.display_name,
+                            crate::op(if e.entry.access == catalog::Access::Sysops {
+                                "catalog-access-sysops"
+                            } else {
+                                "catalog-access-public"
+                            }),
+                            if e.entry.required {
+                                crate::op("catalog-required")
+                            } else {
+                                crate::op("catalog-optional")
+                            },
+                            crate::op(match e.entry.status {
+                                catalog::Lifecycle::Proposed => "catalog-proposed",
+                                catalog::Lifecycle::Active => "catalog-active",
+                                catalog::Lifecycle::Deprecated => "catalog-deprecated",
+                                catalog::Lifecycle::Retired => "catalog-retired",
+                            }),
+                            crate::op(match e.decision.as_str() {
+                                "mapped" => "catalog-local-mapped",
+                                "ignored" => "catalog-local-ignored",
+                                "available" => "catalog-local-available",
+                                _ => "catalog-local-attention",
+                            })
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            })
+        }
+        ("catalog-ignore", [selector]) => authority.circuitnet(config_cap, |db, _, actor| {
+            let s = db
+                .circuitnet_catalog_current(&network)?
+                .ok_or(Error::Policy)?;
+            let id = &s.body.select(selector)?.id;
             db.circuitnet_catalog_choose(actor, &network, id, None, now)
         })?,
-        ("catalog-map", [id, number]) => {
+        ("catalog-map", [selector, number]) => {
             let number = number.parse::<u16>().map_err(|_| usage())?;
             authority.circuitnet(config_cap, |db, _, actor| {
                 let c = db
@@ -199,32 +324,40 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
                     .into_iter()
                     .find(|c| c.number == number)
                     .ok_or(Error::Policy)?;
+                let s = db
+                    .circuitnet_catalog_current(&network)?
+                    .ok_or(Error::Policy)?;
+                let id = &s.body.select(selector)?.id;
                 db.circuitnet_catalog_choose(actor, &network, id, Some(c.id.get()), now)
             })?;
         }
-        ("catalog-create-map", [id, number]) => {
+        ("catalog-create-map", [selector, number]) => {
             let number = number.parse::<u16>().map_err(|_| usage())?;
             authority.circuitnet(config_cap, |db, _, actor| {
-                let entry = db
-                    .circuitnet_catalog_entries(&network)?
-                    .into_iter()
-                    .find(|e| e.entry.id == *id)
-                    .ok_or(Error::Policy)?
-                    .entry;
+                let current = db
+                    .circuitnet_catalog_current(&network)?
+                    .ok_or(Error::Policy)?;
+                let entry = current.body.select(selector)?.clone();
+                let id = entry.id.clone();
+                let level = if entry.access == catalog::Access::Sysops {
+                    9999
+                } else {
+                    10
+                };
                 let definition = sf_core::ConferenceDefinition {
                     posting_identity: Some(sf_core::PostingIdentityPolicy::HandleAllowed),
                     number,
                     name: entry.display_name,
                     description: entry.description,
                     access_mode: sf_core::ConferenceAccessMode::AtLeast,
-                    read_security: sf_core::SecurityLevel::new(10).map_err(|_| Error::Policy)?,
-                    post_security: sf_core::SecurityLevel::new(10).map_err(|_| Error::Policy)?,
+                    read_security: sf_core::SecurityLevel::new(level).map_err(|_| Error::Policy)?,
+                    post_security: sf_core::SecurityLevel::new(level).map_err(|_| Error::Policy)?,
                     public_only: true,
                     caller_deletion_enabled: false,
                     maximum_lines: 99,
                     privileged_security_levels: vec![],
                 };
-                db.circuitnet_catalog_create_map(actor, &network, id, &definition, now)
+                db.circuitnet_catalog_create_map(actor, &network, &id, &definition, now)
                     .map(|_| ())
             })?;
         }

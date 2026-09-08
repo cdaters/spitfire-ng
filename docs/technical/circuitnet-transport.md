@@ -1,7 +1,7 @@
 # CircuitNET NG live transport, controls and files
 
-C3 establishes the live transport; C4 extends it with negotiated directed routing
-and typed Dossier controls. The C4 extension is specified below.
+CIRCUITNET-NG 1.4 is the current live transport contract. The sections below
+distinguish the baseline exchange from later negotiated capabilities.
 Native SPITFIRE messages remain canonical. This transport supplies authenticated
 neighbor authority to the C2 service; it owns no alternate message store.
 
@@ -19,8 +19,9 @@ The node certificate/private key is its credential; a second password is absent.
 Application frames are a four-byte unsigned big-endian JSON byte length followed
 by strict UTF-8 JSON. Zero length and lengths above 4 MiB + 4096 reject before
 allocation. Hello/ACK/Close frames have a 4096-byte bound; C4 control-work bounds are below. Protocol identity is
-`CIRCUITNET-NG`, major 1, supported minor range 0 through 3. Minors 0–1 use the
-same baseline semantics; minor 2 has optional C4 capabilities and minor 3 optional file distribution; select the highest common minor. Unknown major,
+`CIRCUITNET-NG`, major 1, supported minor range 0 through 4. Minors 0–1 use the
+same baseline semantics; minor 2 has optional C4 capabilities and minor 3 optional file distribution; minor 4 supports catalog-sync and the optional
+catalog-access extension for schema-2 access metadata. Select the highest common minor. Unknown major,
 nonoverlapping minor ranges, identity/profile/role mismatches and missing required
 capabilities reject. Required capabilities: `atomic-batch`, `symmetric-poll`.
 
@@ -340,3 +341,17 @@ uncataloged profiles. Catalog-enabled new traffic requires its current active or
 deprecated identity; generation-aware messages are withheld from older peers rather
 than stripping identity. Catalog metadata never contains a local conference number.
 See the [catalog schema and chain contract](circuitnet-catalog.md).
+
+## Catalog access compatibility within minor 4
+
+`catalog-access` is the eighth bounded capability. It requires `catalog-sync`.
+Catalog schema 2 carries explicit `access: "sysops"`; omission means Public and
+preserves schema-1 canonical bytes. Both peers must advertise catalog-access before
+schema-2 catalog frames or Sysop-only conference messages are sent. An older
+catalog-sync peer is offered the latest schema-1 predecessor instead; public
+message/control/file exchange remains available according to its capabilities.
+Restricted work and public generations absent from the compatible predecessor stay
+durable and are never downgraded to unclassified messages. Existing compatible
+public work remains eligible even when an unsupported offer awaits retry.
+Local receive mappings enforce catalog access through native conference policy.
+Key replacement is a separate explicit local trust operation, not a new wire frame.

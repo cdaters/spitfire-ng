@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "CircuitNET NG signed conference catalog schema 1",
+  "title": "CircuitNET NG signed conference catalog schemas 1 and 2",
   "description": "Structural schema. UTF-8 byte bounds, canonical ordering, signatures and lifecycle/hash-chain rules additionally follow the protocol specification.",
   "type": "object",
   "additionalProperties": false,
@@ -33,7 +33,10 @@
           "const": "circuitnet-ng-catalog"
         },
         "schema": {
-          "const": 1
+          "enum": [
+            1,
+            2
+          ]
         },
         "network": {
           "type": "string",
@@ -94,7 +97,31 @@
             "$ref": "#/$defs/entry"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema": {
+                "const": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "entries": {
+                "items": {
+                  "properties": {
+                    "access": {
+                      "const": "public"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "hash": {
       "$ref": "#/$defs/hash"
@@ -182,6 +209,14 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 80
+        },
+        "access": {
+          "enum": [
+            "public",
+            "sysops"
+          ],
+          "default": "public",
+          "description": "Schema 2 access classification; omission means public."
         }
       }
     }

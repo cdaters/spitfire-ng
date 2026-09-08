@@ -143,6 +143,7 @@ fn real_macos_c7_six_node_catalog_lifecycle_generation_restore_and_events() {
     save_event(&h2, &scheduled);
     let mut body = next(&seed);
     body.entries.push(Entry {
+        access: sf_net::circuitnet::catalog::Access::Public,
         id: "1".repeat(32),
         codename: envelope::Codename::new("RETROCOM").unwrap(),
         display_name: "Retro Computing".into(),
@@ -462,4 +463,292 @@ fn real_macos_c7_six_node_catalog_lifecycle_generation_restore_and_events() {
     stop(hd2, &h2);
     stop(rd, &r);
     fs::write(root.join("acceptance.txt"),"C7 six independent boards: signed propagation; explicit local choices; message identity; lifecycle; replay/fork/signature/publisher/chain rejection; reactivation/reuse; restart; rollback-protected restore; graceful shutdown. Synthetic loopback only.\n").unwrap();
+}
+
+#[test]
+fn real_macos_c71_human_creation_access_and_local_key_recovery() {
+    fn actor(database: &RuntimeDatabase) -> MessageActor {
+        let caller = database.caller_by_name(b"Sysop").unwrap().unwrap();
+        MessageActor::new(caller.id, caller.security_level)
+    }
+
+    use sf_net::circuitnet::catalog::keys::{Change, Mode, Transition};
+    let _campaign = CAMPAIGN.lock().unwrap_or_else(|p| p.into_inner());
+    let root = tempfile::tempdir().unwrap();
+    let r = board_tree(&root.path().join("root"), "ROOT1", 10, None, true);
+    let h = board_tree(&root.path().join("host"), "HOST1", 20, None, true);
+    let mut e = board_tree(&root.path().join("end"), "END1", 30, None, true);
+    for (a, b) in [(&r, &h), (&h, &r), (&h, &e), (&e, &h)] {
+        enroll(a, b);
+    }
+    let key = Signed::generate_key().unwrap();
+    let mut authority = Authority {
+        network: network(),
+        catalog_id: "e".repeat(32),
+        publisher: envelope::NodeId::new("ROOT1").unwrap(),
+        public_key: Signed::public_key(&key).unwrap(),
+    };
+    let authority_path = root.path().join("authority.json");
+    fs::write(&authority_path, serde_json::to_vec(&authority).unwrap()).unwrap();
+    for b in [&r, &h, &e] {
+        run(b, "catalog-pin", &[authority_path.to_str().unwrap()]);
+    }
+    let seed = publish(
+        &r,
+        &key,
+        Body {
+            format: "circuitnet-ng-catalog".into(),
+            schema: 1,
+            network: network(),
+            catalog_id: authority.catalog_id.clone(),
+            revision: 1,
+            previous_revision: 0,
+            previous_hash: None,
+            published_at: 1788825600,
+            publisher: authority.publisher.clone(),
+            governance_reference: "synthetic-founding".into(),
+            rationale: "Disposable authority".into(),
+            intent: Intent::Ordinary,
+            entries: vec![],
+        },
+    );
+    for b in [&h, &e] {
+        db(b)
+            .circuitnet_catalog_receive("local-operator", &network(), &seed, 1788825600)
+            .unwrap();
+    }
+    let draft = root.path().join("draft.json");
+    run(
+        &r,
+        "catalog-add",
+        &[
+            "BASKETS",
+            "Underwater Basket Weaving",
+            "Synthetic operator discussion",
+            "sysops",
+            "optional",
+            draft.to_str().unwrap(),
+            "synthetic-approval",
+            "Approved synthetic test",
+        ],
+    );
+    let body: Body = serde_json::from_slice(&fs::read(&draft).unwrap()).unwrap();
+    assert_eq!(body.entries[0].display_name, "Underwater Basket Weaving");
+    let identity = body.entries[0].id.clone();
+    assert_eq!(identity.len(), 32);
+    let current = publish(&r, &key, body);
+    assert_eq!(current.body.schema, 2);
+    let rd = start(&r);
+    let hd = start(&h);
+    let ed = start(&e);
+    poll(&h, &r, false);
+    poll(&e, &h, false);
+    for b in [&r, &h, &e] {
+        assert_eq!(revision(b), 2);
+    }
+    stop(ed, &e);
+    stop(hd, &h);
+    stop(rd, &r);
+    for b in [&r, &h, &e] {
+        let listing = run(b, "catalog-list", &[]);
+        assert!(listing.contains("Underwater Basket Weaving"));
+        assert!(!listing.contains(&identity));
+        run(b, "catalog-create-map", &["BASKETS", "77"]);
+        let mut database = db(b);
+        let hash = CredentialHasher::new(&PasswordHashConfig {
+            memory_kib: 8,
+            iterations: 1,
+            parallelism: 1,
+        })
+        .unwrap()
+        .hash(b"synthetic ordinary caller")
+        .unwrap();
+        let caller = database
+            .create_caller(
+                b"Ordinary",
+                &hash,
+                SecurityLevel::new(10).unwrap(),
+                CallerState::Active,
+                false,
+                1,
+            )
+            .unwrap();
+        let ordinary = MessageActor::new(caller.id, SecurityLevel::new(9999).unwrap());
+        assert!(database.conference(ordinary, 77).is_err());
+        assert!(database.conference(actor(&database), 77).is_ok());
+    }
+    for (b, n) in [(&r, "HOST1"), (&h, "ROOT1"), (&h, "END1"), (&e, "HOST1")] {
+        run(b, "subscribe", &[n, "BASKETS"]);
+    }
+    e.test = 77;
+    let mut database = db(&e);
+    let operator = actor(&database);
+    let conference = database.conference(operator, 77).unwrap();
+    let preview = database
+        .preview_posting_identity(operator, conference.id)
+        .unwrap();
+    let message = database
+        .post(
+            operator,
+            NewMessage {
+                identity_preview: Some(preview),
+                conference_id: conference.id,
+                recipient_caller_id: None,
+                recipient_name: "All Callers".into(),
+                subject: b"Restricted original generation".to_vec(),
+                body: b"Synthetic operator test".to_vec(),
+                created_at: 1788825700,
+                parent_message_id: None,
+                visibility: MessageVisibility::Public,
+                kind: MessageKind::Standard,
+            },
+        )
+        .unwrap();
+    drop(database);
+    let rd = start(&r);
+    let hd = start(&h);
+    let ed = start(&e);
+    poll(&e, &h, false);
+    poll(&h, &r, false);
+    let database = db(&r);
+    let operator = actor(&database);
+    let conference = database.conference(operator, 77).unwrap();
+    assert_eq!(
+        database
+            .messages(operator, conference.id)
+            .unwrap()
+            .iter()
+            .filter(|m| m.subject == b"Restricted original generation")
+            .count(),
+        1
+    );
+    drop(database);
+    assert_eq!(
+        db(&r)
+            .circuitnet_catalog_current(&network())
+            .unwrap()
+            .unwrap(),
+        current
+    );
+    stop(ed, &e);
+    stop(hd, &h);
+    stop(rd, &r);
+    let mut old_key = key;
+    for (index, mode) in [Mode::Planned, Mode::Emergency].into_iter().enumerate() {
+        let old = db(&r)
+            .circuitnet_catalog_current(&network())
+            .unwrap()
+            .unwrap();
+        let new = Signed::generate_key().unwrap();
+        let mut replacement = authority.clone();
+        replacement.public_key = Signed::public_key(&new).unwrap();
+        let transition = Transition::sign(
+            Change {
+                format: "circuitnet-ng-catalog-key".into(),
+                previous: authority.clone(),
+                replacement: replacement.clone(),
+                revision: old.body.revision,
+                catalog_hash: old.hash.clone(),
+                mode,
+                published_at: 1788825800 + index as i64,
+                reference: "synthetic-key-approval".into(),
+                rationale: "Synthetic key transition".into(),
+            },
+            if mode == Mode::Planned {
+                Some(old_key.as_slice())
+            } else {
+                None
+            },
+            &new,
+        )
+        .unwrap();
+        let path = root.path().join(format!("transition-{index}.json"));
+        fs::write(&path, serde_json::to_vec(&transition).unwrap()).unwrap();
+        let fingerprint = replacement.fingerprint().unwrap();
+        assert!(!command(
+            &e,
+            "catalog-replace-key",
+            &[
+                path.to_str().unwrap(),
+                &"0".repeat(64),
+                "confirm-key-replacement"
+            ]
+        )
+        .status
+        .success());
+        assert!(!command(
+            &e,
+            "catalog-replace-key",
+            &[path.to_str().unwrap(), &fingerprint]
+        )
+        .status
+        .success());
+        for b in [&r, &h, &e] {
+            run(
+                b,
+                "catalog-replace-key",
+                &[
+                    path.to_str().unwrap(),
+                    &fingerprint,
+                    "confirm-key-replacement",
+                ],
+            );
+            assert!(run(
+                b,
+                "catalog-replace-key",
+                &[
+                    path.to_str().unwrap(),
+                    &fingerprint,
+                    "confirm-key-replacement"
+                ]
+            )
+            .contains("already applied"));
+        }
+        let draft_path = root.path().join(format!("edit-{index}.json"));
+        run(
+            &r,
+            "catalog-edit",
+            &[
+                "BASKETS",
+                "Underwater Basket Weaving",
+                &format!("Updated after key transition {index}"),
+                "sysops",
+                "optional",
+                draft_path.to_str().unwrap(),
+                "synthetic-update",
+                "Approved metadata edit",
+            ],
+        );
+        let body: Body = serde_json::from_slice(&fs::read(&draft_path).unwrap()).unwrap();
+        let signed = publish(&r, &new, body);
+        let rd = start(&r);
+        let hd = start(&h);
+        let ed = start(&e);
+        poll(&h, &r, false);
+        poll(&e, &h, false);
+        for b in [&r, &h, &e] {
+            assert_eq!(revision(b), signed.body.revision);
+            db(b)
+                .circuitnet_catalog_current(&network())
+                .unwrap()
+                .unwrap()
+                .verify(&replacement)
+                .unwrap();
+        }
+        stop(ed, &e);
+        stop(hd, &h);
+        stop(rd, &r);
+        authority = replacement;
+        old_key = new;
+    }
+    // Real traffic remains attached to the generated original conference identity.
+    let database = db(&e);
+    let c = database.conference(actor(&database), 77).unwrap();
+    assert_eq!(
+        database
+            .message(actor(&database), c.id, message.number)
+            .unwrap()
+            .id,
+        message.id
+    );
 }

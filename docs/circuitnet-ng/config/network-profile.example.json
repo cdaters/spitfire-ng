@@ -6,12 +6,18 @@
   "root_node_id": "ROOT",
   "catalog_authority_file": "catalog-authority.json",
   "seed_catalog_file": "catalog.json",
-  "protocol": {"major": 1, "catalog_minimum_minor": 4, "required_catalog_capability": "catalog-sync"},
-  "joining_document": "JOINING.md",
+  "protocol": {
+    "major": 1,
+    "catalog_minimum_minor": 4,
+    "required_catalog_capability": "catalog-sync",
+    "required_access_capability": "catalog-access"
+  },
+  "joining_document": "../markdown/JOINING.md",
   "node_id": null,
   "parent": null,
   "listener": null,
   "endpoint": null,
-  "credentials": null,
-  "note": "Assign identity and topology after membership approval; enroll credentials separately. No port or live endpoint is prescribed. END may poll outbound behind NAT."
+  "note": "Planning worksheet, not a board configuration import. Replace node, parent, listener and endpoint only with approved enrollment details. No official port is prescribed. END nodes may poll from behind NAT.",
+  "directly_importable": false,
+  "path_base": "Directory containing this example file"
 }

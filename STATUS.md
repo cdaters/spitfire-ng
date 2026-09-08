@@ -1,5 +1,26 @@
 # SPITFIRE NG Status
 
+C7.1 is complete and accepted: the revised Network Kit 1.0 has a root README.TXT,
+FILE_ID.DIZ and intentional ASCII/CRLF BBS editions, complete role/joining guides,
+historical Sysop-area policy and operational catalog signing-key recovery.
+Schema **35**, wire **1.4 / catalog-sync / catalog-access**, en-US **1.32.0**.
+Conference IDs are generated automatically; local numbers/access remain local.
+Catalog revision 2 retains the 46 identities and original signed history.
+Applications are explicitly not yet open until public contact metadata is supplied.
+
+[Network Kit](docs/circuitnet-ng/README.md),
+[Key custody/recovery](docs/circuitnet-ng/KEY-CUSTODY.md),
+[C7.1 report](docs/research/m071-circuitnet-network-kit-release-readiness.md).
+C1-C7 remain accepted. No production or external BBS traffic, no C8 work.
+Stop for review before another milestone.
+
+Public workspace: **774 passed / zero failed / seven existing ignored**, six doctest
+groups. All seven live CircuitNET campaigns, four kit tests, headers (151), fmt,
+strict Clippy, diff and local links pass. Cargo-audit remains unavailable.
+
+## Previous accepted state
+
+
 C7 is complete and accepted: signed network conference catalogs, explicit
 local mapping choices, Charter/Rules 1.0 and Network Kit 1.0. Schema **34**,
 CIRCUITNET-NG **1.4 / catalog-sync**, operator IPC **17**, en-US **1.31.0**.
@@ -12,10 +33,6 @@ file request or production network operation is introduced.
 [Network Kit](docs/circuitnet-ng/README.md),
 [C7 report](docs/research/m070-circuitnet-governance-catalog-distribution.md).
 Stop for C7 review after acceptance; do not begin C8.
-
-## Previous accepted state
-
-
 
 ## C6 — native Files and CircuitNET distribution
 

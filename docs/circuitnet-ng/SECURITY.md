@@ -31,3 +31,21 @@ Published files are available according to destination File Area rules, not made
 private by TLS. Receiving boards enforce local inspection/scanning requirements;
 remote assertions do not bypass quarantine. No application form requests secrets.
 Only deliberately public membership information belongs in a published registry.
+
+## Two keys, two responsibilities
+
+A node's TLS private key authenticates its live links and stays in protected board
+custody. The catalog signing key authorizes conference definitions and can remain
+on an offline signing system. Never send either key in a membership application.
+Use only the public certificates and fingerprints during enrollment.
+
+Ordinary configuration cannot silently replace the catalog authority. Planned
+replacement uses a transition signed by both old and new authorities; emergency
+replacement requires a recorded decision and independent fingerprint confirmation
+by each local Sysop. Neither arrives as automatically trusted network configuration.
+See [KEY-CUSTODY](KEY-CUSTODY.md) for backup, loss, compromise and exact commands.
+
+SUPPORT, SYSOP, SPITFIRE and DOORS are operator-only conferences. Access is restricted
+by each board's native conference rules, including verified visiting Sysops where
+locally granted. This is access control, not end-to-end encryption. Catalog entry,
+Node ID or a successful TLS connection never grants a caller Sysop privileges.

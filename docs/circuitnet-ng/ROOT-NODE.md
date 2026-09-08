@@ -1,33 +1,54 @@
-# Operating a CircuitNET NG ROOT
+# Operate ROOT
 
-Configure the complete tree within your administrative authority, direct HOST
-children and their identities. A ROOT has no upstream subscription target. Service
-only direct-child remote Dossier requests; do not mutate arbitrary other branches.
-Use Route Test to verify each destination's correct child branch. Agree poll timing,
-contact and recovery expectations with HOST operators. ROOT authority is limited
-to the configured network tree; it is not global route discovery or a peer mesh.
+ROOT is the top routing node for the configured tree. It has no upstream target.
+The Network Administrator is a human governance office; ROOT is a technical role.
+The same person may perform both during founding administration, but owning ROOT
+or a signing key does not confer permanent decision-making authority.
 
-Before enabling unattended exchange, configure native CNTEST mappings and Dossiers,
-Test Link, run Route Test, and perform one Poll Now. Create an Event with the intended
-profile/neighbor, schedule and timezone. Watch next due, last result, peer health and
-queued work in Events and CircuitNET Networks. Enabled listeners alone do not initiate
-outbound calls. Normal fanout requires a Dossier; directed traffic follows its typed
-route and still requires an authorized receive mapping at the destination.
+## Establish service
 
-If mail does not move, follow the [operator troubleshooting path](../manual/events.md#why-didnt-this-message-move).
-Keep cold backups, review pending requests and failed Events, and test recovery on
-disposable boards. Directed conference traffic remains a conference message, and
-transport encryption does not change who may read it after delivery.
+Obtain the approved tree and publisher designation. Use the profile and identity
+commands in [END-NODE](END-NODE.md) with the assigned local ROOT and no parent.
+Use [HOST-NODE](HOST-NODE.md) to configure the listener and enroll each direct HOST.
+Confirm each certificate independently. Test links before allowing unattended
+exchange. Configure one appropriate Event per reachable HOST or agree that HOSTs
+will initiate their own polls. ROOT needs no upstream polling Event.
 
-See [CircuitNET commands](../manual/circuitnet.md) and [Events](../manual/events.md).
+Maintain mappings and Dossiers for the conferences ROOT carries. Preserve the
+Sysop-only classification of SUPPORT, SYSOP, SPITFIRE and DOORS. Do not expose
+operator conference traffic to ordinary callers just because ROOT can route it.
+Use Route Test to explain paths and inspect Networks/Events for pending work.
 
-## Network publication authority
+## Publish catalog changes
 
-ROOT's technical role is distinct from the Network Administrator's human office.
-During founding bootstrap, record the Administrator's decision reference; after
-transition, publish the Committee-approved change. Pin and protect the Ed25519 catalog
-key. Generate a draft, review lifecycle/identity changes, sign/publish and let ordinary
-Poll/Exchange Events propagate it. Inspect downstream catalog state and rejection
-health. Do not rewrite a HOST-forwarded object or remotely choose local numbers.
-Reactivation keeps identity; reuse requires the explicit new-identity confirmation.
-See Catalog Administration and Charter 1.0 for the decision and operational processes.
+Follow [CATALOG-ADMIN](CATALOG-ADMIN.md) for human fields, draft generation,
+publication and change reports. Obtain and record the governance decision first,
+or a documented founding decision while bootstrap is active. A technical signature
+does not count votes or establish that a proposal was approved.
+
+The catalog signing key need not remain on ROOT. Prepare the draft on the board,
+transfer it to a protected signing system, sign it there, and import the signed
+result at ROOT. Normal routing needs only the public authority and accepted catalog.
+See [KEY-CUSTODY](KEY-CUSTODY.md) for exact commands and recovery procedures.
+
+After publication, Poll or Events carry the unchanged signed revision to HOSTs
+and then ENDs. Compare their reported revisions. Retain predecessor artifacts
+for offline recovery and nodes that missed several changes. Receiving a catalog
+never assigns local conference numbers or subscribes all nodes automatically.
+
+## Back up and recover
+
+Keep board metadata, payload stores, catalog revisions, trust transitions and
+public decision records backed up. Test a restore on an isolated replacement
+before an emergency. Signing-key custody and its optional protected recovery
+copy are separate from ordinary ROOT backups and from downloadable kits.
+
+If signing is unavailable, ordinary messages, files, controls and routing continue
+under the last accepted catalog. Suspend new catalog publication until recovery
+is verified. For loss or compromise, use the deliberate node-by-node trust
+transition in [KEY-CUSTODY](KEY-CUSTODY.md). Never edit the database pin or reset
+revision history to make a new key work.
+
+Review retained-history limits and topology migration constraints in
+[OPERATIONS](OPERATIONS.md). A network-wide change requires coordination, not
+an unannounced local tree edit.

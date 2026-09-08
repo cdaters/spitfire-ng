@@ -1086,7 +1086,7 @@ netconfig-field-posting-identity = Posting identity requirement
 netconfig-effective-identity = Effective posting identity (saved policy)
 
 # CircuitNET C2 explicitly uses cold-board operator custody.
-circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. C4: direct, route-test, remote-subscribe, remote-unsubscribe, query-subscriptions, control-policy, approve, deny, control-retry. C7: catalog-key, catalog-pin, catalog-status, catalog-list, catalog-import, catalog-export, catalog-draft, catalog-publish, catalog-changes, catalog-create-map, catalog-map, catalog-ignore. See the CircuitNET manual for full syntax.
+circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. Routing/controls: direct, route-test, remote-subscribe, remote-unsubscribe, query-subscriptions, control-policy, approve, deny, control-retry. Catalog: catalog-key, catalog-pin, catalog-status, catalog-list, catalog-import, catalog-export, catalog-draft, catalog-publish, catalog-changes, catalog-create-map, catalog-map, catalog-ignore, catalog-details, catalog-add, catalog-edit, catalog-deprecate, catalog-retire, catalog-reactivate, catalog-reuse, catalog-replace-key. See the CircuitNET manual for full syntax.
 circuitnet-file-error = Offline Exchange file unavailable, oversized, unsafe, or output already exists. Retained delivery work can be retried.
 circuitnet-completed = CircuitNET operation completed. Export is pending until the neighbor's durable receipt is acknowledged.
 
@@ -1210,3 +1210,15 @@ catalog-required = Required Conference
 catalog-rejected = Rejected Catalog Updates
 catalog-reuse = Reuse creates a NEW conference identity. Historical traffic keeps its original identity. Confirm the approved rationale before publishing.
 catalog-sync-pending = Catalog update pending
+
+catalog-access-public = Public Conference
+catalog-access-sysops = Sysops and Verified Visiting Sysops Only
+catalog-optional = Optional Conference
+catalog-proposed = Proposed
+catalog-active = Active
+catalog-local-mapped = Mapped
+catalog-local-available = Available
+catalog-local-ignored = Ignored
+catalog-local-attention = Needs Attention
+catalog-key-replaced = Catalog signing authority replaced; retained history is unchanged.
+catalog-key-unchanged = Catalog signing authority transition was already applied.

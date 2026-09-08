@@ -18,7 +18,7 @@ pub const PROTOCOL: &str = "CIRCUITNET-NG";
 pub const ALPN: &[u8] = b"circuitnet-ng/1";
 pub const MAX_FRAME: usize = MAX_ARTIFACT + 4096;
 pub const CONTROL_FRAME: usize = 4096;
-pub const CAPABILITIES: [&str; 7] = [
+pub const CAPABILITIES: [&str; 8] = [
     "atomic-batch",
     "symmetric-poll",
     "directed-routing",
@@ -26,6 +26,7 @@ pub const CAPABILITIES: [&str; 7] = [
     "file-distribution",
     "file-hash-have",
     "catalog-sync",
+    "catalog-access",
 ];
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "kebab-case")]
@@ -128,6 +129,11 @@ impl Hello {
         Ok(self.negotiate(remote)? >= 4
             && self.capabilities.iter().any(|s| s == "catalog-sync")
             && remote.capabilities.iter().any(|s| s == "catalog-sync"))
+    }
+    pub fn catalog_access_capability(&self, remote: &Self) -> Result<bool, Error> {
+        Ok(self.catalog_capability(remote)?
+            && self.capabilities.iter().any(|s| s == "catalog-access")
+            && remote.capabilities.iter().any(|s| s == "catalog-access"))
     }
     pub fn negotiate(&self, remote: &Self) -> Result<u16, Error> {
         if remote.protocol != PROTOCOL
@@ -320,6 +326,7 @@ mod catalog_tests {
     use super::*;
     #[test]
     fn catalog_capability_requires_both_peers_and_minor_four() {
+        // Access metadata is independently negotiated within compatible minor 4.
         let h = Hello::new(
             NetworkId::new("synthetic").unwrap(),
             NodeId::new("END1").unwrap(),
@@ -328,6 +335,11 @@ mod catalog_tests {
         );
         let mut remote = h.clone();
         assert!(h.catalog_capability(&remote).unwrap());
+        assert!(h.catalog_access_capability(&remote).unwrap());
+        remote.capabilities.retain(|c| c != "catalog-access");
+        assert!(h.catalog_capability(&remote).unwrap());
+        assert!(!h.catalog_access_capability(&remote).unwrap());
+        remote.capabilities.push("catalog-access".into());
         for minor in 0..4 {
             remote.maximum_minor = minor;
             assert!(!h.catalog_capability(&remote).unwrap());

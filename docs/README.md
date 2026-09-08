@@ -265,3 +265,8 @@ See the [identity contract](technical/identity-policy.md), [caller instructions]
 - [Canonical C7 report](research/m070-circuitnet-governance-catalog-distribution.md).
 - [Signed catalog contract](technical/circuitnet-catalog.md).
 - [Charter, Rules, joining/application and Network Kit](circuitnet-ng/README.md).
+
+## CircuitNET Network Kit release readiness
+
+See [CircuitNET Network Kit release readiness](research/m071-circuitnet-network-kit-release-readiness.md) for the revised kit, Sysop access, generated identities
+and deliberate authority replacement. Member setup starts with the kit README.

@@ -1,7 +1,7 @@
 {
   "format": "circuitnet-ng-catalog-review",
   "version": 1,
-  "review": "C7 founding catalog",
+  "review": "Adopted founding catalog and operator-access clarification",
   "conferences": [
     {
       "codename": "SUPPORT",
@@ -11,7 +11,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0. Historical Sysop/Visiting Sysop access is preserved; local boards verify visitors."
     },
     {
       "codename": "SYSOP",
@@ -21,7 +21,7 @@
       "disposition": "Rename",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0. Historical Sysop/Visiting Sysop access is preserved; local boards verify visitors."
     },
     {
       "codename": "SPITFIRE",
@@ -31,7 +31,7 @@
       "disposition": "Replace",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0. Historical Sysop/Visiting Sysop access is preserved; local boards verify visitors."
     },
     {
       "codename": "DOORS",
@@ -41,7 +41,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0. Historical Sysop/Visiting Sysop access is preserved; local boards verify visitors."
     },
     {
       "codename": "CHITCHAT",
@@ -51,7 +51,7 @@
       "disposition": "Rename",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as the core public gathering area with its published scope. Charter/Rules 1.0 requires it for common caller participation."
     },
     {
       "codename": "MUSIC",
@@ -61,7 +61,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "EVENTS",
@@ -71,7 +71,7 @@
       "disposition": "Rename",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "COMM",
@@ -81,7 +81,7 @@
       "disposition": "Replace",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "HARDWARE",
@@ -91,7 +91,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "SOFTWARE",
@@ -101,7 +101,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "TECH",
@@ -111,7 +111,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "ENVIRON",
@@ -121,7 +121,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "OUTDOORS",
@@ -131,7 +131,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "GAMES",
@@ -141,7 +141,7 @@
       "disposition": "Rename",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "SCIENCE",
@@ -151,7 +151,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "SPORTS",
@@ -161,7 +161,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "BBSADS",
@@ -171,7 +171,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "MILITARY",
@@ -181,7 +181,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "NEWUSERS",
@@ -191,7 +191,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "OPSYSTEM",
@@ -201,7 +201,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "PETS",
@@ -211,7 +211,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "CHESS",
@@ -221,7 +221,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "WRITERS",
@@ -231,7 +231,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "HAMRADIO",
@@ -241,7 +241,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "PASCAL",
@@ -251,7 +251,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "ASM",
@@ -261,7 +261,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "BASIC",
@@ -271,7 +271,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "C",
@@ -281,7 +281,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "SPACE",
@@ -291,7 +291,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "ANSI",
@@ -301,7 +301,7 @@
       "disposition": "Rename",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "AVIATION",
@@ -311,7 +311,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "BOOKS",
@@ -321,7 +321,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "BROADCST",
@@ -331,7 +331,7 @@
       "disposition": "Replace",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "COOKING",
@@ -341,7 +341,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "CARS",
@@ -351,7 +351,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "COLLECT",
@@ -361,7 +361,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "GENEOL",
@@ -371,7 +371,7 @@
       "disposition": "Rename",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "HOBBIES",
@@ -381,7 +381,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "MOVIES",
@@ -391,7 +391,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "PHILOS",
@@ -401,7 +401,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "SCIFI",
@@ -411,7 +411,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "VIRUS",
@@ -421,7 +421,7 @@
       "disposition": "Replace",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Review scope and participant needs before adoption. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Adopted as an optional area with its published scope. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "PSA",
@@ -431,7 +431,7 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "FAMLHUMR",
@@ -441,27 +441,27 @@
       "disposition": "Preserve",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain historical identity with current moderation and access review. C7 retains this disposition, supplies a specific purpose and applies Charter/Rules 1.0."
+      "rationale": "Retain historical identity with the adopted scope and moderation policy. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "PROTOCOL",
       "display_name": "CircuitNET Protocol Development",
       "purpose": "CircuitNET NG protocol specification, independent implementation and interoperability.",
-      "historical_relationship": "New modern C5 proposal",
+      "historical_relationship": "New modern earlier proposal",
       "disposition": "New",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain the C5 scope as a distinct optional discussion area."
+      "rationale": "Retain the earlier scope as a distinct optional discussion area. Adopted under Charter/Rules 1.0."
     },
     {
       "codename": "RETRO",
       "display_name": "BBS Preservation and Retrocomputing",
       "purpose": "BBS preservation, historical computing and retrocomputing projects.",
-      "historical_relationship": "New modern C5 proposal",
+      "historical_relationship": "New modern earlier proposal",
       "disposition": "New",
       "initial_distribution": true,
       "moderation": "Administrator appoints interim moderator during bootstrap; Committee supervises later appointments.",
-      "rationale": "Retain the C5 scope as a distinct optional discussion area."
+      "rationale": "Retain the earlier scope as a distinct optional discussion area. Adopted under Charter/Rules 1.0."
     }
   ]
 }

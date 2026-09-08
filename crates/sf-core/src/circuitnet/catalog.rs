@@ -12,7 +12,10 @@
 //! Durable signed network metadata and explicit local conference choices.
 use super::*;
 use sf_net::circuitnet::catalog::Error as CatalogError;
-pub use sf_net::circuitnet::catalog::{Authority, Body, Entry, Intent, Lifecycle, Signed};
+pub use sf_net::circuitnet::catalog::{
+    Access, Authority, Body, ConferenceInput, Entry, Intent, Lifecycle, Signed,
+};
+mod keys;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CatalogStatus {
@@ -67,6 +70,39 @@ pub(super) fn active(
         .map(Some)
         .ok_or(Error::Policy)
 }
+/// Generations understood by a schema-1 peer, intersected with current policy.
+pub(super) fn schema_one_generations(
+    c: &Connection,
+    n: &NetworkId,
+) -> Result<Option<Vec<String>>, Error> {
+    if authority(c, n)?.is_none() {
+        return Ok(None);
+    }
+    let encoded:Option<String>=c.query_row("SELECT object FROM circuitnet_catalog_revisions WHERE network=?1 AND json_extract(object,'$.body.schema')=1 ORDER BY revision DESC LIMIT 1",[n.as_str()],|r|r.get(0)).optional()?;
+    let Some(encoded) = encoded else {
+        return Ok(Some(vec![]));
+    };
+    let old = Signed::decode(encoded.as_bytes())?;
+    let Some(current) = current(c, n)? else {
+        return Ok(Some(vec![]));
+    };
+    Ok(Some(
+        current
+            .body
+            .entries
+            .into_iter()
+            .filter(|e| {
+                e.access == Access::Public
+                    && matches!(e.status, Lifecycle::Active | Lifecycle::Deprecated)
+                    && old.body.entries.iter().any(|p| {
+                        p.id == e.id
+                            && matches!(p.status, Lifecycle::Active | Lifecycle::Deprecated)
+                    })
+            })
+            .map(|e| e.id)
+            .collect(),
+    ))
+}
 pub(super) fn message_allowed(c: &Connection, n: &NetworkId, m: &Message) -> Result<bool, Error> {
     match active(c, n, &m.codename, false) {
         Ok(Some(e)) => Ok(m.conference_identity.as_ref() == Some(&e.id)),
@@ -87,7 +123,16 @@ pub(super) fn mapped(
         Err(Error::Policy) => return Ok(false),
         Err(e) => return Err(e),
     };
+    if !access_mapping(c, &e, conference)? {
+        return Ok(false);
+    }
     Ok(c.query_row("SELECT EXISTS(SELECT 1 FROM circuitnet_catalog_choices WHERE network=?1 AND identity=?2 AND decision='mapped' AND conference_id=?3)",params![n.as_str(),e.id,conference],|r|r.get(0))?)
+}
+pub(super) fn access_mapping(c: &Connection, e: &Entry, conference: i64) -> Result<bool, Error> {
+    if e.access == Access::Public {
+        return Ok(true);
+    }
+    Ok(c.query_row("SELECT EXISTS(SELECT 1 FROM message_conferences WHERE conference_id=?1 AND read_security=9999 AND post_security=9999)",[conference],|r|r.get(0))?)
 }
 pub(super) fn bind_dossier(
     c: &Connection,
@@ -135,7 +180,7 @@ impl RuntimeDatabase {
         let old = self.circuitnet_catalog_current(n)?;
         let body = Body {
             format: "circuitnet-ng-catalog".into(),
-            schema: 1,
+            schema: old.as_ref().map_or(1, |s| s.body.schema),
             network: n.clone(),
             catalog_id: a.catalog_id,
             revision: status.revision + 1,
@@ -315,6 +360,10 @@ impl RuntimeDatabase {
             params![a.network.as_str(), serde_json::to_string(a)?],
         )?;
         tx.execute(
+            "INSERT INTO circuitnet_catalog_keys VALUES(?1,1,1,?2,NULL,?3)",
+            params![a.network.as_str(), serde_json::to_string(a)?, now],
+        )?;
+        tx.execute(
             "INSERT INTO circuitnet_catalog_health(network) VALUES(?1)",
             [a.network.as_str()],
         )?;
@@ -355,7 +404,7 @@ impl RuntimeDatabase {
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)?;
             let a = authority(&tx, n)?.ok_or(Error::Policy)?;
-            s.verify(&a)?;
+            s.verify(&keys::authority_at(&tx, n, s.body.revision)?.unwrap_or(a))?;
             let old = current(&tx, n)?;
             if !s.follows(old.as_ref())? {
                 return Ok(false);
@@ -457,6 +506,9 @@ impl RuntimeDatabase {
             let (mut decision,conference)=choice.unwrap_or(("available".into(),None));
             if entry.status==Lifecycle::Retired {decision="retired".into()}
             else if entry.status==Lifecycle::Deprecated {decision="needs-attention".into()}
+            else if let Some(id)=conference {
+                if !access_mapping(&self.connection,&entry,id)? {decision="needs-attention".into()}
+            }
             Ok(LocalEntry{entry,decision,conference})
         }).collect()
     }
@@ -518,7 +570,7 @@ impl RuntimeDatabase {
             .ok_or(Error::Policy)?;
         if let Some(mid) = conference {
             let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM message_conferences WHERE conference_id=?1 AND active=1 AND public_only=1)",[mid],|r|r.get(0))?;
-            if !valid {
+            if !valid || !access_mapping(&tx, e, mid)? {
                 return Err(Error::Policy);
             }
             // Historical per-generation choices remain; only the live routing projection changes.
@@ -561,11 +613,13 @@ impl RuntimeDatabase {
         definition: &crate::ConferenceDefinition,
         now: i64,
     ) -> Result<i64, Error> {
-        if !self
-            .circuitnet_catalog_entries(n)?
-            .iter()
-            .any(|e| e.entry.id == id && e.entry.status == Lifecycle::Active)
-            || !definition.public_only
+        if !self.circuitnet_catalog_entries(n)?.iter().any(|e| {
+            e.entry.id == id
+                && e.entry.status == Lifecycle::Active
+                && (e.entry.access == Access::Public
+                    || (definition.read_security.get() == 9999
+                        && definition.post_security.get() == 9999))
+        }) || !definition.public_only
         {
             return Err(Error::Policy);
         }
@@ -587,11 +641,15 @@ impl RuntimeDatabase {
             if a.network != n || p.topology.node(&a.publisher)?.role != Role::Root {
                 return Err(Error::Policy);
             }
+            keys::validate(&self.connection, &n, &a)?;
             let mut previous = None;
             let objects:Vec<(i64,String,String)>=self.connection.prepare("SELECT revision,hash,object FROM circuitnet_catalog_revisions WHERE network=?1 ORDER BY revision")?.query_map([n.as_str()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<Result<_,_>>()?;
             for (revision, hash, object) in objects {
                 let s = Signed::decode(object.as_bytes())?;
-                s.verify(&a)?;
+                s.verify(
+                    &keys::authority_at(&self.connection, &n, s.body.revision)?
+                        .unwrap_or(a.clone()),
+                )?;
                 s.follows(previous.as_ref())?;
                 if s.body.revision != revision as u64 || s.hash != hash {
                     return Err(Error::Conflict);

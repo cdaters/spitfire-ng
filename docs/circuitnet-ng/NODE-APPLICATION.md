@@ -1,10 +1,10 @@
-CircuitNET NG node application
-------------------------------
+# CircuitNET NG node application
 
-Check JOINING-INFO (JOININFO.TXT) for whether applications are open and where
+Check [JOINING-INFO](JOINING-INFO.md) for whether applications are open and where
 to send this form. Fields marked required are needed for a membership decision.
 Keep optional fields blank if they are not useful to your application.
 
+```
 Sysop name or handle (required):
 Preferred contact/email (required):
 BBS name (required):
@@ -23,9 +23,9 @@ Inbound CircuitNET connection possible: yes/no/unknown:
 Address families: IPv4/IPv6/both/unknown:
 Short BBS description:
 Fields you consent to publish (default: none):
+```
 
-DO NOT INCLUDE passwords, private keys, authentication tokens or session
-secrets. Certificate enrollment follows membership approval. A static IP is not
-required for an END that polls its HOST. A legal name or street address is not
-required. See APPLICATION-FIELDS (APPFIELDS.TXT) for the web-form
-field specification.
+DO NOT INCLUDE passwords, private keys, authentication tokens or session secrets.
+Certificate enrollment follows membership approval. A static IP is not required
+for an END that polls its HOST. A legal name or street address is not required.
+See [APPLICATION-FIELDS](APPLICATION-FIELDS.md) for the web-form field specification.
