@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 14;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 15;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -132,6 +132,7 @@ pub enum OperatorFeature {
     BinkpNetwork,
     Circuitnet,
     CircuitnetControls,
+    Events,
     Networks,
     FtnHub,
     FtnFiles,
@@ -179,6 +180,9 @@ impl OperatorFeature {
         if minor >= 14 {
             features.push(Self::CircuitnetControls);
         }
+        if minor >= 15 {
+            features.push(Self::Events);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -198,7 +202,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 26] = [
+    const ALL: [Self; 27] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -225,6 +229,7 @@ impl OperatorFeature {
         Self::FtnFiles,
         Self::Circuitnet,
         Self::CircuitnetControls,
+        Self::Events,
     ];
 }
 
@@ -1960,6 +1965,7 @@ mod server {
                     && *item != OperatorFeature::FtnHub
                     && *item != OperatorFeature::FtnFiles
                     && *item != OperatorFeature::BinkpNetwork
+                    && *item != OperatorFeature::Events
                     && *item != OperatorFeature::CircuitnetControls
                     && *item != OperatorFeature::Circuitnet
                     && (negotiated_minor > 0 || OperatorFeature::BASELINE.contains(item))
@@ -3269,6 +3275,7 @@ fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability])
         | OperatorFeature::BinkpNetwork
         | OperatorFeature::Circuitnet
         | OperatorFeature::CircuitnetControls
+        | OperatorFeature::Events
         | OperatorFeature::QwkNetwork
         | OperatorFeature::FtnNetwork => LocalOperatorCapability::NetworkStatus,
         OperatorFeature::Configuration => LocalOperatorCapability::ReadConfiguration,
@@ -4921,5 +4928,26 @@ mod tests {
                 .unwrap(),
             0
         );
+    }
+}
+
+#[cfg(test)]
+mod event_feature_tests {
+    use super::*;
+    #[test]
+    fn events_require_minor_15_and_distinct_run_configuration_permissions() {
+        assert!(!OperatorFeature::controls_for_minor(14).contains(&OperatorFeature::Events));
+        assert!(OperatorFeature::controls_for_minor(15).contains(&OperatorFeature::Events));
+        let command = crate::events::Command::Run {
+            id: "event-a".into(),
+            expected: 1,
+        };
+        assert_eq!(command.capability(), LocalOperatorCapability::NetworkRun);
+        let action = crate::NetworkAction::Event { request: command };
+        assert_eq!(action.feature(), OperatorFeature::Events);
+        assert!(serde_json::from_str::<crate::events::Command>(
+            r#"{"operation":"shell","command":"anything"}"#
+        )
+        .is_err());
     }
 }

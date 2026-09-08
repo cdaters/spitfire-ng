@@ -18,6 +18,8 @@ pub enum ApplicationError {
     #[error(transparent)]
     CircuitNet(#[from] sf_core::circuitnet::Error),
     #[error(transparent)]
+    Events(#[from] sf_core::events::Error),
+    #[error(transparent)]
     Ftn(#[from] sf_core::ftn::Error),
     #[error("file-network operation failed")]
     FtnFiles(#[from] sf_core::ftn::files::FileNetworkError),

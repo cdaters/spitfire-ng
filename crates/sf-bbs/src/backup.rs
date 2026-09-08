@@ -597,6 +597,13 @@ fn stage_restored_board(
             })?;
     }
 
+    if restored_database.schema_version()? >= 32 {
+        restored_database
+            .event_recover(chrono::Utc::now().timestamp())
+            .map_err(|_| {
+                BoardBackupError::ResourceValidation("Event restore reconciliation failed".into())
+            })?;
+    }
     if restored_database.schema_version()? >= 29 {
         restored_database.hold_restored_circuitnet().map_err(|_| {
             BoardBackupError::ResourceValidation(
@@ -1398,6 +1405,8 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
+        // Synthetic old backups must not accidentally retain schema-32 authority.
+        connection.execute_batch("DROP TRIGGER IF EXISTS native_message_preparation; DROP TRIGGER IF EXISTS network_queue_activity; DROP TRIGGER IF EXISTS circuitnet_control_activity; DROP TRIGGER IF EXISTS ftn_file_activity_wakeup; DROP TABLE IF EXISTS scheduled_event_history; DROP TABLE IF EXISTS scheduled_events; DROP TABLE IF EXISTS network_preparation;").unwrap();
         if connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=28)",
@@ -2604,6 +2613,47 @@ CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,l
             .events
             .is_empty());
         assert!(database.notifications(true, 100).unwrap().is_empty());
+    }
+
+    #[test]
+    fn schema_32_backup_clears_abandoned_event_authority_before_restart() {
+        use sf_core::events::*;
+        let temp = tempfile::tempdir().unwrap();
+        let root = installed_board(temp.path(), "events");
+        let config = root.join(BOARD_CONFIG_FILE);
+        let cfg = RuntimeConfig::load(&config).unwrap();
+        let paths = LogicalPaths::resolve(&root, &cfg.validate().unwrap()).unwrap();
+        let mut db = RuntimeDatabase::open(paths.database()).unwrap();
+        let d = Definition {
+            id: "event-a".into(),
+            name: "Backup recovery fixture".into(),
+            enabled: true,
+            action: Action::Binkp {
+                link: "synthetic".into(),
+            },
+            schedule: Schedule::Manual,
+            timezone: "UTC".into(),
+            policy: ExchangePolicy::Manual,
+            missed: MissedPolicy::RunOnce,
+            minimum_spacing_seconds: 5,
+        };
+        db.event_save(&d, 0, 100).unwrap();
+        db.event_run_now(&d.id, 1).unwrap();
+        let claim = db.event_claim(&d.id, 100, 1).unwrap().unwrap();
+        drop(db);
+        let backup = temp.path().join("backup");
+        backup_board(&config, &backup).unwrap();
+        let target = temp.path().join("restored");
+        restore_board(&backup, &target, false).unwrap();
+        let mut db = restored_database(&target);
+        let status = &db.events().unwrap()[0];
+        assert_eq!(status.definition, d);
+        assert!(!status.running);
+        assert_eq!(status.last_result.as_deref(), Some("interrupted"));
+        assert_eq!(db.event_history(&d.id).unwrap()[0].action, d.action);
+        assert!(db
+            .event_complete(&claim.run, Outcome::Succeeded, 1, 101)
+            .is_err());
     }
 
     #[test]

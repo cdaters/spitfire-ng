@@ -1,0 +1,26 @@
+{
+  "network": "circuitnet-example",
+  "display_name": "Synthetic CircuitNET Example",
+  "local": "END1",
+  "enabled": false,
+  "trusted_offline": false,
+  "topology": {
+    "nodes": [
+      {
+        "id": "ROOT1",
+        "role": "ROOT",
+        "parent": null
+      },
+      {
+        "id": "HOST1",
+        "role": "HOST",
+        "parent": "ROOT1"
+      },
+      {
+        "id": "END1",
+        "role": "END",
+        "parent": "HOST1"
+      }
+    ]
+  }
+}

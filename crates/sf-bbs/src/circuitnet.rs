@@ -91,6 +91,7 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
             | "deny"
             | "control-policy"
             | "control-retry"
+            | "why"
             | "route-test"
             | "direct"
     ) {
@@ -102,6 +103,13 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
     let run_cap = LocalOperatorCapability::NetworkRun;
     let read_cap = LocalOperatorCapability::ReadConfiguration;
     match (*action, rest) {
+        ("stage-direct", [message, destination]) => {
+            let message = message.parse::<i64>().map_err(|_| usage())?;
+            let destination = codec(NodeId::new(destination))?;
+            authority.circuitnet(config_cap, |db, _, _| {
+                db.circuitnet_direct(&network, message, &destination, now)
+            })?;
+        }
         ("identity", [certificate, key]) => {
             let certificate = read(certificate)?;
             let secret = read(key)?;
@@ -375,6 +383,16 @@ fn live_command(
             .ok_or_else(usage)?;
         if action == "live-status" && rest.len() <= 1 {
             return serde_json::to_string_pretty(status).map_err(|_| usage());
+        }
+        if action == "why" {
+            let [node]=rest else{return Err(usage());};
+            let peer=status.peers.iter().find(|p|p.node.as_str()==*node).ok_or_else(usage)?;
+            let explanation=if !status.enabled||!peer.enabled||!peer.outbound {"disabled"}
+                else if peer.held {"held"}else if peer.active {"running"}
+                else if peer.health.as_ref().is_some_and(|h|h.result!="ok") {"check-peer-health"}
+                else if peer.queued==0 {"no-queued-work-check-mapping-send-dossier-or-completed"}
+                else if peer.next_exchange.is_some(){"awaiting-scheduled-exchange"}else{"check-immediate-event-or-poll-manually"};
+            return serde_json::to_string_pretty(&serde_json::json!({"network":network,"node":peer.node,"reason":explanation,"queued":peer.queued,"next_exchange":peer.next_exchange,"dossiers":peer.dossiers,"last_result":peer.health.as_ref().map(|h|h.result.as_str()),"pending_remote_approvals":status.pending_approvals})).map_err(|_|usage());
         }
         if action == "route-test" {
             let [destination] = rest else {

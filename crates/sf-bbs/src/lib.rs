@@ -108,6 +108,9 @@ where
 
 fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
     match arguments.as_slice() {
+        [command, config, rest @ ..] if command == "events" => {
+            events::run(&PathBuf::from(config), rest)
+        }
         [command, config, rest @ ..] if command == "circuitnet" => {
             circuitnet::run(&PathBuf::from(config), rest)
         }
@@ -742,3 +745,5 @@ mod tests {
 pub mod binkp;
 pub mod ftn;
 pub mod networks;
+
+pub mod events;

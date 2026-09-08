@@ -17,6 +17,10 @@ pub const NETWORKS_MINOR: u16 = 12;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     #[serde(default)]
+    pub events: Vec<sf_core::events::Status>,
+    #[serde(default)]
+    pub event_history: Vec<sf_core::events::History>,
+    #[serde(default)]
     pub circuitnet: Vec<crate::circuitnet_live::Status>,
     pub page: ftn::NetworkPage,
     pub ftn: ftn::Policy,
@@ -35,6 +39,16 @@ pub(crate) fn snapshot(
     let mut db = RuntimeDatabase::open_read_only(runtime.database_path())?;
     db.bind_posting_identity_configuration(&config);
     let mut result = Snapshot {
+        events: db.events()?,
+        event_history: if query.section == ftn::NetworkSection::Events {
+            db.events()?
+                .get(query.offset as usize)
+                .map(|e| db.event_history(&e.definition.id))
+                .transpose()?
+                .unwrap_or_default()
+        } else {
+            vec![]
+        },
         circuitnet: crate::circuitnet_live::status(runtime, query.offset)?,
         page: db.network_page(query)?,
         ftn: config.ftn,

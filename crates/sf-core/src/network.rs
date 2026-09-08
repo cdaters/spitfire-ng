@@ -1070,7 +1070,7 @@ impl RuntimeDatabase {
             },
             kind: MessageKind::Standard,
         };
-        self.post_message_fanout(actor, message, &[], Some(receipt))?;
+        self.post_message_fanout(actor, message, &[], Some(receipt), None)?;
         Ok(true)
     }
 }

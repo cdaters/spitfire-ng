@@ -167,7 +167,7 @@ CircuitNET history/intent rows and the existing 512 MiB artifact budget with a
 20,000-file ceiling. Scanner pages contain at most 100 candidates, with a command
 ceiling of 100 pages. Queue inspection pages contain at most 100 entries.
 Preparation fits both the 32-message and encoded-byte ceilings and finishes an
-outstanding offer before adding newer traffic. No automatic scheduler or pruning.
+outstanding offer before adding newer traffic. C5 adds a generic [Event scheduler](events.md); pruning remains separate.
 
 Input is explicitly UTF-8. Native payloads tagged CP437 are decoded using the
 existing exact CP437 table at this named export boundary; existing UTF-8 is
@@ -255,3 +255,11 @@ then performs bounded traversal to return its unique path. Native publication
 uses just the second node, or no hop for self. Import verifies that the arriving
 origin/path/local prefix belongs to the same complete destination route. No route
 learning, peer mesh, subscription inference or broadcast fallback is permitted.
+
+
+C5 records native preparation work at message commit and consumes it independently
+of Event exchange times. `post_directed_circuitnet` fixes typed destination intent
+inside the native posting transaction. The [Events contract](events.md) defines
+outbound initiation, bounded finite-session continuation, pending-control polling,
+and restore authority. The [operator manual](../manual/events.md) explains policy
+selection and safe troubleshooting. No CircuitNET wire change is needed.

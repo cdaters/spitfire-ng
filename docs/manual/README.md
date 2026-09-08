@@ -5,7 +5,7 @@ Current source implements N1–N6 networking and [N7 FTN file networking](ftn-fi
 
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 28)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 32)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >
@@ -187,3 +187,7 @@ See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority a
 See the [account and posting identity contract](../technical/identity-policy.md) for schema 28 name privacy and sender stability.
 
 - [CircuitNET offline conferences](circuitnet.md) — C2 development/offline public-conference exchange.
+
+## C5 Events and CircuitNET operations
+
+[Events](events.md) explains queue preparation, exchange policies, Run Now and recovery. [CircuitNET role guides and distribution drafts](../circuitnet-ng/README.md) support END/HOST/ROOT operation.

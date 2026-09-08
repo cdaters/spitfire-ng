@@ -253,3 +253,13 @@ records. C4 has no caller directed-message composer or private-mail feature.
 Local/private BBS messages, where available, are restricted by BBS access controls;
 these restrictions do not imply end-to-end encryption. See the
 [CircuitNET guide](../manual/circuitnet.md#directed-does-not-mean-private).
+
+## When network messages travel
+
+Saving a message stores it on your BBS. The Sysop's network policy and Events decide
+when queued work is exchanged, so a successful save is not a delivery confirmation.
+CircuitNET transport is encrypted between configured nodes. Public conference
+messages are readable under each destination BBS's access rules after delivery;
+directed routing does not make them private. Local messages called private, where
+available, are restricted by BBS access controls unless a separate actual feature
+explicitly provides end-to-end encryption.

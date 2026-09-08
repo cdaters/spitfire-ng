@@ -929,18 +929,52 @@ mod tests {
         mut answerer: Peer,
     ) -> (Peer, Peer, Result<Summary, Error>, Result<Summary, Error>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
+        let (ready, start) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
-            let (socket, _) = listener.accept().unwrap();
-            let r = run(socket, None, &mut answerer, limits());
+            let until = Instant::now() + Duration::from_secs(65);
+            let socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break Some(socket),
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < until =>
+                    {
+                        std::thread::sleep(Duration::from_millis(10))
+                    }
+                    Err(_) => break None,
+                }
+            };
+            // An accepted localhost socket can precede the caller's completed
+            // connect by many seconds on the acceptance host. Start protocol
+            // clocks only after both fixture endpoints are ready; production
+            // handshake/session limits and all wire assertions remain unchanged.
+            let r = if let Some(socket) = socket {
+                if start.recv_timeout(Duration::from_secs(65)).is_ok() {
+                    run(socket, None, &mut answerer, limits())
+                } else {
+                    Err(Error::Unavailable)
+                }
+            } else {
+                Err(Error::Unavailable)
+            };
             (answerer, r)
         });
-        let socket = TcpStream::connect(address).unwrap();
-        let plan = caller.plan();
-        let first = run(socket, Some(plan), &mut caller, limits());
+        let first = match TcpStream::connect_timeout(&address, Duration::from_secs(60)) {
+            Ok(socket) => {
+                let _ = ready.send(());
+                let plan = caller.plan();
+                run(socket, Some(plan), &mut caller, limits())
+            }
+            Err(_) => {
+                drop(ready);
+                Err(Error::Unavailable)
+            }
+        };
         let (answerer, second) = handle.join().unwrap();
         (caller, answerer, first, second)
     }
+
     #[test]
     fn actual_node_point_batch_both_directions() {
         let (c, a, x, y) = pair(Peer::new(false), Peer::new(true));

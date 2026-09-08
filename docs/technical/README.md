@@ -263,3 +263,7 @@ See [FileEcho, TIC, hatching and FREQ](ftn-files.md) for implemented authority a
 See the [account and posting identity contract](identity-policy.md) for schema 28 name privacy and sender stability.
 
 - [CircuitNET native adapter](circuitnet.md) — C2 development/offline public-conference exchange.
+
+## C5 Events and CircuitNET operations
+
+[Native Events](events.md) defines scheduler authority, clocks, concurrency, lifecycle and networking integration. [Future shared Files obligations](files-future.md) records the separate archive/scanner design gate.

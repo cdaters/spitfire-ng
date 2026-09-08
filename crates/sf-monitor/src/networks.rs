@@ -29,6 +29,40 @@ use sf_core::{
 fn t(k: &str) -> String {
     sf_core::text(k, &LocalizationArgs::new())
 }
+fn event_policy(policy: sf_core::events::ExchangePolicy) -> String {
+    use sf_core::events::ExchangePolicy as P;
+    t(match policy {
+        P::Immediate => "events-immediate",
+        P::Scheduled => "events-scheduled",
+        P::Manual => "events-manual",
+        P::Hybrid => "events-hybrid",
+    })
+}
+fn event_action(action: &sf_core::events::Action) -> String {
+    match action {
+        sf_core::events::Action::Circuitnet { network, node } => format!(
+            "CircuitNET / {network} / {}",
+            node.as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| t("events-all-peers"))
+        ),
+        sf_core::events::Action::Binkp { link } => format!("BinkP / {link}"),
+    }
+}
+fn event_schedule(schedule: &sf_core::events::Schedule) -> String {
+    use sf_core::events::Schedule as S;
+    match schedule {
+        S::Manual => t("events-manual"),
+        S::Interval { seconds } => {
+            format!("{} {seconds} {}", t("events-every"), t("events-seconds"))
+        }
+        S::Daily { hour, minute, days } => format!(
+            "{} {hour:02}:{minute:02} / {} {days:?}",
+            t("events-daily"),
+            t("events-days")
+        ),
+    }
+}
 fn safe(s: impl ToString) -> String {
     s.to_string()
         .chars()
@@ -148,6 +182,28 @@ pub fn key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -> b
         return true;
     }
     match key.code {
+        KeyCode::Char('e') => {
+            model.networks.query = NetworkQuery {
+                section: Section::Events,
+                offset: 0,
+            };
+            request(model, worker);
+        }
+        KeyCode::Char('r') if model.networks.query.section == Section::Events => {
+            if let Some(event) = model
+                .snapshot
+                .networks
+                .as_ref()
+                .and_then(|s| s.events.get(model.networks.selected))
+            {
+                model.networks.pending = Some(NetworkAction::Event {
+                    request: sf_bbs::events::Command::Run {
+                        id: event.definition.id.clone(),
+                        expected: event.version,
+                    },
+                });
+            }
+        }
         KeyCode::Char('f') => request(model, worker),
         KeyCode::Char(c @ '1'..='9') => {
             model.networks.query = NetworkQuery {
@@ -407,6 +463,9 @@ fn rows(model: &MonitorModel) -> Vec<String> {
         return vec![t("sfmonitor-loading")];
     }
     match model.networks.query.section {
+        Section::Events => s.events.iter().map(|e|format!("{} / {} / {}: {} / {}: {}", e.definition.name,
+            if e.running {t("events-running")}else if !e.definition.enabled{t("events-disabled")}else{e.last_result.as_ref().map(|r|t(&format!("events-result-{r}"))).unwrap_or_else(||"—".into())},
+            t("events-next"),time(e.next_due),t("events-last"),time(e.last_completed))).collect(),
         Section::Circuitnet => s.circuitnet.iter().flat_map(|n| {
             let mut lines=vec![format!("{} / {} / {:?} | {}: {} | {}: {}",n.network,n.local,n.role,t("circuitnet-listener"),n.listening,t("circuitnet-authentication"),n.credential)];
             lines.extend(n.peers.iter().map(|p|format!("{} {:?} / {}:{} | {}: {} | {}: {} | {}: {} | {}: {} | {}: {} | {}",
@@ -718,6 +777,33 @@ fn details(model: &MonitorModel) -> Vec<String> {
         ];
     }
     match model.networks.query.section {
+        Section::Events => s
+            .events
+            .get(i)
+            .map(|e| {
+                vec![
+                    e.definition.name.clone(),
+                    format!(
+                        "{}: {}",
+                        t("events-action"),
+                        event_action(&e.definition.action)
+                    ),
+                    format!(
+                        "{}: {} / {}",
+                        t("events-schedule"),
+                        event_schedule(&e.definition.schedule),
+                        e.definition.timezone
+                    ),
+                    format!(
+                        "{}: {}",
+                        t("events-policy"),
+                        event_policy(e.definition.policy)
+                    ),
+                    format!("{}: {}", t("events-failures"), e.failures),
+                    t("events-keys"),
+                ]
+            })
+            .unwrap_or_default(),
         Section::Circuitnet => {
             let mut index = i;
             for n in &s.circuitnet {
@@ -769,6 +855,7 @@ fn details(model: &MonitorModel) -> Vec<String> {
                             t("circuitnet-last-contact"),
                             time(p.health.as_ref().and_then(|h| h.last_success))
                         ),
+                        format!("{}: {}", t("events-next"), time(p.next_exchange)),
                     ];
                 }
                 index = index.saturating_sub(n.peers.len());
@@ -1035,6 +1122,8 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, model: &MonitorModel) {
             .map(safe)
             .collect::<Vec<_>>()
             .join("\n")
+    } else if model.networks.query.section == Section::Events {
+        t("events-keys")
     } else if model.networks.query.section == Section::Circuitnet {
         t("circuitnet-keys")
     } else {

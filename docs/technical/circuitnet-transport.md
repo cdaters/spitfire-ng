@@ -235,3 +235,13 @@ Directed routing selects one destination and does not provide private messaging.
 Intermediate HOST/ROOT operators may access retained native transit records.
 Local/private BBS messages are restricted by BBS access controls unless a separate,
 explicit feature supplies end-to-end encryption. C4 supplies no E2EE capability.
+
+
+## C5 invocation policy
+
+Generic [SPITFIRE Events](events.md) may initiate the existing finite Poll session.
+Wire **1.2 and its capabilities remain unchanged**. Queue preparation is independent
+of Event recurrence, and incoming symmetric Polls remain allowed by peer policy even
+when outbound initiation is scheduled/manual. Role is independent of TCP direction.
+TLS protects transport in transit; it does not encrypt conference content end-to-end
+or make directed traffic private after delivery.

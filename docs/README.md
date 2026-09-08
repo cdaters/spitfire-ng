@@ -247,3 +247,7 @@ See the [identity contract](technical/identity-policy.md), [caller instructions]
 - [TCP/TLS wire specification](technical/circuitnet-transport.md)
 
 - [C4 directed routing and remote Dossier controls](research/m066-circuitnet-directed-routing-controls.md) — Rights-safe implementation and acceptance summary.
+
+## C5 Events and CircuitNET operations
+
+[Events manual](manual/events.md), [scheduler contract](technical/events.md), [historical Event dossier](research/m067-spitfire-events-network-scheduling.md) and [CircuitNET distribution drafts](circuitnet-ng/README.md) describe C5.

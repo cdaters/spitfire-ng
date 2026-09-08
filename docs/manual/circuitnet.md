@@ -440,3 +440,23 @@ can be inspected with the cold `control-history NETWORK [AFTER_REQUEST_ID]` comm
 Offline C2 conference exchange also carries directed metadata under its existing
 explicit trusted-custody rule. Remote Dossier controls require live authenticated
 links in C4; offline files do not establish the TLS identity used for authorization.
+
+## Events and role-based operation
+
+C5 adds a generic daemon-owned [Events subsystem](events.md). Native commits record
+durable preparation work promptly; recurring Events control outbound exchange time.
+Choose Immediate, Scheduled, Manual/Poll Only or Hybrid deliberately. No Event is
+created on an existing board automatically. An incoming authenticated Poll may still
+exchange mail; outbound scheduling is distinct from holding a link.
+
+The [END](../circuitnet-ng/END-NODE.md), [HOST](../circuitnet-ng/HOST-NODE.md) and
+[ROOT](../circuitnet-ng/ROOT-NODE.md) guides cover setup, upstream/child relationships,
+Dossiers, approval, route tests, hold/release and unattended operation.
+`sfconfig circuitnet BOARD why PROFILE NODE` explains safe link state;
+`live-status` includes next scheduled exchange. Follow the
+[why-mail-did-not-move checklist](events.md#why-didnt-this-message-move) when queues
+and connection timing disagree.
+
+The [distribution foundation](../circuitnet-ng/README.md) contains separate modern
+Charter, rules and conference proposals for review. It does not adopt governance,
+create conferences, ship proprietary historical documents, or add file networking.

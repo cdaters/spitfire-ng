@@ -1,0 +1,644 @@
+{
+  "status": "proposal-only",
+  "conferences": [
+    {
+      "historical_codename": "SUPPORT",
+      "historical_name": "CircuitNet Support",
+      "disposition": "Preserve",
+      "proposed_codename": "SUPPORT",
+      "proposed_display_name": "CircuitNet Support",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "SYSOP",
+      "historical_name": "National Sysop Echo",
+      "disposition": "Rename",
+      "proposed_codename": "SYSOP",
+      "proposed_display_name": "Network Sysops",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "SPITFIRE",
+      "historical_name": "Spitfire Support",
+      "disposition": "Replace",
+      "proposed_codename": "SPITFIRE",
+      "proposed_display_name": "SPITFIRE NG Support",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "DOORS",
+      "historical_name": "Doors/3rd Party Authors",
+      "disposition": "Preserve",
+      "proposed_codename": "DOORS",
+      "proposed_display_name": "Doors/3rd Party Authors",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "CHITCHAT",
+      "historical_name": "National Chit-Chat",
+      "disposition": "Rename",
+      "proposed_codename": "CHITCHAT",
+      "proposed_display_name": "General Chit-Chat",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "MUSIC",
+      "historical_name": "Music",
+      "disposition": "Preserve",
+      "proposed_codename": "MUSIC",
+      "proposed_display_name": "Music",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "DEBATE",
+      "historical_name": "Debate",
+      "disposition": "Undecided",
+      "proposed_codename": "DEBATE",
+      "proposed_display_name": "Debate",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "RELIGION",
+      "historical_name": "Religion",
+      "disposition": "Undecided",
+      "proposed_codename": "RELIGION",
+      "proposed_display_name": "Religion",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "PHENOM",
+      "historical_name": "Phenomena",
+      "disposition": "Undecided",
+      "proposed_codename": "PHENOM",
+      "proposed_display_name": "Phenomena",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "EVENTS",
+      "historical_name": "National & International Events",
+      "disposition": "Rename",
+      "proposed_codename": "EVENTS",
+      "proposed_display_name": "Current Events",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "COMM",
+      "historical_name": "Communications",
+      "disposition": "Replace",
+      "proposed_codename": "COMM",
+      "proposed_display_name": "Networking",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "LEGAL",
+      "historical_name": "Legal",
+      "disposition": "Undecided",
+      "proposed_codename": "LEGAL",
+      "proposed_display_name": "Legal",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "HARDWARE",
+      "historical_name": "Hardware Help",
+      "disposition": "Preserve",
+      "proposed_codename": "HARDWARE",
+      "proposed_display_name": "Hardware Help",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "SOFTWARE",
+      "historical_name": "Software Help",
+      "disposition": "Preserve",
+      "proposed_codename": "SOFTWARE",
+      "proposed_display_name": "Software Help",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "WANTADS",
+      "historical_name": "Wanted and For Sale",
+      "disposition": "Undecided",
+      "proposed_codename": "WANTADS",
+      "proposed_display_name": "Wanted and For Sale",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "TECH",
+      "historical_name": "Electronics/Technology",
+      "disposition": "Preserve",
+      "proposed_codename": "TECH",
+      "proposed_display_name": "Electronics/Technology",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "ENVIRON",
+      "historical_name": "The Environment",
+      "disposition": "Preserve",
+      "proposed_codename": "ENVIRON",
+      "proposed_display_name": "The Environment",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "OUTDOORS",
+      "historical_name": "Outdoors & Travel",
+      "disposition": "Preserve",
+      "proposed_codename": "OUTDOORS",
+      "proposed_display_name": "Outdoors & Travel",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "GAMES",
+      "historical_name": "Games - PC or Online",
+      "disposition": "Rename",
+      "proposed_codename": "GAMES",
+      "proposed_display_name": "Games",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "SCIENCE",
+      "historical_name": "Science",
+      "disposition": "Preserve",
+      "proposed_codename": "SCIENCE",
+      "proposed_display_name": "Science",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "FIREARMS",
+      "historical_name": "Firearms",
+      "disposition": "Undecided",
+      "proposed_codename": "FIREARMS",
+      "proposed_display_name": "Firearms",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "SPORTS",
+      "historical_name": "Sports",
+      "disposition": "Preserve",
+      "proposed_codename": "SPORTS",
+      "proposed_display_name": "Sports",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "BUSINESS",
+      "historical_name": "Business & Finance",
+      "disposition": "Undecided",
+      "proposed_codename": "BUSINESS",
+      "proposed_display_name": "Business & Finance",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "BBSADS",
+      "historical_name": "BBS Ads",
+      "disposition": "Preserve",
+      "proposed_codename": "BBSADS",
+      "proposed_display_name": "BBS Ads",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "MILITARY",
+      "historical_name": "Military - Past & Present",
+      "disposition": "Preserve",
+      "proposed_codename": "MILITARY",
+      "proposed_display_name": "Military - Past & Present",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "NEWUSERS",
+      "historical_name": "New User Questions",
+      "disposition": "Preserve",
+      "proposed_codename": "NEWUSERS",
+      "proposed_display_name": "New User Questions",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "OPSYSTEM",
+      "historical_name": "Operating Systems",
+      "disposition": "Preserve",
+      "proposed_codename": "OPSYSTEM",
+      "proposed_display_name": "Operating Systems",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "CONSUMER",
+      "historical_name": "Consumer Discussions",
+      "disposition": "Merge",
+      "proposed_codename": "CHITCHAT",
+      "proposed_display_name": "Consumer Discussions",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "LAN",
+      "historical_name": "Local Area Networking",
+      "disposition": "Merge",
+      "proposed_codename": "COMM",
+      "proposed_display_name": "Local Area Networking",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "PETS",
+      "historical_name": "Pets",
+      "disposition": "Preserve",
+      "proposed_codename": "PETS",
+      "proposed_display_name": "Pets",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "MULTTASK",
+      "historical_name": "Multi-task Support",
+      "disposition": "Merge",
+      "proposed_codename": "OPSYSTEM",
+      "proposed_display_name": "Multi-task Support",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "MEDICAL",
+      "historical_name": "Medical",
+      "disposition": "Undecided",
+      "proposed_codename": "MEDICAL",
+      "proposed_display_name": "Medical",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "TEENCHAT",
+      "historical_name": "Teen Chat",
+      "disposition": "Undecided",
+      "proposed_codename": "TEENCHAT",
+      "proposed_display_name": "Teen Chat",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "CHESS",
+      "historical_name": "CircuitNET Chess",
+      "disposition": "Preserve",
+      "proposed_codename": "CHESS",
+      "proposed_display_name": "CircuitNET Chess",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "WRITERS",
+      "historical_name": "Writers - Fiction & Non-Fiction",
+      "disposition": "Preserve",
+      "proposed_codename": "WRITERS",
+      "proposed_display_name": "Writers - Fiction & Non-Fiction",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "HAMRADIO",
+      "historical_name": "HAM Radio",
+      "disposition": "Preserve",
+      "proposed_codename": "HAMRADIO",
+      "proposed_display_name": "HAM Radio",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "PASCAL",
+      "historical_name": "Pascal Programming",
+      "disposition": "Preserve",
+      "proposed_codename": "PASCAL",
+      "proposed_display_name": "Pascal Programming",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "ASM",
+      "historical_name": "Assembly Programming",
+      "disposition": "Preserve",
+      "proposed_codename": "ASM",
+      "proposed_display_name": "Assembly Programming",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "BASIC",
+      "historical_name": "Basic Programming",
+      "disposition": "Preserve",
+      "proposed_codename": "BASIC",
+      "proposed_display_name": "Basic Programming",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "C",
+      "historical_name": "C Programming",
+      "disposition": "Preserve",
+      "proposed_codename": "C",
+      "proposed_display_name": "C Programming",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "SPACE",
+      "historical_name": "Space & Space Technology",
+      "disposition": "Preserve",
+      "proposed_codename": "SPACE",
+      "proposed_display_name": "Space & Space Technology",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "ANSI",
+      "historical_name": "ANSI Graphics",
+      "disposition": "Rename",
+      "proposed_codename": "ANSI",
+      "proposed_display_name": "ANSI and Text Art",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "AVIATION",
+      "historical_name": "Aviation",
+      "disposition": "Preserve",
+      "proposed_codename": "AVIATION",
+      "proposed_display_name": "Aviation",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "BOOKS",
+      "historical_name": "Books",
+      "disposition": "Preserve",
+      "proposed_codename": "BOOKS",
+      "proposed_display_name": "Books",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "BROADCST",
+      "historical_name": "Broadcasting",
+      "disposition": "Replace",
+      "proposed_codename": "BROADCST",
+      "proposed_display_name": "Broadcasting and Digital Media",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "COOKING",
+      "historical_name": "Cooking",
+      "disposition": "Preserve",
+      "proposed_codename": "COOKING",
+      "proposed_display_name": "Cooking",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "CARS",
+      "historical_name": "Cars & Restoration",
+      "disposition": "Preserve",
+      "proposed_codename": "CARS",
+      "proposed_display_name": "Cars & Restoration",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "COLLECT",
+      "historical_name": "Collector's Corner",
+      "disposition": "Preserve",
+      "proposed_codename": "COLLECT",
+      "proposed_display_name": "Collector's Corner",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "FIRE",
+      "historical_name": "Fire/EMS",
+      "disposition": "Undecided",
+      "proposed_codename": "FIRE",
+      "proposed_display_name": "Fire/EMS",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "GENEOL",
+      "historical_name": "Geneology",
+      "disposition": "Rename",
+      "proposed_codename": "GENEOL",
+      "proposed_display_name": "Genealogy",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "HOBBIES",
+      "historical_name": "Hobbies",
+      "disposition": "Preserve",
+      "proposed_codename": "HOBBIES",
+      "proposed_display_name": "Hobbies",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "MOVIES",
+      "historical_name": "Movies",
+      "disposition": "Preserve",
+      "proposed_codename": "MOVIES",
+      "proposed_display_name": "Movies",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "PHILOS",
+      "historical_name": "Philosophy",
+      "disposition": "Preserve",
+      "proposed_codename": "PHILOS",
+      "proposed_display_name": "Philosophy",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "SCIFI",
+      "historical_name": "Science Fiction",
+      "disposition": "Preserve",
+      "proposed_codename": "SCIFI",
+      "proposed_display_name": "Science Fiction",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "SRCTZN",
+      "historical_name": "Senior Citizens",
+      "disposition": "Undecided",
+      "proposed_codename": "SRCTZN",
+      "proposed_display_name": "Senior Citizens",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "VIRUS",
+      "historical_name": "Virus's",
+      "disposition": "Replace",
+      "proposed_codename": "VIRUS",
+      "proposed_display_name": "Security",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "WOMEN",
+      "historical_name": "Women Only",
+      "disposition": "Undecided",
+      "proposed_codename": "WOMEN",
+      "proposed_display_name": "Women Only",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "PSA",
+      "historical_name": "Public Service Announcements",
+      "disposition": "Preserve",
+      "proposed_codename": "PSA",
+      "proposed_display_name": "Public Service Announcements",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "ADLTHUMR",
+      "historical_name": "Adult Jokes & Humor",
+      "disposition": "Undecided",
+      "proposed_codename": "ADLTHUMR",
+      "proposed_display_name": "Adult Jokes & Humor",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "FAMLHUMR",
+      "historical_name": "Family Jokes & Humor",
+      "disposition": "Preserve",
+      "proposed_codename": "FAMLHUMR",
+      "proposed_display_name": "Family Jokes & Humor",
+      "review_status": "proposal-only",
+      "rationale": "Retain historical identity with current moderation and access review."
+    },
+    {
+      "historical_codename": "SAUDI",
+      "historical_name": "Operation Desert Shield",
+      "disposition": "Archive/Historical",
+      "proposed_codename": "SAUDI",
+      "proposed_display_name": "Operation Desert Shield",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "SPREAD",
+      "historical_name": "Spreadsheet Support",
+      "disposition": "Archive/Historical",
+      "proposed_codename": "SPREAD",
+      "proposed_display_name": "Spreadsheet Support",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "WORD",
+      "historical_name": "Word Processing",
+      "disposition": "Archive/Historical",
+      "proposed_codename": "WORD",
+      "proposed_display_name": "Word Processing",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "MYCROFT",
+      "historical_name": "Mycroft Doors Support",
+      "disposition": "Archive/Historical",
+      "proposed_codename": "MYCROFT",
+      "proposed_display_name": "Mycroft Doors Support",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": "HUMOR",
+      "historical_name": "Jokes & Humor",
+      "disposition": "Archive/Historical",
+      "proposed_codename": "HUMOR",
+      "proposed_display_name": "Jokes & Humor",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": null,
+      "historical_name": "Bicycling",
+      "disposition": "Archive/Historical",
+      "proposed_codename": null,
+      "proposed_display_name": "Bicycling",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": null,
+      "historical_name": "Comics",
+      "disposition": "Archive/Historical",
+      "proposed_codename": null,
+      "proposed_display_name": "Comics",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": null,
+      "historical_name": "Paradox",
+      "disposition": "Archive/Historical",
+      "proposed_codename": null,
+      "proposed_display_name": "Paradox",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": null,
+      "historical_name": "Procomm",
+      "disposition": "Archive/Historical",
+      "proposed_codename": null,
+      "proposed_display_name": "Procomm",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": null,
+      "historical_name": "Radio Controlled Airplanes",
+      "disposition": "Archive/Historical",
+      "proposed_codename": null,
+      "proposed_display_name": "Radio Controlled Airplanes",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    },
+    {
+      "historical_codename": null,
+      "historical_name": "Rocketry",
+      "disposition": "Archive/Historical",
+      "proposed_codename": null,
+      "proposed_display_name": "Rocketry",
+      "review_status": "proposal-only",
+      "rationale": "Review scope and participant needs before adoption."
+    }
+  ]
+}

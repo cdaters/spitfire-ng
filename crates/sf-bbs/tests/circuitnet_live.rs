@@ -180,6 +180,15 @@ fn actor(db: &RuntimeDatabase) -> MessageActor {
     MessageActor::new(caller.id, SecurityLevel::new(9999).unwrap())
 }
 fn post(b: &Board, tech: bool, subject: &str, parent: Option<u64>) -> Message {
+    post_selected(b, tech, subject, parent, None)
+}
+fn post_selected(
+    b: &Board,
+    tech: bool,
+    subject: &str,
+    parent: Option<u64>,
+    destination: Option<&str>,
+) -> Message {
     let mut db = db(b);
     let actor = actor(&db);
     let c = db
@@ -187,21 +196,28 @@ fn post(b: &Board, tech: bool, subject: &str, parent: Option<u64>) -> Message {
         .unwrap();
     let parent = parent.map(|n| db.message(actor, c.id, n).unwrap().id);
     let preview = db.preview_posting_identity(actor, c.id).unwrap();
-    db.post(
-        actor,
-        NewMessage {
-            identity_preview: Some(preview),
-            conference_id: c.id,
-            recipient_caller_id: None,
-            recipient_name: "All Callers".into(),
-            subject: subject.as_bytes().to_vec(),
-            body: b"Independently authored synthetic C2 traffic.\r\n".to_vec(),
-            created_at: 1788800000,
-            parent_message_id: parent,
-            visibility: MessageVisibility::Public,
-            kind: MessageKind::Standard,
-        },
-    )
+    let message = NewMessage {
+        identity_preview: Some(preview),
+        conference_id: c.id,
+        recipient_caller_id: None,
+        recipient_name: "All Callers".into(),
+        subject: subject.as_bytes().to_vec(),
+        body: b"Independently authored synthetic C2 traffic.\r\n".to_vec(),
+        created_at: 1788800000,
+        parent_message_id: parent,
+        visibility: MessageVisibility::Public,
+        kind: MessageKind::Standard,
+    };
+    if let Some(node) = destination {
+        db.post_directed_circuitnet(
+            actor,
+            message,
+            &network(),
+            &envelope::NodeId::new(node).unwrap(),
+        )
+    } else {
+        db.post(actor, message)
+    }
     .unwrap()
 }
 fn count(b: &Board, tech: bool) -> usize {
@@ -1012,9 +1028,7 @@ fn outcome(b: &Board, id: &str) -> sf_core::circuitnet::control::Outcome {
         .outcome
 }
 fn directed(from: &Board, to: &str, subject: &str) -> Message {
-    let m = post(from, false, subject, None);
-    run(from, "direct", &[&m.id.get().to_string(), to]);
-    m
+    post_selected(from, false, subject, None, Some(to))
 }
 fn assert_directed_path(boards: &[Board], subject: &str, path: &[&str]) {
     for b in boards {
@@ -1129,12 +1143,16 @@ fn six_node_c4_directed_controls_restart_restore_acceptance() {
     poll(e1, h1, false);
     assert_eq!(count(e1, false), 3);
     assert_directed_path(&boards, "Root directed", &["ROOT1", "HOST1", "END1"]);
+    stop(e1d, e1);
     let unknown = post(e1, false, "Unknown destination held locally", None);
-    assert!(
-        !command(e1, "direct", &[&unknown.id.get().to_string(), "UNKNOWN"])
-            .status
-            .success()
-    );
+    assert!(!command(
+        e1,
+        "stage-direct",
+        &[&unknown.id.get().to_string(), "UNKNOWN"]
+    )
+    .status
+    .success());
+    e1d = start(e1);
     poll(e1, h1, false);
     assert_eq!(status(e1).directed_failures, 1);
     // Independent TLS client loses ACK after intermediate durable acceptance.
@@ -1384,4 +1402,294 @@ fn six_node_c4_directed_controls_restart_restore_acceptance() {
     stop(e2d, e2);
     stop(e3d, e3);
     fs::write(root.join("acceptance.txt"),"PASS: six independent native daemons; mutual TLS; three directed routes; no fanout; unknown fail closed; intermediate/destination ACK loss and replay; remote approval/denial/policies; forged child rejected; pending/apply restart; uncertain sender restore; host control restore. Only disposable local boards; no external CircuitNET or production changes.\n").unwrap();
+}
+
+fn event_command(b: &Board, args: &[&str]) -> String {
+    let o = Command::new(env!("CARGO_BIN_EXE_spitfire"))
+        .arg("events")
+        .arg(&b.config)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        o.status.success(),
+        "Event command: {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    String::from_utf8(o.stdout).unwrap()
+}
+fn eventually(label: &str, mut test: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(150);
+    while !test() {
+        assert!(Instant::now() < deadline, "{label}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+fn save_event(b: &Board, d: &sf_core::events::Definition) {
+    eventually("Event idle for edit", || {
+        db(b).events().unwrap().iter().all(|e| !e.running)
+    });
+    let path = b.config.with_extension("event.json");
+    fs::write(&path, serde_json::to_vec(d).unwrap()).unwrap();
+    event_command(b, &["save", path.to_str().unwrap()]);
+}
+#[test]
+fn real_macos_c5_events_policy_burst_controls_restart_restore() {
+    use sf_core::circuitnet::control::Outcome;
+    use sf_core::events::{Action, Definition, ExchangePolicy as Policy, MissedPolicy, Schedule};
+    let _campaign = CAMPAIGN.lock().unwrap_or_else(|p| p.into_inner());
+    let temp = tempfile::tempdir().unwrap();
+    let root = std::env::var_os("SPITFIRE_C5_EVIDENCE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temp.path().join("c5"));
+    assert!(!root.exists());
+    fs::create_dir(&root).unwrap();
+    let host = board(&root.join("host"), "HOST0001", 20, Some(21));
+    let end = board(&root.join("end"), "END00001", 30, Some(31));
+    let other = board(&root.join("other"), "END00002", 40, None);
+    for peer in [&end, &other] {
+        enroll(peer, &host);
+        enroll(&host, peer);
+        run(peer, "listener", &["off"]);
+    }
+    let mut hd = start(&host);
+    let mut ed = start(&end);
+    let od = start(&other);
+    let mut event = Definition {
+        id: "event-a".into(),
+        name: "CircuitNET Mail Run".into(),
+        enabled: true,
+        action: Action::Circuitnet {
+            network: network(),
+            node: Some(envelope::NodeId::new(&host.id).unwrap()),
+        },
+        schedule: Schedule::Interval { seconds: 20 },
+        timezone: "America/Phoenix".into(),
+        policy: Policy::Scheduled,
+        missed: MissedPolicy::RunOnce,
+        minimum_spacing_seconds: 5,
+    };
+    let mut quiet_event = event.clone();
+    quiet_event.policy = Policy::Immediate;
+    save_event(&other, &quiet_event);
+    save_event(&end, &event);
+    let before_generation = db(&end).network_preparation_state().unwrap().0;
+    let m = post(&end, false, "C5 scheduled first", None);
+    assert!(db(&end).network_preparation_state().unwrap().0 > before_generation);
+    eventually("native queue prepared independently of due Event", || {
+        db(&end)
+            .circuitnet_queue(&network(), "")
+            .unwrap()
+            .iter()
+            .any(|q| q.identity.origin().as_str() == end.id)
+    });
+    assert_eq!(count(&host, false), 0);
+    eventually("scheduled delivery", || count(&host, false) == 1);
+    assert_eq!(count(&end, false), 1);
+    assert!(m.id.get() > 0);
+    event.policy = Policy::Manual;
+    save_event(&end, &event);
+    post(&end, false, "C5 manual waits", None);
+    std::thread::sleep(Duration::from_secs(7));
+    assert_eq!(count(&host, false), 1);
+    let operator = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    operator.block_on(async {
+        let mut client = sf_bbs::OperatorClient::connect(&end.config).await.unwrap();
+        client.describe_operator_controls().await.unwrap();
+        let id = format!("{:032x}", rand::random::<u128>());
+        let action = sf_bbs::NetworkAction::Event {
+            request: sf_bbs::events::Command::Run {
+                id: "event-a".into(),
+                expected: db(&end).events().unwrap()[0].version,
+            },
+        };
+        assert!(matches!(
+            client
+                .qwk_network_action(id.clone(), action.clone())
+                .await
+                .unwrap(),
+            sf_bbs::NetworkResult::Updated
+        ));
+        assert!(matches!(
+            client.qwk_network_action(id, action).await.unwrap(),
+            sf_bbs::NetworkResult::Replayed { .. }
+        ));
+    });
+    eventually("Run Now delivery", || count(&host, false) == 2);
+    assert_eq!(
+        db(&end)
+            .event_history("event-a")
+            .unwrap()
+            .iter()
+            .filter(|h| h.trigger == "manual")
+            .count(),
+        1
+    );
+    event.policy = Policy::Immediate;
+    save_event(&end, &event);
+    // Let the policy edit settle before measuring the burst's finite sessions.
+    eventually("immediate idle", || !db(&end).events().unwrap()[0].running);
+    let before = db(&end).event_history("event-a").unwrap().len();
+    for i in 0..50 {
+        post(&end, false, &format!("C5 burst {i}"), None);
+    }
+    eventually("burst drains multiple bounded batches", || {
+        count(&host, false) == 52
+    });
+    eventually("burst completed", || !db(&end).events().unwrap()[0].running);
+    let after = db(&end).event_history("event-a").unwrap().len();
+    assert!(
+        after - before <= 4,
+        "burst created {} Event sessions",
+        after - before
+    );
+    assert!(
+        db(&other).event_history("event-a").unwrap().is_empty(),
+        "an unrelated idle target must not poll"
+    );
+    event.policy = Policy::Hybrid;
+    event.schedule = Schedule::Interval { seconds: 5 };
+    save_event(&end, &event);
+    run(&end, "hold", &[&host.id]);
+    post(&end, false, "C5 held", None);
+    eventually("held Event result", || {
+        db(&end).events().unwrap()[0].last_result.as_deref() == Some("held")
+    });
+    assert_eq!(count(&host, false), 52);
+    assert!(
+        db(&end)
+            .circuitnet_neighbor_pending(&network(), &envelope::NodeId::new(&host.id).unwrap())
+            .unwrap()
+            > 0
+    );
+    run(&end, "release", &[&host.id]);
+    eventually("released catch-up", || count(&host, false) == 53);
+    stop(hd, &host);
+    post(&end, false, "C5 offline", None);
+    eventually("offline failure retained", || {
+        db(&end).events().unwrap()[0].last_result.as_deref() == Some("failed")
+    });
+    assert!(
+        db(&end)
+            .circuitnet_neighbor_pending(&network(), &envelope::NodeId::new(&host.id).unwrap())
+            .unwrap()
+            > 0
+    );
+    hd = start(&host);
+    eventually("returned peer catch-up", || count(&host, false) == 54);
+    // Directed native post and destination commit atomically while preparation runs.
+    let mut receiver_event = event.clone();
+    receiver_event.policy = Policy::Scheduled;
+    save_event(&other, &receiver_event);
+    eventually("existing broadcast fanout drained", || {
+        count(&other, false) == 54
+    });
+    let previous = count(&other, false);
+    directed(&end, &other.id, "C5 scheduled directed");
+    eventually("scheduled HOST transit directed", || {
+        count(&other, false) == previous + 1
+    });
+    assert_eq!(count(&host, false), 54);
+    // The other END also receives preexisting public fanout; verify identity,
+    // destination and unique import directly rather than treating it as private.
+    let c = rusqlite::Connection::open(&other.db).unwrap();
+    let directed_count: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM circuitnet_messages WHERE destination=?1",
+            [&other.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(directed_count, 1);
+    drop(c);
+    let dossier = db(&host)
+        .circuitnet_status(&network())
+        .unwrap()
+        .dossiers
+        .into_iter()
+        .find(|d| d.neighbor.as_str() == end.id && d.codename.as_str() == "CNTECH")
+        .unwrap();
+    run(
+        &host,
+        "live-unsubscribe",
+        &[&end.id, "CNTECH", &dossier.version.to_string()],
+    );
+    let request = newest_request(&end, "remote-subscribe", "CNTECH");
+    eventually("authenticated pending request via Event", || {
+        db(&host)
+            .circuitnet_controls(&network(), "")
+            .unwrap()
+            .iter()
+            .any(|e| e.request.id.as_str() == request)
+    });
+    run(&host, "approve", &[&request]);
+    eventually("approved result returned by Event", || {
+        outcome(&end, &request) == Outcome::Applied
+    });
+    post(&host, true, "C5 CNTECH subscribed", None);
+    eventually("new subscription receives", || count(&end, true) == 1);
+    let request = newest_request(&end, "remote-unsubscribe", "CNTECH");
+    eventually("unsubscribe pending", || {
+        db(&host)
+            .circuitnet_controls(&network(), "")
+            .unwrap()
+            .iter()
+            .any(|e| e.request.id.as_str() == request)
+    });
+    run(&host, "approve", &[&request]);
+    eventually("unsubscribe applied", || {
+        outcome(&end, &request) == Outcome::Applied
+    });
+    post(&host, true, "C5 CNTECH stopped", None);
+    std::thread::sleep(Duration::from_secs(7));
+    assert_eq!(count(&end, true), 1);
+    // Restart before due and once after missing a slot; no backlog replay.
+    event.policy = Policy::Scheduled;
+    event.schedule = Schedule::Interval { seconds: 20 };
+    save_event(&end, &event);
+    let due = db(&end).events().unwrap()[0].next_due;
+    stop(ed, &end);
+    ed = start(&end);
+    assert_eq!(db(&end).events().unwrap()[0].next_due, due);
+    stop(ed, &end);
+    std::thread::sleep(Duration::from_secs(22));
+    ed = start(&end);
+    eventually("missed slot caught once", || {
+        db(&end).events().unwrap()[0].next_due > due
+    });
+    stop(ed, &end);
+    let backup = root.join("backup");
+    sf_bbs::backup_board(&end.config, &backup).unwrap();
+    let original = db(&end).events().unwrap()[0].definition.clone();
+    let mut changed = original.clone();
+    changed.enabled = false;
+    let mut native = db(&end);
+    let version = native.events().unwrap()[0].version;
+    native
+        .event_save(&changed, version, chrono::Utc::now().timestamp())
+        .unwrap();
+    drop(native);
+    let restored_root = root.join("restored");
+    sf_bbs::restore_board(&backup, &restored_root, false).unwrap();
+    let config = restored_root.join(sf_bbs::BOARD_CONFIG_FILE);
+    let cfg = RuntimeConfig::load(&config).unwrap();
+    let paths = LogicalPaths::resolve(&restored_root, &cfg.validate().unwrap()).unwrap();
+    let restored = Board {
+        config,
+        db: paths.database().to_owned(),
+        ..end.clone()
+    };
+    assert_eq!(db(&restored).events().unwrap()[0].definition, original);
+    let restored_daemon = start(&restored);
+    assert!(!db(&restored).events().unwrap()[0].running);
+    let history = event_command(&restored, &["history", "event-a"]);
+    assert!(history.contains("scheduled"));
+    assert!(!history.contains("synthetic circuitnet password"));
+    stop(restored_daemon, &restored);
+    stop(od, &other);
+    stop(hd, &host);
+    fs::write(root.join("acceptance.txt"),"PASS: native macOS daemon Events; immediate durable preparation; scheduled/manual/immediate/hybrid; burst coalescing and multiple batches; hold/release; offline/recovery; directed HOST transit; authenticated subscription approval/unsubscribe; restart/missed slot; Run Now; cold backup/restore; no running resurrection; graceful shutdown. Disposable loopback only.\n").unwrap();
 }

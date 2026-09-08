@@ -3,7 +3,7 @@
 Current source implements caller QWK offline mail (M045/N1). Native SPITFIRE NG
 messages remain the only message authority. QWK is an interchange adapter; there
 is no separate QWK message store and no SMB dependency or compatibility layer.
-[N2 public network exchange](qwk-networking.md) reuses this codec. FidoNet/BinkP and network scheduling remain unimplemented. The downloadable 0.1.0 Development Preview predates N1.
+[N2 public network exchange](qwk-networking.md) reuses this codec. FidoNet/BinkP and generic Events are implemented in later milestones; caller QWK packets remain caller-driven. The downloadable 0.1.0 Development Preview predates N1.
 
 ## Authority and implementation
 

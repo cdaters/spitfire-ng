@@ -1,5 +1,27 @@
 # SPITFIRE NG Status
 
+## C5 — native Events and CircuitNET operations
+
+**C5 COMPLETE / ACCEPTED / PUBLISHED.** Schema **32**, CircuitNET **1.2**, operator IPC
+**15**, en-US **1.29.0 / 1,382 messages**. Generic daemon-owned Events schedule
+existing CircuitNET and BinkP services while native work prepares independently.
+Manual, Immediate, Scheduled and Hybrid policies have durable history, coalescing,
+missed-run handling and cold restore recovery. QWK keeps its existing handoff model.
+
+See the [C5 report](docs/research/m068-circuitnet-operations-events-distribution.md),
+[Events manual](docs/manual/events.md) and [modern distribution drafts](docs/circuitnet-ng/README.md).
+The historical reconciliation and modern conference proposal remain separate.
+Transport encryption does not make directed conference traffic private.
+No production changes or external BBS polls occurred. Stop after C5; C6 needs review.
+
+Public workspace: **734 passed / 0 failed / 7 existing ignored**, all six doctest
+groups. Fourteen tests added. Headers (133), fmt, all-target Clippy, diff, local
+links and provenance pass. Native macOS C5 and six-node C4 acceptance pass, with
+C2/C3/FTN/QWK regressions. cargo-audit remains unavailable. No binary release/tag.
+
+## Previous accepted milestones
+
+
 ## CircuitNET NG C4 — directed conferences and remote Dossier controls
 
 Schema **31**, protocol minor **2**, en-US **1.28.0 / 1,354 messages**.

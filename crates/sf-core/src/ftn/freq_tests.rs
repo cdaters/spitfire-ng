@@ -293,10 +293,11 @@ fn freq_schema_26_migration_preserves_acknowledged_request_and_is_atomic() {
     let mut b = board();
     let id = request(&mut b, &["WANT.TXT"]);
     ack(&mut b, NOW);
-    // Construct an actual old-schema fixture, without later C2 authorities.
+    // Construct an actual old-schema fixture, without later Events/C2 authorities.
     b.db.connection
         .execute_batch("PRAGMA foreign_keys=OFF;")
         .unwrap();
+    b.db.connection.execute_batch("DROP TRIGGER native_message_preparation; DROP TRIGGER network_queue_activity; DROP TRIGGER circuitnet_control_activity; DROP TRIGGER ftn_file_activity_wakeup; DROP TABLE scheduled_event_history; DROP TABLE scheduled_events; DROP TABLE network_preparation;").unwrap();
     let c2: Vec<String> = b
         .db
         .connection

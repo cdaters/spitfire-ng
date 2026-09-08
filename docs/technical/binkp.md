@@ -230,7 +230,7 @@ sockets. Health exposes active, queued, last attempt/success/error, latency,
 backoff/held, admitted addresses and recognized capabilities. Session, authentication,
 identity, custody, completion, failure and hold/retry events carry finite codes.
 Test success is a session result with zero local custody; remote eager offers are
-skipped. There is no generalized scheduler or automatic polling loop.
+skipped. C5 adds a generic daemon-owned [Event scheduler](events.md) that invokes this native Poll boundary; there is no competing BinkP-specific recurring poller.
 
 Shutdown closes admission, cancels active work under existing daemon drain
 accounting, flushes durable outcomes and discards partial memory. Restart calls

@@ -20,6 +20,9 @@ pub const NETWORK_MINOR: u16 = 12;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
+    Event {
+        request: crate::events::Command,
+    },
     Circuitnet {
         request: crate::circuitnet_live::Action,
     },
@@ -63,6 +66,9 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
+        if matches!(self, Self::Event { .. }) {
+            return crate::OperatorFeature::Events;
+        }
         if let Self::Circuitnet { request } = self {
             use crate::circuitnet_live::Action;
             return if matches!(
@@ -114,6 +120,7 @@ impl NetworkAction {
     }
     pub fn capability(&self) -> Capability {
         match self {
+            Self::Event { request } => request.capability(),
             Self::Circuitnet { request } => request.capability(),
             Self::Binkp { request } => request.capability(),
             Self::Ftn { request } => request.capability(),
@@ -170,6 +177,7 @@ pub(crate) fn dispatch(
     let mut db = RuntimeDatabase::open(runtime.database_path())?;
     db.bind_posting_identity_configuration(&runtime.configuration.current()?);
     let operation = match action {
+        NetworkAction::Event { .. } => "event.control",
         NetworkAction::Circuitnet { request } => request.operation(),
         NetworkAction::Binkp { request } => request.operation(),
         NetworkAction::Ftn { request } => request.operation(),
@@ -227,6 +235,10 @@ pub(crate) fn dispatch(
     }
     let result = (|| -> Result<NetworkResult, ApplicationError> {
         Ok(match action {
+            NetworkAction::Event { request } => {
+                crate::events::dispatch(runtime, request)?;
+                NetworkResult::Updated
+            }
             NetworkAction::Circuitnet { request } => {
                 crate::circuitnet_live::dispatch(runtime, principal, request)?
             }
@@ -301,7 +313,9 @@ pub(crate) fn dispatch(
                 now,
                 sf_core::EventCategory::Message,
                 sf_core::EventSeverity::Warning,
-                if matches!(action, NetworkAction::Circuitnet { .. }) {
+                if matches!(action, NetworkAction::Event { .. }) {
+                    "system.event.operation-failed"
+                } else if matches!(action, NetworkAction::Circuitnet { .. }) {
                     "message.circuitnet.operation-failed"
                 } else if matches!(action, NetworkAction::Ftn { .. }) {
                     "message.ftn.operation-failed"

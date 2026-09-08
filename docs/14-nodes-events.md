@@ -646,3 +646,12 @@ captured policy; new callers use validated published configuration. Operator
 capability changes apply at dispatch. The [configuration reference](technical/configuration.md)
 explains these effect classes and explicit online/offline authority. sfconfig
 handoff/return never restarts the daemon or competes for its sessions.
+
+
+## C5 implemented Event authority
+
+The [native Event scheduler](technical/events.md) now provides daemon-owned durable
+CircuitNET/BinkP Poll actions, clock policy, coalescing, recovery and operator control.
+The [manual](manual/events.md) distinguishes prompt preparation from exchange timing.
+Other action examples above remain future design possibilities. Historical SPITFIRE
+had A–M, with M reserved for packing; native scheduling does not recreate DOS dispatch.

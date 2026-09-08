@@ -908,6 +908,45 @@ pub(crate) fn listener(
     })))
 }
 
+/// Reuses the same backend, queue claims, cancellation and session limits as Poll.
+pub(crate) fn event_poll(runtime: &Arc<BoardRuntime>, link: &str) -> sf_core::events::Outcome {
+    use sf_core::events::Outcome;
+    let Ok(c) = runtime.configuration.current() else {
+        return Outcome::Failed;
+    };
+    let Ok(_permit) = Permit::acquire(runtime) else {
+        return Outcome::Busy;
+    };
+    let mut backend = NativeBackend::new(runtime.clone(), c.ftn, c.binkp, BinkpMode::Poll);
+    let Ok(plan) = backend.prepare(link, false) else {
+        return Outcome::Failed;
+    };
+    let outcome = backend.connect().and_then(|socket| {
+        session::run(socket, Some(plan), &mut backend, session::Limits::default())
+    });
+    let empty = outcome.as_ref().is_ok_and(|summary| summary.sent == 0);
+    let result = if outcome.is_ok() {
+        Outcome::Succeeded
+    } else {
+        Outcome::Failed
+    };
+    backend.finish(outcome.err());
+    if empty
+        && RuntimeDatabase::open_read_only(runtime.database_path())
+            .ok()
+            .is_some_and(|db| {
+                db.event_has_outbound_work(
+                    &sf_core::events::Action::Binkp { link: link.into() },
+                    now(),
+                )
+                .unwrap_or(false)
+            })
+    {
+        return Outcome::Held;
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -470,7 +470,51 @@ fn native_mailer_daemons_exchange_and_restore() {
     let secret = format!("{:032x}", rand::random::<u128>());
     rt.block_on(credential(&mut ca, &secret));
     rt.block_on(credential(&mut cb, &secret));
-    rt.block_on(poll(&mut ca, false));
+    // C5's generic Event invokes the same native BinkP service and records actual
+    // completion, then is disabled so the remaining manual regressions stay explicit.
+    let mut event = sf_core::events::Definition {
+        id: "event-a".into(),
+        name: "Synthetic BinkP Event".into(),
+        enabled: true,
+        action: sf_core::events::Action::Binkp {
+            link: "peer".into(),
+        },
+        schedule: sf_core::events::Schedule::Interval { seconds: 5 },
+        timezone: "UTC".into(),
+        policy: sf_core::events::ExchangePolicy::Scheduled,
+        missed: sf_core::events::MissedPolicy::RunOnce,
+        minimum_spacing_seconds: 5,
+    };
+    let save = |definition, expected| NetworkAction::Event {
+        request: sf_bbs::events::Command::Save {
+            definition,
+            expected,
+        },
+    };
+    let result = rt
+        .block_on(ca.qwk_network_action(
+            format!("{:032x}", rand::random::<u128>()),
+            save(event.clone(), 0),
+        ))
+        .unwrap();
+    assert!(matches!(result, NetworkResult::Updated));
+    let until = Instant::now() + Duration::from_secs(90);
+    loop {
+        let status = RuntimeDatabase::open_read_only(a.paths.database())
+            .unwrap()
+            .events()
+            .unwrap();
+        if status[0].last_result.as_deref() == Some("succeeded") && !status[0].running {
+            break;
+        }
+        assert!(Instant::now() < until, "scheduled BinkP completion");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    event.enabled = false;
+    let result = rt
+        .block_on(ca.qwk_network_action(format!("{:032x}", rand::random::<u128>()), save(event, 1)))
+        .unwrap();
+    assert!(matches!(result, NetworkResult::Updated));
     delivered(&a);
     delivered(&b);
     rt.block_on(poll(&mut cb, false));

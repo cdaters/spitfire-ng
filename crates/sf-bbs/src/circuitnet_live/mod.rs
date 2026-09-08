@@ -364,6 +364,8 @@ fn application(e: Error) -> ApplicationError {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LinkStatus {
+    #[serde(default)]
+    pub next_exchange: Option<i64>,
     pub node: NodeId,
     pub role: core::Role,
     pub host: String,
@@ -412,6 +414,7 @@ impl std::ops::Deref for ControlStatus {
 }
 pub(crate) fn status(runtime: &BoardRuntime, offset: u32) -> Result<Vec<Status>, ApplicationError> {
     let d = db(runtime).map_err(application)?;
+    let events = d.events()?;
     let mut result = vec![];
     for network in d.circuitnet_profiles()? {
         let s = d.circuitnet_status(&network)?;
@@ -421,6 +424,7 @@ pub(crate) fn status(runtime: &BoardRuntime, offset: u32) -> Result<Vec<Status>,
             .iter()
             .map(|p| {
                 Ok(LinkStatus {
+                    next_exchange: events.iter().filter(|e|e.definition.enabled && matches!(&e.definition.action,sf_core::events::Action::Circuitnet{network:n,node} if n==&network && node.as_ref().is_none_or(|n|n==&p.node))).filter_map(|e|e.next_due).min(),
                     node: p.node.clone(),
                     role: s
                         .profile
@@ -936,6 +940,62 @@ pub(crate) fn listeners(
         }));
     }
     Ok(handles)
+}
+
+/// Synchronous Event boundary: completion is the actual finite Poll outcome.
+pub(crate) fn event_poll(
+    runtime: &Arc<BoardRuntime>,
+    network: &NetworkId,
+    node: &NodeId,
+) -> sf_core::events::Outcome {
+    use sf_core::events::Outcome;
+    let Ok(d) = db(runtime) else {
+        return Outcome::Failed;
+    };
+    let Ok((c, _)) = d.circuitnet_live(network) else {
+        return Outcome::Failed;
+    };
+    if c.peer(node, false).is_err() {
+        return Outcome::Held;
+    }
+    let Ok(mut permit) = Permit::acquire(runtime.clone()) else {
+        return Outcome::Busy;
+    };
+    if permit.bind(network, node).is_err() {
+        return Outcome::Busy;
+    }
+    for retry in 0..3 {
+        if runtime.shutdown_in_progress().unwrap_or(true) {
+            return Outcome::Interrupted;
+        }
+        match outbound(runtime, network, node, Mode::Poll, retry) {
+            Ok(_) => {
+                let Ok(d) = db(runtime) else {
+                    return Outcome::Failed;
+                };
+                let action = sf_core::events::Action::Circuitnet {
+                    network: network.clone(),
+                    node: Some(node.clone()),
+                };
+                // An older peer may correctly withhold unsupported directed work.
+                // A successful empty session must not rearm an endless drain loop.
+                if d.event_has_outbound_work(&action, now()).unwrap_or(false)
+                    && d.circuitnet_link_health(network, node)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|h| h.sent == 0)
+                {
+                    return Outcome::Held;
+                }
+                return Outcome::Succeeded;
+            }
+            Err(Error::Connect | Error::Interrupted | Error::Timeout) if retry < 2 => {
+                thread::sleep(Duration::from_secs(1 << retry))
+            }
+            Err(_) => return Outcome::Failed,
+        }
+    }
+    Outcome::Failed
 }
 
 #[cfg(test)]

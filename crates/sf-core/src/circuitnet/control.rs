@@ -439,3 +439,34 @@ impl RuntimeDatabase {
         Ok(())
     }
 }
+
+/// Called inside native posting authority, before the publication wakeup commits.
+pub(crate) fn select_at_post(
+    tx: &rusqlite::Transaction<'_>,
+    network: &NetworkId,
+    mid: i64,
+    destination: &NodeId,
+    now: i64,
+) -> Result<(), Error> {
+    let (p, _) = profile(tx, network)?;
+    if !p.enabled {
+        return Err(Error::Policy);
+    }
+    p.topology.path(&p.local, destination)?;
+    let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM messages m JOIN message_conferences c USING(conference_id) JOIN circuitnet_mappings a USING(conference_id) WHERE m.message_id=?1 AND a.network=?2 AND a.send=1 AND c.active=1 AND c.public_only=1 AND m.origin_kind='native' AND m.visibility='public' AND m.audience_kind='all-callers' AND m.identity_proof IS NOT NULL)",params![mid,network.as_str()],|r|r.get(0))?;
+    if !valid {
+        return Err(Error::Policy);
+    }
+    tx.execute(
+        "INSERT INTO circuitnet_destinations VALUES(?1,?2,?3,1)",
+        params![network.as_str(), mid, destination.as_str()],
+    )?;
+    audit(
+        tx,
+        network,
+        "native-post",
+        &format!("directed-selected:{destination}"),
+        now,
+    )?;
+    Ok(())
+}

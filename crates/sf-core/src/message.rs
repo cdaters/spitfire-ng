@@ -1264,7 +1264,7 @@ impl MessageBackend for RuntimeDatabase {
         message: NewMessage,
         cc_recipients: &[MessageRecipient],
     ) -> Result<Vec<Message>, MessageError> {
-        self.post_message_fanout(actor, message, cc_recipients, None)
+        self.post_message_fanout(actor, message, cc_recipients, None, None)
     }
 
     fn mutation_capabilities(
@@ -1526,12 +1526,28 @@ impl RuntimeDatabase {
         Ok(())
     }
 
+    /// Native public post and immutable directed intent commit together. This
+    /// boundary is safe while automatic publication preparation is active.
+    pub fn post_directed_circuitnet(
+        &mut self,
+        actor: MessageActor,
+        message: NewMessage,
+        network: &crate::circuitnet::NetworkId,
+        destination: &crate::circuitnet::NodeId,
+    ) -> Result<Message, MessageError> {
+        self.post_message_fanout(actor, message, &[], None, Some((network, destination)))?
+            .into_iter()
+            .next()
+            .ok_or(MessageError::MutationInvariant)
+    }
+
     pub(crate) fn post_message_fanout(
         &mut self,
         actor: MessageActor,
         message: NewMessage,
         cc_recipients: &[MessageRecipient],
         receipt: Option<&crate::network::ImportReceipt>,
+        destination: Option<(&crate::circuitnet::NetworkId, &crate::circuitnet::NodeId)>,
     ) -> Result<Vec<Message>, MessageError> {
         let (caller, conference) =
             self.authorized_conference(actor, message.conference_id, true)?;
@@ -1808,6 +1824,16 @@ impl RuntimeDatabase {
             count: u64::try_from(delivery_count)
                 .map_err(|_| MessageError::MessageNumberOverflow)?,
         };
+        if let Some((network, node)) = destination {
+            crate::circuitnet::control::select_at_post(
+                &transaction,
+                network,
+                first_id.get(),
+                node,
+                message.created_at,
+            )
+            .map_err(|_| MessageError::MessageAccessDenied)?;
+        }
         insert_operational_event_tx(&transaction, &event)?;
         validate_fanout(&transaction, fanout_id)?;
         if let Some(receipt) = receipt {
