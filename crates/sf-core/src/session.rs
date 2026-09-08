@@ -718,7 +718,14 @@ fn run_stock_session_inner(
             (MenuSection::Main, b'I') => locate_caller(terminal, database, stock.timezone)?,
             (MenuSection::Main, b'P') => show_other_bbs(terminal, database)?,
             (MenuSection::Main, b'C') => add_other_bbs(terminal, database, &authenticated)?,
-            (MenuSection::Main, b'Y') => show_bulletins(terminal, resources, &context)?,
+            (MenuSection::Main, b'Y') => show_bulletins(
+                terminal,
+                resources,
+                &context,
+                database,
+                &authenticated,
+                caller_config,
+            )?,
             (MenuSection::Main, b'X') => {
                 show_newsletter(terminal, database, resources, &context, &authenticated)?
             }
@@ -2330,6 +2337,9 @@ fn show_bulletins(
     terminal: &mut dyn Terminal,
     resources: &StockResources,
     context: &DisplayContext<'_>,
+    database: &RuntimeDatabase,
+    authenticated: &AuthenticatedCaller,
+    caller_config: &CallerConfig,
 ) -> Result<(), SessionError> {
     terminal.begin_output();
     write_key_line(
@@ -2350,7 +2360,17 @@ fn show_bulletins(
                 .is_some_and(|resource| resource.source == DisplaySource::BoardOverride)
         })
         .collect::<Vec<_>>();
-    if available.is_empty() {
+    let hot_enabled = database
+        .conference_health_settings()
+        .is_ok_and(|s| s.enabled && s.bulletin);
+    if hot_enabled {
+        write_key_line(
+            terminal,
+            "health-hot-choice",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+    if available.is_empty() && !hot_enabled {
         write_key_line(
             terminal,
             "caller-bulletins-unavailable",
@@ -2367,12 +2387,66 @@ fn show_bulletins(
     }
     write_key(
         terminal,
-        "caller-bulletin-prompt",
+        if hot_enabled {
+            "health-hot-prompt"
+        } else {
+            "caller-bulletin-prompt"
+        },
         &crate::LocalizationArgs::new(),
     )?;
     let Some(input) = read_utf8_input(terminal, 2)? else {
         return Ok(());
     };
+    if hot_enabled && input.eq_ignore_ascii_case("h") {
+        let actor = crate::MessageActor::new(
+            authenticated.caller.id,
+            SecurityLevel::new(caller_config.sysop_security)?,
+        );
+        // Access and current native/catalog retirement are checked after selection.
+        let rows = database
+            .conference_health_hot(actor, unix_seconds()?)
+            .unwrap_or_default();
+        write_key_line(
+            terminal,
+            "health-hot-title",
+            &crate::LocalizationArgs::new(),
+        )?;
+        if rows.is_empty() {
+            write_key_line(
+                terminal,
+                "health-hot-empty",
+                &crate::LocalizationArgs::new(),
+            )?;
+        }
+        for row in rows {
+            let name: String = row
+                .name
+                .chars()
+                .filter(|c| {
+                    !c.is_control() && !matches!(*c,'\u{202a}'..='\u{202e}'|'\u{2066}'..='\u{2069}')
+                })
+                .take(40)
+                .collect();
+            if let Some(detail) = row.detail {
+                write_key_line(
+                    terminal,
+                    "health-hot-row",
+                    &crate::LocalizationArgs::new()
+                        .with("number", u64::from(row.number))
+                        .with("name", name),
+                )?;
+                write_key_line(
+                    terminal,
+                    "health-hot-counts",
+                    &crate::LocalizationArgs::new()
+                        .with("readers", detail.windows[1].readers)
+                        .with("posts", detail.windows[1].local_posts)
+                        .with("inbound", detail.windows[1].inbound_posts),
+                )?;
+            }
+        }
+        return Ok(());
+    }
     let Ok(number) = input.parse::<u8>() else {
         write_key_line(
             terminal,

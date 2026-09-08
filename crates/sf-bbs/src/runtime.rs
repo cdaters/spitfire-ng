@@ -3442,6 +3442,87 @@ mod tests {
     }
 
     #[test]
+    fn hot_conferences_uses_current_caller_access_in_native_bulletins() {
+        use sf_core::{
+            ConferenceAccessMode, ConferenceDefinition, MessageActor, MessageBackend, MessageKind,
+            MessageVisibility, NewMessage,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("health-board");
+        initialize_fixture_board(&root).unwrap();
+        use_fast_test_hashing(&root);
+        seed_caller(
+            &root,
+            b"Health Caller",
+            b"synthetic health password",
+            CallerState::Active,
+        );
+        let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
+        let mut db = RuntimeDatabase::open(runtime.database_path()).unwrap();
+        let caller = db.caller_by_name(b"Health Caller").unwrap().unwrap();
+        let actor = MessageActor::new(caller.id, SecurityLevel::new(100).unwrap());
+        for (number, name) in [(77, "PUBLIC HEALTH"), (78, "RESTRICTED HEALTH")] {
+            let mut definition = ConferenceDefinition {
+                posting_identity: None,
+                number,
+                name: name.into(),
+                description: "Synthetic health acceptance".into(),
+                access_mode: ConferenceAccessMode::AtLeast,
+                read_security: SecurityLevel::new(0).unwrap(),
+                post_security: SecurityLevel::new(0).unwrap(),
+                public_only: true,
+                caller_deletion_enabled: true,
+                maximum_lines: 50,
+                privileged_security_levels: vec![],
+            };
+            let c = db.ensure_conference(&definition).unwrap();
+            let m = db
+                .post(
+                    actor,
+                    NewMessage {
+                        identity_preview: None,
+                        conference_id: c.id,
+                        recipient_caller_id: None,
+                        recipient_name: "All Callers".into(),
+                        subject: b"Synthetic".to_vec(),
+                        body: b"Synthetic health".to_vec(),
+                        created_at: chrono::Utc::now().timestamp(),
+                        parent_message_id: None,
+                        visibility: MessageVisibility::Public,
+                        kind: MessageKind::Standard,
+                    },
+                )
+                .unwrap();
+            db.mark_read(actor, c.id, m.number).unwrap();
+            if number == 78 {
+                definition.read_security = SecurityLevel::new(100).unwrap();
+                db.update_conference(number, &definition).unwrap();
+            }
+        }
+        let now = chrono::Utc::now().timestamp();
+        let mut settings = db.conference_health_settings().unwrap();
+        settings.bulletin = true;
+        db.conference_health_configure(&settings, now).unwrap();
+        while db.conference_health_rollup(now).unwrap().pending {}
+        let mut terminal = InMemoryTerminal::with_lines([
+            b"N".to_vec(),
+            b"Health Caller".to_vec(),
+            b"synthetic health password".to_vec(),
+            b"B".to_vec(),
+            b"H".to_vec(),
+            b"G".to_vec(),
+        ]);
+        runtime.run_connection(&mut terminal).unwrap();
+        assert!(
+            contains(terminal.output(), b"Hot Conferences"),
+            "{}",
+            String::from_utf8_lossy(terminal.output())
+        );
+        assert!(contains(terminal.output(), b"PUBLIC HEALTH"));
+        assert!(!contains(terminal.output(), b"RESTRICTED HEALTH"));
+    }
+
+    #[test]
     fn about_waits_for_acknowledgement_before_main_menu_redraw() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("about-board");

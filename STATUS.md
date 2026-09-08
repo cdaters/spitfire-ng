@@ -1,5 +1,20 @@
 # SPITFIRE NG Status
 
+C8 Conference Health is complete and accepted. One native projection separates local
+reader progress and posting from inbound network volume across local, FTN, QWK and
+CircuitNET conferences. It provides 7/30/90-day evidence, transparent trends,
+sfmonitor/sfconfig controls, generic Events rollup and optional access-filtered
+Hot Conferences. Schema **36**, CircuitNET protocol **1.4**, local operator IPC
+**1.18**, en-US **1.33.0**. No user ranking, external telemetry or automatic removal.
+
+[Conference Health manual](docs/manual/conference-health.md),
+[technical specification](docs/technical/conference-health.md),
+[C8 report](docs/research/m074-conference-health.md).
+C1-C7.2 remain accepted. Public identity and Closed applications are unchanged.
+No public deployment or production change. Stop before C9 for review.
+
+## Previous accepted C7.2 checkpoint
+
 C7.2 is complete and accepted: the [official public identity](docs/circuitnet-ng/PUBLIC-IDENTITY.md)
 now comes from one validated release metadata authority. The revised Network Kit 1.0
 uses generated home, joining/founder role addresses, application/download and catalog

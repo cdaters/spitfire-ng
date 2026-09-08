@@ -297,6 +297,16 @@ fn freq_schema_26_migration_preserves_acknowledged_request_and_is_atomic() {
     b.db.connection
         .execute_batch("PRAGMA foreign_keys=OFF;")
         .unwrap();
+    // Remove derived Health objects as well when reconstructing schema 26.
+    let health: Vec<(String, String)> = b.db.connection
+        .prepare("SELECT type,name FROM sqlite_schema WHERE name LIKE 'conference_health_%' AND type IN ('table','trigger','index') ORDER BY type DESC")
+        .unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap().collect::<std::result::Result<_, _>>().unwrap();
+    for (kind, name) in health {
+        b.db.connection
+            .execute_batch(&format!("DROP {kind} IF EXISTS \"{name}\";"))
+            .unwrap();
+    }
     b.db.connection.execute_batch("DROP TRIGGER circuitnet_file_activity; DROP TRIGGER file_safety_fence; DROP TRIGGER file_content_identity_fence; DROP TRIGGER file_publication_activity; DROP TABLE file_safety_history; DROP TABLE file_validation; DROP TABLE file_content; DROP TABLE file_area_safety; ALTER TABLE files DROP COLUMN safety_required; DROP TRIGGER native_message_preparation; DROP TRIGGER network_queue_activity; DROP TRIGGER circuitnet_control_activity; DROP TRIGGER ftn_file_activity_wakeup; DROP TABLE scheduled_event_history; DROP TABLE scheduled_events; DROP TABLE network_preparation;").unwrap();
     let c2: Vec<String> = b
         .db

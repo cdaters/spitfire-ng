@@ -1,5 +1,7 @@
 # SPITFIRE NG Events
 
+[Conference Health rollup](conference-health.md) describes native readership/activity and the optional caller bulletin.
+
 An Event tells the daemon when to perform a native action. A caller's message is
 stored immediately. Its durable preparation obligation is recorded in that same
 commit; CircuitNET and FTN scanners promptly prepare eligible outbound work while

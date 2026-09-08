@@ -1485,6 +1485,14 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
+        // Remove modern analytics before constructing a genuinely old native schema.
+        let health:Vec<(String,String)>=connection.prepare("SELECT type,name FROM sqlite_schema WHERE name LIKE 'conference_health_%' AND type IN ('table','trigger','index') ORDER BY type DESC").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<Result<_,_>>().unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+        for (kind, name) in health {
+            connection
+                .execute_batch(&format!("DROP {kind} IF EXISTS \"{name}\";"))
+                .unwrap();
+        }
         // Synthetic old backups must not accidentally retain later Event authority.
         connection.execute_batch("DROP TRIGGER IF EXISTS circuitnet_catalog_activity; DROP TRIGGER IF EXISTS circuitnet_file_activity; DROP TRIGGER IF EXISTS file_safety_fence; DROP TRIGGER IF EXISTS file_content_identity_fence; DROP TRIGGER IF EXISTS file_publication_activity; DROP TABLE IF EXISTS file_safety_history; DROP TABLE IF EXISTS file_validation; DROP TABLE IF EXISTS file_content; DROP TABLE IF EXISTS file_area_safety; ALTER TABLE files DROP COLUMN safety_required; DROP TRIGGER IF EXISTS native_message_preparation; DROP TRIGGER IF EXISTS network_queue_activity; DROP TRIGGER IF EXISTS circuitnet_control_activity; DROP TRIGGER IF EXISTS ftn_file_activity_wakeup; DROP TABLE IF EXISTS scheduled_event_history; DROP TABLE IF EXISTS scheduled_events; DROP TABLE IF EXISTS network_preparation;").unwrap();
         if connection

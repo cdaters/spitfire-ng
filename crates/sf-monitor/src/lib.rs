@@ -11,6 +11,7 @@
 
 //! Capability-gated SPITFIRE NG local operator monitor.
 
+mod health;
 mod live_ui;
 mod model;
 mod networks;
@@ -500,6 +501,9 @@ fn handle_key(model: &mut MonitorModel, worker: &MonitorWorker, key: KeyEvent) -
             KeyCode::Char('x') | KeyCode::Char('X') => model.filter.clear(),
             _ => {}
         }
+        return InputOutcome::Continue;
+    }
+    if model.view == View::ConferenceHealth && health::key(model, worker, key) {
         return InputOutcome::Continue;
     }
     if model.view == View::Networks && networks::key(model, worker, key) {

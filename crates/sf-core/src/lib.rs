@@ -147,3 +147,5 @@ pub mod ftn;
 pub mod circuitnet;
 
 pub mod events;
+
+pub mod conference_health;

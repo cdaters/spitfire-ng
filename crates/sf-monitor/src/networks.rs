@@ -40,6 +40,7 @@ fn event_policy(policy: sf_core::events::ExchangePolicy) -> String {
 }
 fn event_action(action: &sf_core::events::Action) -> String {
     match action {
+        sf_core::events::Action::ConferenceHealth => t("health-title"),
         sf_core::events::Action::Circuitnet { network, node } => format!(
             "CircuitNET / {network} / {}",
             node.as_ref()

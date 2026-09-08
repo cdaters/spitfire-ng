@@ -20,6 +20,9 @@ pub const NETWORK_MINOR: u16 = 12;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum NetworkAction {
+    ConferenceHealth {
+        request: crate::conference_health::Command,
+    },
     Event {
         request: crate::events::Command,
     },
@@ -66,6 +69,9 @@ pub enum NetworkAction {
 }
 impl NetworkAction {
     pub fn feature(&self) -> crate::OperatorFeature {
+        if matches!(self, Self::ConferenceHealth { .. }) {
+            return crate::OperatorFeature::ConferenceHealth;
+        }
         if matches!(self, Self::Event { .. }) {
             return crate::OperatorFeature::Events;
         }
@@ -120,6 +126,7 @@ impl NetworkAction {
     }
     pub fn capability(&self) -> Capability {
         match self {
+            Self::ConferenceHealth { request } => request.capability(),
             Self::Event { request } => request.capability(),
             Self::Circuitnet { request } => request.capability(),
             Self::Binkp { request } => request.capability(),
@@ -177,6 +184,7 @@ pub(crate) fn dispatch(
     let mut db = RuntimeDatabase::open(runtime.database_path())?;
     db.bind_posting_identity_configuration(&runtime.configuration.current()?);
     let operation = match action {
+        NetworkAction::ConferenceHealth { .. } => "conference-health.control",
         NetworkAction::Event { .. } => "event.control",
         NetworkAction::Circuitnet { request } => request.operation(),
         NetworkAction::Binkp { request } => request.operation(),
@@ -235,6 +243,10 @@ pub(crate) fn dispatch(
     }
     let result = (|| -> Result<NetworkResult, ApplicationError> {
         Ok(match action {
+            NetworkAction::ConferenceHealth { request } => {
+                crate::conference_health::dispatch(runtime, request)?;
+                NetworkResult::Updated
+            }
             NetworkAction::Event { request } => {
                 crate::events::dispatch(runtime, request)?;
                 NetworkResult::Updated

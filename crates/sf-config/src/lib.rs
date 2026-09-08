@@ -884,6 +884,17 @@ impl Drop for Restore {
 pub fn run_from_env() -> Result<(), String> {
     sf_core::with_localizer(Localizer::embedded_en_us(), || {
         let args: Vec<_> = std::env::args_os().skip(1).collect();
+        if args.first().is_some_and(|a| a == "health") {
+            if args.len() < 3 {
+                return Err(t("health-usage"));
+            }
+            println!(
+                "{}",
+                sf_bbs::conference_health::run(&PathBuf::from(&args[1]), &args[2..])
+                    .map_err(|e| e.to_string())?
+            );
+            return Ok(());
+        }
         if args.first().is_some_and(|a| a == "files") {
             if args.len() < 3 {
                 return Err(t("files-custody-usage"));
@@ -916,7 +927,12 @@ pub fn run_from_env() -> Result<(), String> {
             return Ok(());
         }
         if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
-            println!("{}\n{}", t("sfconfig-usage"), t("events-usage"));
+            println!(
+                "{}\n{}\n{}",
+                t("sfconfig-usage"),
+                t("events-usage"),
+                t("health-usage")
+            );
             return Ok(());
         }
         if args.len() == 1 && (args[0] == "--version" || args[0] == "-V") {

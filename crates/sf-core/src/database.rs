@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 35;
+pub const SCHEMA_VERSION: u32 = 36;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 35] = [
+const MIGRATIONS: [Migration; 36] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1567,6 +1567,11 @@ const MIGRATIONS: [Migration; 35] = [
         name: "circuitnet_catalog_key_history",
         sql: include_str!("circuitnet_catalog_keys.sql"),
     },
+    Migration {
+        version: 36,
+        name: "native_conference_health",
+        sql: include_str!("conference_health.sql"),
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1763,6 +1768,11 @@ impl RuntimeDatabase {
         if required >= 33 {
             self.validate_files_authority().map_err(|_| {
                 DatabaseError::IntegrityCheck("native Files authority is inconsistent".into())
+            })?;
+        }
+        if required >= 36 {
+            self.validate_conference_health().map_err(|_| {
+                DatabaseError::IntegrityCheck("Conference Health projection is inconsistent".into())
             })?;
         }
         if required >= 34 {
@@ -6775,6 +6785,39 @@ mod catalog_key_migration_tests {
         assert!(c
             .execute("DELETE FROM circuitnet_catalog_keys", [])
             .is_err());
+        assert!(c
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .next()
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[cfg(test)]
+mod health_migration_tests {
+    use super::*;
+    #[test]
+    fn schema_35_to_36_does_not_invent_old_reader_activity_and_is_atomic() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for m in &MIGRATIONS[..35] {
+            apply_migration(&mut c, m).unwrap();
+        }
+        let broken = Migration {
+            version: 36,
+            name: MIGRATIONS[35].name,
+            sql: "CREATE TABLE conference_health_config(a); CREATE TABLE messages(conflict);",
+        };
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 35);
+        apply_migration(&mut c, &MIGRATIONS[35]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 36);
+        let (readers,since):(i64,i64)=c.query_row("SELECT (SELECT COUNT(*) FROM conference_health_reads),monitoring_since FROM conference_health_config",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(readers, 0);
+        assert!(since > 0);
         assert!(c
             .prepare("PRAGMA foreign_key_check")
             .unwrap()

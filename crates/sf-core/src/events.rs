@@ -30,6 +30,7 @@ pub enum Error {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Action {
+    ConferenceHealth,
     Circuitnet {
         network: sf_net::circuitnet::NetworkId,
         node: Option<sf_net::circuitnet::NodeId>,
@@ -144,6 +145,14 @@ impl Definition {
             if !identifier(link) {
                 return Err(Error::Invalid);
             }
+        }
+        if self.action == Action::ConferenceHealth
+            && !matches!(
+                self.policy,
+                ExchangePolicy::Scheduled | ExchangePolicy::Manual
+            )
+        {
+            return Err(Error::Invalid);
         }
         self.timezone.parse::<Tz>().map_err(|_| Error::Invalid)?;
         self.schedule.validate()?;
@@ -319,6 +328,7 @@ impl RuntimeDatabase {
                     },
                 ) => a == b && (x.is_none() || y.is_none() || x == y),
                 (Action::Binkp { link: a }, Action::Binkp { link: b }) => a == b,
+                (Action::ConferenceHealth, Action::ConferenceHealth) => true,
                 _ => false,
             };
             if d.enabled && other.enabled && overlap {
@@ -444,6 +454,7 @@ impl RuntimeDatabase {
         }
         Ok(match action {
             Action::Circuitnet{network,node}=>self.connection.query_row("SELECT EXISTS(SELECT 1 FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) WHERE d.network=?1 AND (?2 IS NULL OR d.neighbor=?2) AND q.state IN ('pending','ready','retry') AND q.attempts<12 AND (q.next_attempt IS NULL OR q.next_attempt<=?3)) OR EXISTS(SELECT 1 FROM circuitnet_file_deliveries d JOIN circuitnet_file_publications p USING(network,identity) JOIN circuitnet_file_dossiers s ON s.network=d.network AND s.neighbor=d.neighbor AND s.codename=p.codename WHERE d.network=?1 AND (?2 IS NULL OR d.neighbor=?2) AND d.receipt IS NULL AND d.attempts<12 AND s.subscribed=1)",params![network.as_str(),node.as_ref().map(|n|n.as_str()),now],|r|r.get(0))?,
+            Action::ConferenceHealth=>self.connection.query_row("SELECT seed_cursor<seed_until OR EXISTS(SELECT 1 FROM conference_health_work) OR EXISTS(SELECT 1 FROM conference_health_dirty) FROM conference_health_config",[],|r|r.get(0))?,
             Action::Binkp{link}=>self.connection.query_row("SELECT EXISTS(SELECT 1 FROM network_outbound_queue q JOIN ftn_routing_decisions d USING(queue_id) WHERE d.link_id=?1 AND q.state IN ('pending','ready','retry') AND (q.next_attempt IS NULL OR q.next_attempt<=?2)) OR EXISTS(SELECT 1 FROM ftn_file_deliveries WHERE link_id=?1 AND held=0 AND accepted_at IS NULL AND attempts<12 AND session_id IS NULL)",params![link,now],|r|r.get(0))?,
         })
     }

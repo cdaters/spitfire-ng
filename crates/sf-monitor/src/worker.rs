@@ -29,6 +29,7 @@ const SNAPSHOT_REFRESH: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub enum WorkerCommand {
+    Health(sf_core::conference_health::Query),
     Networks(sf_core::ftn::NetworkQuery),
     NetworkAction {
         command_id: String,
@@ -178,6 +179,7 @@ async fn worker_loop(
     dropped_updates: Arc<AtomicBool>,
 ) {
     let mut reconnect = true;
+    let mut health_query = sf_core::conference_health::Query::default();
     let mut network_query = sf_core::ftn::NetworkQuery::default();
     let mut receipts: Vec<String> = Vec::new();
     loop {
@@ -187,7 +189,8 @@ async fn worker_loop(
                     query = new_query;
                 }
                 Ok(WorkerCommand::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
-                Ok(WorkerCommand::Networks(_))
+                Ok(WorkerCommand::Health(_))
+                | Ok(WorkerCommand::Networks(_))
                 | Ok(WorkerCommand::NetworkAction { .. })
                 | Ok(WorkerCommand::NetworkLookup(_))
                 | Ok(WorkerCommand::AcknowledgeNotification { .. })
@@ -238,7 +241,14 @@ async fn worker_loop(
             },
             &dropped_updates,
         );
-        match load_snapshot(&mut snapshot_client, query.clone(), network_query.clone()).await {
+        match load_snapshot(
+            &mut snapshot_client,
+            query.clone(),
+            network_query.clone(),
+            health_query.clone(),
+        )
+        .await
+        {
             Ok(snapshot) => send_update(
                 &updates,
                 WorkerUpdate::Snapshot(Box::new(snapshot)),
@@ -263,12 +273,35 @@ async fn worker_loop(
         'connected: loop {
             loop {
                 match commands.try_recv() {
+                    Ok(WorkerCommand::Health(q)) => {
+                        health_query = q;
+                        match load_snapshot(
+                            &mut snapshot_client,
+                            query.clone(),
+                            network_query.clone(),
+                            health_query.clone(),
+                        )
+                        .await
+                        {
+                            Ok(s) => send_update(
+                                &updates,
+                                WorkerUpdate::Snapshot(Box::new(s)),
+                                &dropped_updates,
+                            ),
+                            Err(_) => send_update(
+                                &updates,
+                                WorkerUpdate::MutationDenied,
+                                &dropped_updates,
+                            ),
+                        }
+                    }
                     Ok(WorkerCommand::Networks(q)) => {
                         network_query = q;
                         match load_snapshot(
                             &mut snapshot_client,
                             query.clone(),
                             network_query.clone(),
+                            health_query.clone(),
                         )
                         .await
                         {
@@ -458,6 +491,7 @@ async fn worker_loop(
                             &mut snapshot_client,
                             query.clone(),
                             network_query.clone(),
+                            health_query.clone(),
                         )
                         .await
                         {
@@ -644,8 +678,13 @@ async fn worker_loop(
             }
 
             if last_refresh.elapsed() >= SNAPSHOT_REFRESH {
-                match load_snapshot(&mut snapshot_client, query.clone(), network_query.clone())
-                    .await
+                match load_snapshot(
+                    &mut snapshot_client,
+                    query.clone(),
+                    network_query.clone(),
+                    health_query.clone(),
+                )
+                .await
                 {
                     Ok(snapshot) => send_update(
                         &updates,
@@ -686,6 +725,7 @@ async fn load_snapshot(
     client: &mut OperatorClient,
     query: OperatorEventQuery,
     network_query: sf_core::ftn::NetworkQuery,
+    health_query: sf_core::conference_health::Query,
 ) -> Result<MonitorSnapshot, OperatorControlError> {
     let authorized_capabilities =
         if client.supports_mutation(sf_bbs::OperatorFeature::MutationReceipts) {
@@ -726,7 +766,15 @@ async fn load_snapshot(
     } else {
         None
     };
+    let health = if client.supports_mutation(sf_bbs::OperatorFeature::ConferenceHealth)
+        && authorized_capabilities.contains(&sf_core::LocalOperatorCapability::BoardStatistics)
+    {
+        Some(client.conference_health(health_query).await?)
+    } else {
+        None
+    };
     Ok(MonitorSnapshot {
+        health,
         networks,
         binkp,
         ftn,

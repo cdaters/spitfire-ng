@@ -16,6 +16,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ApplicationError {
     #[error(transparent)]
+    ConferenceHealth(#[from] sf_core::conference_health::Error),
+    #[error(transparent)]
     Files(#[from] sf_core::files::FilesError),
     #[error(transparent)]
     CircuitNet(#[from] sf_core::circuitnet::Error),

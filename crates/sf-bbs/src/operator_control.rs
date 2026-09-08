@@ -39,7 +39,7 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 17;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 18;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -109,6 +109,7 @@ impl From<std::io::Error> for OperatorControlError {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OperatorFeature {
+    ConferenceHealth,
     BoardStatus,
     NodeList,
     NodeStatus,
@@ -183,6 +184,9 @@ impl OperatorFeature {
         if minor >= 15 {
             features.push(Self::Events);
         }
+        if minor >= 18 {
+            features.push(Self::ConferenceHealth);
+        }
         features
     }
     // These are the only feature names understood by protocol 1.0's hello.
@@ -202,7 +206,7 @@ impl OperatorFeature {
         Self::NotificationAcknowledgement,
         Self::SessionTimeAdjustment,
     ];
-    const ALL: [Self; 27] = [
+    const ALL: [Self; 28] = [
         Self::BoardStatus,
         Self::NodeList,
         Self::NodeStatus,
@@ -230,6 +234,7 @@ impl OperatorFeature {
         Self::Circuitnet,
         Self::CircuitnetControls,
         Self::Events,
+        Self::ConferenceHealth,
     ];
 }
 
@@ -546,27 +551,52 @@ enum MutationCommand {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "kebab-case")]
 enum ReadOperation {
-    Networks { query: sf_core::ftn::NetworkQuery },
-    NetworkLookup { endpoint: sf_net::ftn::Endpoint },
+    ConferenceHealth {
+        query: sf_core::conference_health::Query,
+    },
+    Networks {
+        query: sf_core::ftn::NetworkQuery,
+    },
+    NetworkLookup {
+        endpoint: sf_net::ftn::Endpoint,
+    },
     QwkNetwork,
     FtnNetwork,
     BinkpNetwork,
-    FtnQueue { after: Option<String> },
-    QwkNetworkQueue { link: String, after: Option<String> },
+    FtnQueue {
+        after: Option<String>,
+    },
+    QwkNetworkQueue {
+        link: String,
+        after: Option<String>,
+    },
     ConfigurationSnapshot,
     ShutdownStatus,
     LiveInteractions,
-    BeginChatStream { join_token: String },
+    BeginChatStream {
+        join_token: String,
+    },
     DescribeOperatorControls,
     BoardStatus,
     ListNodes,
-    NodeStatus { node_id: u32 },
-    RecentEvents { query: OperatorEventQuery },
-    SubscribeEvents { wait_ms: u64 },
+    NodeStatus {
+        node_id: u32,
+    },
+    RecentEvents {
+        query: OperatorEventQuery,
+    },
+    SubscribeEvents {
+        wait_ms: u64,
+    },
     CancelEventSubscription,
-    Notifications { include_closed: bool, limit: usize },
+    Notifications {
+        include_closed: bool,
+        limit: usize,
+    },
     Statistics,
-    RecentCallers { limit: usize },
+    RecentCallers {
+        limit: usize,
+    },
     MaintenanceStatus,
 }
 
@@ -685,6 +715,7 @@ fn command_fingerprint(command: &MutationCommand, daemon_generation: &str) -> St
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "result", content = "value", rename_all = "kebab-case")]
 enum ReadResult {
+    ConferenceHealth(Box<sf_core::conference_health::Page>),
     Networks(Box<crate::networks::Snapshot>),
     NetworkLookup(Option<sf_core::ftn::DirectoryLookup>),
     QwkNetwork(Vec<sf_core::qwk_network::LinkStatus>),
@@ -1006,6 +1037,18 @@ impl OperatorClient {
     ) -> Result<Vec<sf_core::ftn::QueueItem>, OperatorControlError> {
         match self.request(ReadOperation::FtnQueue { after }).await? {
             ReadResult::FtnQueue(v) => Ok(v),
+            _ => Err(OperatorControlError::MalformedFrame),
+        }
+    }
+    pub async fn conference_health(
+        &mut self,
+        query: sf_core::conference_health::Query,
+    ) -> Result<sf_core::conference_health::Page, OperatorControlError> {
+        match self
+            .request(ReadOperation::ConferenceHealth { query })
+            .await?
+        {
+            ReadResult::ConferenceHealth(page) => Ok(*page),
             _ => Err(OperatorControlError::MalformedFrame),
         }
     }
@@ -3232,6 +3275,7 @@ mod windows_tests {
 impl ReadOperation {
     fn feature(&self) -> OperatorFeature {
         match self {
+            Self::ConferenceHealth { .. } => OperatorFeature::ConferenceHealth,
             Self::Networks { query } if query.section == sf_core::ftn::NetworkSection::Files => {
                 OperatorFeature::FtnFiles
             }
@@ -3283,7 +3327,8 @@ fn permitted(feature: OperatorFeature, capabilities: &[LocalOperatorCapability])
         | OperatorFeature::CallerPages
         | OperatorFeature::SessionDisconnect => LocalOperatorCapability::NodeStatus,
         OperatorFeature::CallerChat => LocalOperatorCapability::ChatWithCaller,
-        OperatorFeature::BoardStatus
+        OperatorFeature::ConferenceHealth
+        | OperatorFeature::BoardStatus
         | OperatorFeature::Statistics
         | OperatorFeature::GracefulShutdown => LocalOperatorCapability::BoardStatistics,
         OperatorFeature::NodeList | OperatorFeature::NodeStatus => {
@@ -3332,6 +3377,9 @@ async fn dispatch(
     live_subscription: &mut Option<sf_core::LiveEventSubscription>,
 ) -> Result<ReadResult, crate::ApplicationError> {
     Ok(match operation {
+        ReadOperation::ConferenceHealth { query } => {
+            ReadResult::ConferenceHealth(Box::new(service.conference_health(&query)?))
+        }
         ReadOperation::Networks { query } => {
             ReadResult::Networks(Box::new(service.networks(&query)?))
         }
@@ -4949,5 +4997,35 @@ mod event_feature_tests {
             r#"{"operation":"shell","command":"anything"}"#
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod conference_health_permission_tests {
+    use super::*;
+    #[test]
+    fn health_is_native_statistics_and_new_minor_is_explicit() {
+        assert!(!permitted(
+            OperatorFeature::ConferenceHealth,
+            &[LocalOperatorCapability::NetworkStatus]
+        ));
+        assert!(permitted(
+            OperatorFeature::ConferenceHealth,
+            &[LocalOperatorCapability::BoardStatistics]
+        ));
+        assert!(
+            !OperatorFeature::controls_for_minor(17).contains(&OperatorFeature::ConferenceHealth)
+        );
+        assert!(
+            OperatorFeature::controls_for_minor(18).contains(&OperatorFeature::ConferenceHealth)
+        );
+        assert_eq!(
+            crate::conference_health::Command::Rollup.capability(),
+            LocalOperatorCapability::ChangeOnlineConfiguration
+        );
+        assert_eq!(
+            crate::conference_health::Command::Schedule.capability(),
+            LocalOperatorCapability::ChangeSensitiveConfiguration
+        );
     }
 }

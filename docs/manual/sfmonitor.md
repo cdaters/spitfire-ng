@@ -1,5 +1,7 @@
 # Using sfmonitor
 
+[Conference Health view](conference-health.md) describes native readership/activity and the optional caller bulletin.
+
 <!-- help-topic: operator.dashboard -->
 
 > **Applies to:** Current SPITFIRE NG source (`main`, schema 26)

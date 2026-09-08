@@ -37,6 +37,7 @@ pub const MONITOR_FEATURES: [OperatorFeature; 9] = [
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum View {
+    ConferenceHealth,
     #[default]
     Dashboard,
     Nodes,
@@ -50,7 +51,7 @@ pub enum View {
 }
 
 impl View {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Dashboard,
         Self::Nodes,
         Self::Callers,
@@ -59,11 +60,13 @@ impl View {
         Self::Notifications,
         Self::Maintenance,
         Self::Networks,
+        Self::ConferenceHealth,
         Self::SystemConfiguration,
     ];
 
     pub const fn localization_key(self) -> &'static str {
         match self {
+            Self::ConferenceHealth => "health-title",
             Self::Dashboard => "sfmonitor-view-dashboard",
             Self::Nodes => "sfmonitor-view-nodes",
             Self::Callers => "sfmonitor-view-callers",
@@ -78,6 +81,7 @@ impl View {
 
     pub const fn help_key(self) -> &'static str {
         match self {
+            Self::ConferenceHealth => "health-help",
             Self::Dashboard => "sfmonitor-help-dashboard",
             Self::Nodes => "sfmonitor-help-nodes",
             Self::Callers => "sfmonitor-help-callers",
@@ -213,6 +217,7 @@ impl EventFilter {
 
 #[derive(Clone, Debug, Default)]
 pub struct MonitorSnapshot {
+    pub health: Option<sf_core::conference_health::Page>,
     pub networks: Option<sf_bbs::networks::Snapshot>,
     pub ftn: Option<sf_core::ftn::Status>,
     pub binkp: Option<sf_bbs::binkp::Status>,
@@ -243,6 +248,7 @@ pub enum ConnectionState {
 
 #[derive(Clone, Debug, Default)]
 pub struct MonitorModel {
+    pub health: crate::health::Model,
     pub networks: crate::networks::Model,
     pub live: crate::live_ui::LiveUi,
     pub view: View,

@@ -72,6 +72,7 @@ pub(crate) fn dispatch(runtime: &BoardRuntime, command: &Command) -> Result<(), 
             expected,
         } => {
             match &definition.action {
+                Action::ConferenceHealth => {}
                 Action::Circuitnet { network, node } => {
                     let profile = db.circuitnet_status(network)?.profile;
                     let (config, _) = db.circuitnet_live(network)?;
@@ -158,6 +159,19 @@ fn prepare(runtime: &BoardRuntime) -> Result<i64, ApplicationError> {
 }
 fn execute(runtime: &Arc<BoardRuntime>, action: &Action) -> (Outcome, u32) {
     match action {
+        Action::ConferenceHealth => match crate::conference_health::rollup(runtime) {
+            Ok(r) => (
+                if runtime.shutdown_in_progress().unwrap_or(true) {
+                    Outcome::Interrupted
+                } else if r.pending {
+                    Outcome::Partial
+                } else {
+                    Outcome::Succeeded
+                },
+                r.conferences as u32,
+            ),
+            Err(_) => (Outcome::Failed, 0),
+        },
         Action::Binkp { link } => (crate::binkp::event_poll(runtime, link), 1),
         Action::Circuitnet { network, node } => {
             let Ok(db) = RuntimeDatabase::open_read_only(runtime.database_path()) else {

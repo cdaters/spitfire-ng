@@ -937,10 +937,11 @@ fn actual_sender_reconnects_after_unavailable_listener_and_lost_ack() {
                 .unwrap();
             let mut stream =
                 rustls::StreamOwned::new(rustls::ServerConnection::new(c.clone()).unwrap(), socket);
-            assert!(matches!(
-                wire::read(&mut stream, wire::CONTROL_FRAME),
-                Ok(Frame::Hello { .. })
-            ));
+            let first = wire::read(&mut stream, wire::CONTROL_FRAME);
+            assert!(
+                matches!(first, Ok(Frame::Hello { .. })),
+                "synthetic TLS peer first frame: {first:?}"
+            );
             wire::write(
                 &mut stream,
                 &Frame::Hello {

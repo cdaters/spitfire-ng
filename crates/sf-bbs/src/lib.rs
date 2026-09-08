@@ -16,6 +16,7 @@ mod backup;
 mod board_lock;
 pub mod circuitnet;
 pub mod circuitnet_live;
+pub mod conference_health;
 mod configuration;
 pub use configuration::{
     configuration_version, current_operator_identity, ConfigurationDomainSummary,

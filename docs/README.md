@@ -1,5 +1,7 @@
 # SPITFIRE NG Documentation
 
+[Conference Health](manual/conference-health.md) describes native readership/activity and the optional caller bulletin.
+
 [Public network identity](circuitnet-ng/PUBLIC-IDENTITY.md) records canonical publication locations and service-state boundaries.
 
 Current source implements N1–N6 networking and [N7 FTN file networking](manual/ftn-files.md). Native messages and files remain canonical; BinkP is transport only. No live public FidoNet participation is claimed.

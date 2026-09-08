@@ -263,3 +263,11 @@ messages are readable under each destination BBS's access rules after delivery;
 directed routing does not make them private. Local messages called private, where
 available, are restricted by BBS access controls unless a separate actual feature
 explicitly provides end-to-end encryption.
+
+## Hot Conferences
+
+If the Sysop enables Hot Conferences, choose `B` for Bulletins, then `H`. The list
+shows activity in public conferences available to your account. Reader counts mean
+accounts with read progress, including completed offline packets; they do not
+identify individual readers. Restricted conferences are checked each time you open
+the list.

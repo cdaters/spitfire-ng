@@ -1,5 +1,7 @@
 # Configure a board with sfconfig
 
+[Conference Health settings and rollup](conference-health.md) describes native readership/activity and the optional caller bulletin.
+
 > Applies to current source. Build/install `sfconfig` and `sfmonitor` from the
 > same source checkpoint. The published Development Preview download is unchanged.
 

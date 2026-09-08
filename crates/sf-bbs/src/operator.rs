@@ -31,6 +31,12 @@ pub struct OperatorService {
 }
 
 impl OperatorService {
+    pub(crate) fn conference_health(
+        &self,
+        query: &sf_core::conference_health::Query,
+    ) -> Result<sf_core::conference_health::Page, ApplicationError> {
+        crate::conference_health::snapshot(&self.runtime, query)
+    }
     pub(crate) fn networks(
         &self,
         query: &sf_core::ftn::NetworkQuery,
