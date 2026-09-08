@@ -1,0 +1,56 @@
+# CircuitNET NG Conference Changes
+
+Generated from actual signed revision history. Do not hand edit.
+
+## Revision 1
+
+Governance: bootstrap-c7-charter-1.0-initial-catalog
+
+Founding administration adopts the reviewed 46-area C5 modern proposal with explicit purposes; SUPPORT and CHITCHAT are core. Historical records remain unchanged.
+
+- ADDED: PSA — Public Service Announcements (identity 025a4ee230354e908cbd91d9d9583ed4)
+- ADDED: SCIENCE — Science (identity 045aca1ecab748179685a227ac24344d)
+- ADDED: OPSYSTEM — Operating Systems (identity 073bef08bae944b381ecdc43e04d34d8)
+- ADDED: MOVIES — Movies (identity 0d163dd7a73c4cd89adb2035239550e1)
+- ADDED: COMM — Networking (identity 16c0e4789f22414887074e05ea4f0204)
+- ADDED: BROADCST — Broadcasting and Digital Media (identity 18bd87c0c010416799281711c5b3b3db)
+- ADDED: MUSIC — Music (identity 1c952f629b5f4671aa6a638078e79a83)
+- ADDED: PASCAL — Pascal Programming (identity 1cdccb72bf29475ea90225589411e13f)
+- ADDED: CARS — Cars & Restoration (identity 1d3fcdf981c8426f8e2267078a95fe61)
+- ADDED: COLLECT — Collector's Corner (identity 1dc6ac057b34484f97725188339c432f)
+- ADDED: ASM — Assembly Programming (identity 1f3fbcab77d641a984895a106a7c50d0)
+- ADDED: VIRUS — Security (identity 24f97efda8be41c1b33be0e23c9630a9)
+- ADDED: SPACE — Space & Space Technology (identity 291eb732e2a843c8b4183f9431dc5129)
+- ADDED: SPORTS — Sports (identity 2946211de9204b76a36919c859afb6c2)
+- ADDED: SPITFIRE — SPITFIRE NG Support (identity 2ebbad5553e74f7fa656e9affda3b425)
+- ADDED: SOFTWARE — Software Help (identity 304b00ab88884b8e91f6434d3eaaa33d)
+- ADDED: BOOKS — Books (identity 4cb5e1f11b1647ff8b5b93c876537727)
+- ADDED: DOORS — Doors/3rd Party Authors (identity 516db35412c740f9a9f5eb1276a1b49d)
+- ADDED: CHESS — CircuitNET Chess (identity 5193a7248e3143ac95eacc54924fcba5)
+- ADDED: RETRO — BBS Preservation and Retrocomputing (identity 5f3e2d0102594cf1853052abd4801b2a)
+- ADDED: ENVIRON — The Environment (identity 647d303ba90c4decbf41984e43938297)
+- ADDED: ANSI — ANSI and Text Art (identity 6b0f5b5a89374b0487804ed38073123d)
+- ADDED: COOKING — Cooking (identity 6f683fba305e482c9ef823dc1f97f7bc)
+- ADDED: WRITERS — Writers - Fiction & Non-Fiction (identity 730e0fca704a4fbc8b132194f62c99d6)
+- ADDED: TECH — Electronics/Technology (identity 7ab3fff04fd149c4a2b7aa1a8db9e11c)
+- ADDED: GENEOL — Genealogy (identity 7cb4926385134fee8d32950f6eac6bce)
+- ADDED: C — C Programming (identity 7eaca95306034cbcb354731dcd99efc8)
+- ADDED: SYSOP — Network Sysops (identity 841b2ec439374612a8908e5d2abe29d2)
+- ADDED: OUTDOORS — Outdoors & Travel (identity 8f2440bb7f2f4299b32538d4bf0d5ec2)
+- ADDED: BASIC — Basic Programming (identity 94ab1c32d0244f1daf8ddacde94e66be)
+- ADDED: PHILOS — Philosophy (identity 9b427f9233984f5099c52ae7f5cd5e93)
+- ADDED: AVIATION — Aviation (identity a82620a184444689b34d3fecdfac2668)
+- ADDED: CHITCHAT — General Chit-Chat (identity aa53d617f5194648b914c8d108e6aaba)
+- ADDED: HAMRADIO — HAM Radio (identity b05e7d20201742518b5c57ad8e7f9909)
+- ADDED: GAMES — Games (identity b9912d26556648d88f99ad4eaf1fbc55)
+- ADDED: EVENTS — Current Events (identity bd62f3116a3f4df586708120415ed99d)
+- ADDED: SUPPORT — CircuitNet Support (identity be669846de134662a4bc30bcfc1b6f85)
+- ADDED: PETS — Pets (identity c18398978b464f94b2e54d48e1bad777)
+- ADDED: HOBBIES — Hobbies (identity c234a66a59214d31851d9ac8b7f73dc2)
+- ADDED: SCIFI — Science Fiction (identity c98dedd7d6594c4b804a0519753463c4)
+- ADDED: FAMLHUMR — Family Jokes & Humor (identity d74b5ac4a7c845339697cb5434af768d)
+- ADDED: BBSADS — BBS Ads (identity dedbad2d94a644008a8ac5263af89f9a)
+- ADDED: PROTOCOL — CircuitNET Protocol Development (identity e2fd79748c7e4c8b926a0a2c6804271a)
+- ADDED: HARDWARE — Hardware Help (identity e64b57277ab24364ba42adc4356cdddb)
+- ADDED: NEWUSERS — New User Questions (identity e9e2a1245f8d45f581d49df865ba550a)
+- ADDED: MILITARY — Military - Past & Present (identity fad0b270bf904e8eb34819b395640b2c)

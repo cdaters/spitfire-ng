@@ -20,3 +20,13 @@ disposable boards. Directed conference traffic remains a conference message, and
 transport encryption does not change who may read it after delivery.
 
 See [CircuitNET commands](../manual/circuitnet.md) and [Events](../manual/events.md).
+
+## Catalog-enabled membership
+
+Obtain Network Kit 1.0, review Charter/Rules and apply for an approved Node ID.
+Enroll the catalog pin separately from TLS identity and import its signed seed.
+Poll your parent to sync revisions, then create/map/ignore areas deliberately.
+Request only desired Active-area subscriptions; core omissions require an agreed
+remedy. An END behind NAT may rely on scheduled outbound Polls for both catalog
+updates and incoming traffic. Catalog retirement leaves a local archive; it does
+not erase messages. Use Catalog Administration for mapping and recovery details.

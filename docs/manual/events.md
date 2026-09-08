@@ -166,3 +166,9 @@ neighbors support file distribution. Files queue after native publication and
 mapping/subscription checks; they follow the link's existing Immediate, Scheduled,
 Manual or Hybrid policy. A quarantined file cannot become eligible merely because
 an Event runs. See [Files](files.md) and [CircuitNET file distribution](circuitnet.md#file-distribution-c6).
+
+C7 catalog revisions participate in the same CircuitNET Exchange Event. A publisher
+or HOST with newer signed revisions has pending downstream work. Immediate/Hybrid
+coalesces that work through the existing activity generation; Scheduled waits for its
+Event and Manual waits for Poll/Run Now. An END's scheduled outbound Poll can fetch
+its parent's updates behind NAT. No catalog-specific timer or polling service exists.

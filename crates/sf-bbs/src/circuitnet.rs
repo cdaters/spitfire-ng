@@ -103,6 +103,131 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
     let run_cap = LocalOperatorCapability::NetworkRun;
     let read_cap = LocalOperatorCapability::ReadConfiguration;
     match (*action, rest) {
+        ("catalog-key", [output]) => {
+            authority.circuitnet(config_cap, |_, _, _| Ok(()))?;
+            let key = sf_net::circuitnet::catalog::Signed::generate_key().map_err(Error::from)?;
+            write(output, &key)?;
+            return Ok(sf_net::circuitnet::catalog::Signed::public_key(&key).map_err(Error::from)?);
+        }
+        ("catalog-pin", [input]) => {
+            let a: catalog::Authority =
+                serde_json::from_slice(&read(input)?).map_err(Error::from)?;
+            if a.network != network {
+                return Err(usage());
+            }
+            authority.circuitnet(config_cap, |db, _, actor| {
+                db.circuitnet_catalog_pin(actor, &a, now)
+            })?;
+        }
+        ("catalog-import", [input]) => {
+            let signed = catalog::Signed::decode(&read(input)?).map_err(Error::from)?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                db.circuitnet_catalog_receive(actor, &network, &signed, now)
+                    .map(|_| ())
+            })?;
+        }
+        ("catalog-publish", [input, key, confirmation]) => {
+            let body: catalog::Body = serde_json::from_slice(&read(input)?).map_err(Error::from)?;
+            if body.intent == catalog::Intent::Reuse
+                && *confirmation != "confirm-new-identity-reuse"
+            {
+                return Err(ApplicationError::Usage(crate::op("catalog-reuse")));
+            }
+            if body.network != network
+                || (*confirmation != "publish" && *confirmation != "confirm-new-identity-reuse")
+                || (body.intent == catalog::Intent::Reuse)
+                    != (*confirmation == "confirm-new-identity-reuse")
+            {
+                return Err(usage());
+            }
+            crate::circuitnet_live::private(Path::new(key), false).map_err(|_| io_error())?;
+            let secret = read(key)?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                db.circuitnet_catalog_publish(actor, body, &secret, now)
+                    .map(|_| ())
+            })?;
+        }
+        ("catalog-draft", [output, reference, rationale]) => {
+            let body = authority.circuitnet(config_cap, |db, _, actor| {
+                db.circuitnet_catalog_draft(actor, &network, reference, rationale, now)
+            })?;
+            write(
+                output,
+                &serde_json::to_vec_pretty(&body).map_err(Error::from)?,
+            )?;
+        }
+        ("catalog-export", [output]) | ("catalog-changes", [output]) => {
+            let bytes = authority.circuitnet(read_cap, |db, _, _| {
+                let current = db
+                    .circuitnet_catalog_current(&network)?
+                    .ok_or(Error::Policy)?;
+                if *action == "catalog-export" {
+                    Ok(current.encode().map_err(Error::from)?)
+                } else {
+                    let previous = if current.body.revision > 1 {
+                        db.circuitnet_catalog_revision(&network, current.body.revision - 1)?
+                    } else {
+                        None
+                    };
+                    Ok(current.changes(previous.as_ref()).into_bytes())
+                }
+            })?;
+            write(output, &bytes)?;
+        }
+        ("catalog-status", []) => {
+            return authority.circuitnet(read_cap, |db, _, _| {
+                Ok(serde_json::to_string_pretty(
+                    &db.circuitnet_catalog_status(&network)?,
+                )?)
+            })
+        }
+        ("catalog-list", []) => {
+            return authority.circuitnet(read_cap, |db, _, _| {
+                Ok(serde_json::to_string_pretty(
+                    &db.circuitnet_catalog_entries(&network)?,
+                )?)
+            })
+        }
+        ("catalog-ignore", [id]) => authority.circuitnet(config_cap, |db, _, actor| {
+            db.circuitnet_catalog_choose(actor, &network, id, None, now)
+        })?,
+        ("catalog-map", [id, number]) => {
+            let number = number.parse::<u16>().map_err(|_| usage())?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let c = db
+                    .all_conferences()?
+                    .into_iter()
+                    .find(|c| c.number == number)
+                    .ok_or(Error::Policy)?;
+                db.circuitnet_catalog_choose(actor, &network, id, Some(c.id.get()), now)
+            })?;
+        }
+        ("catalog-create-map", [id, number]) => {
+            let number = number.parse::<u16>().map_err(|_| usage())?;
+            authority.circuitnet(config_cap, |db, _, actor| {
+                let entry = db
+                    .circuitnet_catalog_entries(&network)?
+                    .into_iter()
+                    .find(|e| e.entry.id == *id)
+                    .ok_or(Error::Policy)?
+                    .entry;
+                let definition = sf_core::ConferenceDefinition {
+                    posting_identity: Some(sf_core::PostingIdentityPolicy::HandleAllowed),
+                    number,
+                    name: entry.display_name,
+                    description: entry.description,
+                    access_mode: sf_core::ConferenceAccessMode::AtLeast,
+                    read_security: sf_core::SecurityLevel::new(10).map_err(|_| Error::Policy)?,
+                    post_security: sf_core::SecurityLevel::new(10).map_err(|_| Error::Policy)?,
+                    public_only: true,
+                    caller_deletion_enabled: false,
+                    maximum_lines: 99,
+                    privileged_security_levels: vec![],
+                };
+                db.circuitnet_catalog_create_map(actor, &network, id, &definition, now)
+                    .map(|_| ())
+            })?;
+        }
         ("file-map", [code, area, send, receive, maximum]) => {
             let codename = codec(Codename::new(code))?;
             let area_number = area.parse::<u16>().map_err(|_| usage())?;

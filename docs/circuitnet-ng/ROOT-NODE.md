@@ -20,3 +20,14 @@ disposable boards. Directed conference traffic remains a conference message, and
 transport encryption does not change who may read it after delivery.
 
 See [CircuitNET commands](../manual/circuitnet.md) and [Events](../manual/events.md).
+
+## Network publication authority
+
+ROOT's technical role is distinct from the Network Administrator's human office.
+During founding bootstrap, record the Administrator's decision reference; after
+transition, publish the Committee-approved change. Pin and protect the Ed25519 catalog
+key. Generate a draft, review lifecycle/identity changes, sign/publish and let ordinary
+Poll/Exchange Events propagate it. Inspect downstream catalog state and rejection
+health. Do not rewrite a HOST-forwarded object or remotely choose local numbers.
+Reactivation keeps identity; reuse requires the explicit new-identity confirmation.
+See Catalog Administration and Charter 1.0 for the decision and operational processes.

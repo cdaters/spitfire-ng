@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Development/offline CircuitNET NG envelope; no legacy codec or I/O authority.
+pub mod catalog;
 pub mod control;
 pub mod files;
 pub mod transport;
@@ -197,6 +198,8 @@ impl Topology {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Message {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conference_identity: Option<String>,
     pub id: MessageId,
     pub origin: NodeId,
     pub codename: Codename,
@@ -218,7 +221,11 @@ fn text_valid(s: &str, max: usize, body: bool) -> bool {
 }
 impl Message {
     pub fn validate(&self) -> Result<(), Error> {
-        if self.id.origin() != self.origin
+        if self
+            .conference_identity
+            .as_ref()
+            .is_some_and(|s| !catalog::is_hex(s, 16))
+            || self.id.origin() != self.origin
             || self.reply.as_ref() == Some(&self.id)
             || self.author.is_empty()
             || self.author.chars().count() > 60
@@ -483,6 +490,7 @@ mod tests {
             sender: NodeId::new("END1").unwrap(),
             neighbor: NodeId::new("HOST").unwrap(),
             messages: vec![Message {
+                conference_identity: None,
                 id: MessageId::new("END1:00000000000000000000000000000001").unwrap(),
                 origin: NodeId::new("END1").unwrap(),
                 codename: Codename::new("CNTEST").unwrap(),

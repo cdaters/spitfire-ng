@@ -259,3 +259,9 @@ See the [identity contract](technical/identity-policy.md), [caller instructions]
   content identity, scanner interface, backup and reference safety.
 - [C6 canonical report](research/m069-files-circuitnet-distribution.md): historical gate,
   implementation decisions and acceptance/publication status.
+
+## CircuitNET network authority and Network Kit (C7)
+
+- [Canonical C7 report](research/m070-circuitnet-governance-catalog-distribution.md).
+- [Signed catalog contract](technical/circuitnet-catalog.md).
+- [Charter, Rules, joining/application and Network Kit](circuitnet-ng/README.md).

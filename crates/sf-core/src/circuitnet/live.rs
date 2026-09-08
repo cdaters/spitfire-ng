@@ -90,6 +90,10 @@ pub struct Health {
     #[serde(default)]
     pub files_sent: u32,
     #[serde(default)]
+    pub catalogs_sent: u32,
+    #[serde(default)]
+    pub catalogs_received: u32,
+    #[serde(default)]
     pub files_received: u32,
     #[serde(default)]
     pub file_bytes: u64,

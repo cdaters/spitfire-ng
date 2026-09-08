@@ -126,7 +126,7 @@ fn db(runtime: &BoardRuntime) -> Result<RuntimeDatabase, Error> {
     d.bind_posting_identity_configuration(&custody(runtime.configuration.current())?);
     Ok(d)
 }
-fn private(path: &Path, directory: bool) -> Result<(), Error> {
+pub(crate) fn private(path: &Path, directory: bool) -> Result<(), Error> {
     let m = custody(fs::symlink_metadata(path))?;
     if m.file_type().is_symlink() || (directory && !m.is_dir()) || (!directory && !m.is_file()) {
         return Err(Error::Custody);
@@ -411,6 +411,7 @@ pub struct ControlStatus {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Status {
+    pub catalog: core::catalog::CatalogStatus,
     #[serde(default)]
     pub files: core::files::Status,
     pub network: NetworkId,
@@ -482,6 +483,7 @@ pub(crate) fn status(runtime: &BoardRuntime, offset: u32) -> Result<Vec<Status>,
         let controls = d.circuitnet_controls_page(&network, offset)?;
         let more = controls.len() > 16 || s.dossiers.len() > offset as usize + 16;
         result.push(Status {
+            catalog: d.circuitnet_catalog_status(&network)?,
             files: d.circuitnet_file_status(&network)?,
             local: s.profile.local.clone(),
             role: s
@@ -543,6 +545,7 @@ struct Session<'a> {
     controls: bool,
     files: bool,
     hash_have: bool,
+    catalog: bool,
 }
 impl<'a> Session<'a> {
     fn new(
@@ -568,6 +571,7 @@ impl<'a> Session<'a> {
             controls: false,
             files: false,
             hash_have: false,
+            catalog: false,
         }
     }
     fn admitted(&self) -> Result<RuntimeDatabase, Error> {
@@ -608,6 +612,7 @@ impl<'a> Session<'a> {
         }
         self.admitted()?;
         (self.directed, self.controls) = local.c4_capabilities(&remote)?;
+        self.catalog = local.catalog_capability(&remote)?;
         (self.files, self.hash_have) = local.file_capabilities(&remote)?;
         self.health.protocol_minor = Some(minor);
         Ok(local)
@@ -752,6 +757,141 @@ impl<'a> Session<'a> {
         }
         Err(Error::Oversized)
     }
+    fn send_catalog(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        if !self.catalog {
+            return Ok(());
+        }
+        let child = custody(self.profile.topology.node(&self.peer.node))?
+            .parent
+            .as_ref()
+            == Some(&self.profile.local);
+        let status = custody(
+            self.admitted()?
+                .circuitnet_catalog_status(&self.profile.network),
+        )?;
+        let revision = if child { status.revision } else { 0 };
+        let hash = if child { status.hash } else { None };
+        ch.send(&Frame::CatalogHead { revision, hash })?;
+        let Frame::CatalogRequest {
+            revision: remote,
+            hash: remote_hash,
+            enabled,
+        } = ch.receive(wire::CONTROL_FRAME)?
+        else {
+            return Err(Error::MalformedFrame);
+        };
+        if enabled && child && revision > 0 {
+            if remote > revision {
+                return Err(Error::ConflictingMessage);
+            }
+            if remote > 0
+                && custody(
+                    self.admitted()?
+                        .circuitnet_catalog_revision(&self.profile.network, remote),
+                )?
+                .map(|s| s.hash)
+                    != remote_hash
+            {
+                return Err(Error::ConflictingMessage);
+            }
+            custody(self.admitted()?.circuitnet_catalog_peer(
+                &self.profile.network,
+                &self.peer.node,
+                remote,
+                remote_hash.as_deref(),
+                now(),
+            ))?;
+            for next in remote + 1..=revision.min(remote.saturating_add(64)) {
+                let catalog = custody(
+                    self.admitted()?
+                        .circuitnet_catalog_revision(&self.profile.network, next),
+                )?
+                .ok_or(Error::Custody)?;
+                ch.send(&Frame::CatalogObject {
+                    catalog: Some(catalog.clone()),
+                })?;
+                let Frame::CatalogAck {
+                    revision: r,
+                    hash: h,
+                } = ch.receive(wire::CONTROL_FRAME)?
+                else {
+                    return Err(Error::MalformedFrame);
+                };
+                if r != next || h.as_ref() != Some(&catalog.hash) {
+                    return Err(Error::ConflictingMessage);
+                }
+                self.health.catalogs_sent += 1;
+                custody(self.admitted()?.circuitnet_catalog_peer(
+                    &self.profile.network,
+                    &self.peer.node,
+                    r,
+                    h.as_deref(),
+                    now(),
+                ))?;
+            }
+        }
+        ch.send(&Frame::CatalogObject { catalog: None })?;
+        Ok(())
+    }
+    fn receive_catalog(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
+        if !self.catalog {
+            return Ok(());
+        }
+        let Frame::CatalogHead { revision, hash } = ch.receive(wire::CONTROL_FRAME)? else {
+            return Err(Error::MalformedFrame);
+        };
+        let parent = custody(self.profile.topology.node(&self.profile.local))?
+            .parent
+            .as_ref()
+            == Some(&self.peer.node);
+        if !parent && revision != 0 {
+            return Err(Error::AuthFailed);
+        }
+        let status = custody(
+            self.admitted()?
+                .circuitnet_catalog_status(&self.profile.network),
+        )?;
+        let enabled = parent && status.authority.is_some();
+        if enabled {
+            custody(self.admitted()?.circuitnet_catalog_observe_parent(
+                &self.profile.network,
+                &self.peer.node,
+                revision,
+                hash.as_deref(),
+                now(),
+            ))?;
+        }
+        ch.send(&Frame::CatalogRequest {
+            revision: status.revision,
+            hash: status.hash,
+            enabled,
+        })?;
+        for count in 0..=64 {
+            let Frame::CatalogObject { catalog } =
+                ch.receive(envelope::catalog::MAX_BYTES + 1024)?
+            else {
+                return Err(Error::MalformedFrame);
+            };
+            let Some(catalog) = catalog else {
+                return Ok(());
+            };
+            if !enabled || count == 64 || catalog.body.revision > revision {
+                return Err(Error::MalformedFrame);
+            }
+            custody(self.admitted()?.circuitnet_catalog_receive(
+                self.peer.node.as_str(),
+                &self.profile.network,
+                &catalog,
+                now(),
+            ))?;
+            self.health.catalogs_received += 1;
+            ch.send(&Frame::CatalogAck {
+                revision: catalog.body.revision,
+                hash: Some(catalog.hash),
+            })?;
+        }
+        Err(Error::Oversized)
+    }
     fn send_controls(&mut self, ch: &mut tls::Channel) -> Result<(), Error> {
         if !self.controls {
             return Ok(());
@@ -818,11 +958,14 @@ impl<'a> Session<'a> {
                 }
                 cursor = next;
             }
-            match d.circuitnet_prepare_capable_neighbor(
+            match d.circuitnet_prepare_catalog_neighbor(
                 &self.runtime.network_artifacts,
                 &self.profile.network,
                 &self.peer.node,
-                self.directed,
+                core::MessageCapabilities {
+                    directed: self.directed,
+                    catalog: self.catalog,
+                },
                 now(),
             ) {
                 Ok(p) => Some(p),
@@ -998,6 +1141,8 @@ fn outbound(
         session.hello(&mut ch, hello, mode)?;
         let exchange = (|| {
             if mode == Mode::Poll {
+                session.send_catalog(&mut ch)?;
+                session.receive_catalog(&mut ch)?;
                 session.send(&mut ch)?;
                 session.send_files(&mut ch)?;
                 session.receive(&mut ch)?;
@@ -1046,6 +1191,8 @@ fn inbound(
         let local = session.hello(&mut ch, hello, mode)?;
         ch.send(&Frame::Hello { hello: local })?;
         if mode == Mode::Poll {
+            session.receive_catalog(&mut ch)?;
+            session.send_catalog(&mut ch)?;
             session.receive(&mut ch)?;
             session.receive_files(&mut ch)?;
             session.send(&mut ch)?;
@@ -1158,7 +1305,12 @@ pub(crate) fn event_poll(
                     && d.circuitnet_link_health(network, node)
                         .ok()
                         .flatten()
-                        .is_some_and(|h| h.sent == 0 && h.files_sent == 0)
+                        .is_some_and(|h| {
+                            h.sent == 0
+                                && h.files_sent == 0
+                                && h.catalogs_sent == 0
+                                && h.catalogs_received == 0
+                        })
                 {
                     return Outcome::Held;
                 }

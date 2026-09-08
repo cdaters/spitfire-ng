@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CircuitNET NG signed conference catalog schema 1",
+  "description": "Structural schema. UTF-8 byte bounds, canonical ordering, signatures and lifecycle/hash-chain rules additionally follow the protocol specification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "body",
+    "hash",
+    "signature"
+  ],
+  "properties": {
+    "body": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "schema",
+        "network",
+        "catalog_id",
+        "revision",
+        "previous_revision",
+        "previous_hash",
+        "published_at",
+        "publisher",
+        "governance_reference",
+        "rationale",
+        "intent",
+        "entries"
+      ],
+      "properties": {
+        "format": {
+          "const": "circuitnet-ng-catalog"
+        },
+        "schema": {
+          "const": 1
+        },
+        "network": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$"
+        },
+        "catalog_id": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "previous_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "previous_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "published_at": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 253402300799
+        },
+        "publisher": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]{1,8}$"
+        },
+        "governance_reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "intent": {
+          "enum": [
+            "ordinary",
+            "reactivate",
+            "reuse"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/entry"
+          }
+        }
+      }
+    },
+    "hash": {
+      "$ref": "#/$defs/hash"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{128}$"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "codename",
+        "display_name",
+        "description",
+        "category",
+        "required",
+        "status",
+        "effective_revision",
+        "retired_revision",
+        "historical_reference",
+        "moderator_role"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "codename": {
+          "type": "string",
+          "pattern": "^[A-Z0-9](?:[A-Z0-9-]{0,6}[A-Z0-9])?$"
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "active",
+            "deprecated",
+            "retired"
+          ]
+        },
+        "effective_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retired_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "historical_reference": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "moderator_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      }
+    }
+  }
+}

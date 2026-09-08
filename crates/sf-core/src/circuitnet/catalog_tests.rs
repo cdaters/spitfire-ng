@@ -1,0 +1,457 @@
+// SPITFIRE NG
+// Preservation-driven modern cross-platform reimplementation of
+// Buffalo Creek Software's SPITFIRE Bulletin Board System
+//
+// Copyright (c) 2026 Craig Daters and SPITFIRE NG contributors
+// Licensed under MIT OR Apache-2.0
+//
+// This file is part of the SPITFIRE NG project.
+// See the repository documentation for architecture, provenance,
+// compatibility research, security, and contribution guidelines.
+
+use super::*;
+use crate::circuitnet::catalog::{Authority, Body, Entry, Intent, Lifecycle, Signed};
+fn setup(b: &mut Board, key: &[u8]) -> Authority {
+    let mut p = b.db.circuitnet_status(&net()).unwrap().profile;
+    p.topology.nodes[0].role = Role::Root;
+    b.db.circuitnet_configure("operator", &p, 1, 2).unwrap();
+    let a = Authority {
+        network: net(),
+        catalog_id: "a".repeat(32),
+        publisher: node("HOST"),
+        public_key: Signed::public_key(key).unwrap(),
+    };
+    b.db.circuitnet_catalog_pin("operator", &a, 3).unwrap();
+    a
+}
+fn initial(a: &Authority) -> Body {
+    Body {
+        format: "circuitnet-ng-catalog".into(),
+        schema: 1,
+        network: a.network.clone(),
+        catalog_id: a.catalog_id.clone(),
+        revision: 1,
+        previous_revision: 0,
+        previous_hash: None,
+        published_at: 4,
+        publisher: a.publisher.clone(),
+        governance_reference: "bootstrap-test".into(),
+        rationale: "Synthetic initial scope".into(),
+        intent: Intent::Ordinary,
+        entries: vec![Entry {
+            id: "1".repeat(32),
+            codename: code("CNTEST"),
+            display_name: "Synthetic catalog".into(),
+            description: "Synthetic accepted scope".into(),
+            category: "test".into(),
+            required: true,
+            status: Lifecycle::Active,
+            effective_revision: 1,
+            retired_revision: None,
+            historical_reference: "synthetic".into(),
+            moderator_role: "moderator".into(),
+        }],
+    }
+}
+fn next(s: &Signed) -> Body {
+    let mut b = s.body.clone();
+    b.revision += 1;
+    b.previous_revision = s.body.revision;
+    b.previous_hash = Some(s.hash.clone());
+    b.published_at += 1;
+    b
+}
+fn choose(b: &mut Board) {
+    b.db.circuitnet_catalog_choose(
+        "operator",
+        &net(),
+        &"1".repeat(32),
+        Some(b.conference.get()),
+        5,
+    )
+    .unwrap();
+}
+fn subscribe(b: &mut Board, peer: &str) {
+    let version =
+        b.db.circuitnet_status(&net())
+            .unwrap()
+            .dossiers
+            .into_iter()
+            .find(|d| d.neighbor == node(peer) && d.codename == code("CNTEST"))
+            .unwrap()
+            .version;
+    b.db.circuitnet_subscribe(
+        "operator",
+        &net(),
+        &Dossier {
+            neighbor: node(peer),
+            codename: code("CNTEST"),
+            subscribed: true,
+            version,
+        },
+        6,
+    )
+    .unwrap();
+}
+#[test]
+fn catalog_pin_mapping_dossier_no_auto_create_or_subscribe() {
+    let mut b = board("HOST");
+    let key = Signed::generate_key().unwrap();
+    let a = setup(&mut b, &key);
+    let count = b.db.all_conferences().unwrap().len();
+    let s =
+        b.db.circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+            .unwrap();
+    assert_eq!(b.db.all_conferences().unwrap().len(), count);
+    assert_eq!(
+        b.db.circuitnet_catalog_status(&net())
+            .unwrap()
+            .required_unmapped,
+        1
+    );
+    assert!(
+        !catalog::dossier_allowed(&b.db.connection, &net(), &node("END1"), &code("CNTEST"))
+            .unwrap()
+    );
+    choose(&mut b);
+    subscribe(&mut b, "END1");
+    assert_eq!(
+        b.db.circuitnet_catalog_status(&net())
+            .unwrap()
+            .required_unmapped,
+        0
+    );
+    let m = post(&mut b, "Catalog bound post", None);
+    assert_eq!(b.db.circuitnet_scan(&net(), 0, 10).unwrap().0, 1);
+    let prepared =
+        b.db.circuitnet_prepare_neighbor(&b.store, &net(), &node("END1"), 10)
+            .unwrap();
+    let batch = wire::Batch::decode(&prepared.bytes).unwrap();
+    assert_eq!(
+        batch.messages[0].conference_identity,
+        Some(s.body.entries[0].id.clone())
+    );
+    assert!(matches!(
+        b.db.circuitnet_prepare_catalog_neighbor(
+            &b.store,
+            &net(),
+            &node("END1"),
+            MessageCapabilities {
+                directed: true,
+                catalog: false
+            },
+            10
+        ),
+        Err(Error::Empty)
+    ));
+    let id =
+        b.db.connection
+            .query_row(
+                "SELECT conference_identity FROM circuitnet_messages WHERE message_id=?1",
+                [m.id.get()],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap();
+    assert_eq!(id, s.body.entries[0].id);
+    b.db.circuitnet_catalog_choose("operator", &net(), &id, None, 11)
+        .unwrap();
+    assert_eq!(
+        b.db.circuitnet_catalog_entries(&net()).unwrap()[0].decision,
+        "ignored"
+    );
+    assert_eq!(b.db.all_conferences().unwrap().len(), count);
+}
+#[test]
+fn catalog_retirement_reactivation_reuse_and_history_fences() {
+    let mut b = board("HOST");
+    let key = Signed::generate_key().unwrap();
+    let a = setup(&mut b, &key);
+    let s =
+        b.db.circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+            .unwrap();
+    choose(&mut b);
+    subscribe(&mut b, "END1");
+    let m = post(&mut b, "Historical generation", None);
+    b.db.circuitnet_scan(&net(), 0, 10).unwrap();
+    let mut body = next(&s);
+    body.entries[0].status = Lifecycle::Retired;
+    body.entries[0].retired_revision = Some(2);
+    body.entries[0].effective_revision = 2;
+    let retired =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 11)
+            .unwrap();
+    assert!(catalog::active(&b.db.connection, &net(), &code("CNTEST"), true).is_err());
+    assert!(matches!(
+        b.db.circuitnet_prepare_neighbor(&b.store, &net(), &node("END1"), 12),
+        Err(Error::Empty)
+    ));
+    assert!(b
+        .db
+        .all_conferences()
+        .unwrap()
+        .iter()
+        .any(|c| c.id == b.conference));
+    post(&mut b, "Local archive during retirement", None);
+    let mut body = next(&retired);
+    body.intent = Intent::Reactivate;
+    body.entries[0].status = Lifecycle::Active;
+    body.entries[0].retired_revision = None;
+    body.entries[0].effective_revision = 3;
+    let revived =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 13)
+            .unwrap();
+    choose(&mut b);
+    assert_eq!(b.db.circuitnet_scan(&net(), 0, 14).unwrap().0, 0);
+    let mut body = next(&revived);
+    body.entries[0].status = Lifecycle::Retired;
+    body.entries[0].retired_revision = Some(4);
+    body.entries[0].effective_revision = 4;
+    let retired =
+        b.db.circuitnet_catalog_publish("operator", body, &key, 15)
+            .unwrap();
+    let mut body = next(&retired);
+    let mut fresh = s.body.entries[0].clone();
+    fresh.id = "2".repeat(32);
+    fresh.effective_revision = 5;
+    body.entries.push(fresh);
+    assert!(b
+        .db
+        .circuitnet_catalog_publish("operator", body.clone(), &key, 16)
+        .is_err());
+    body.intent = Intent::Reuse;
+    b.db.circuitnet_catalog_publish("operator", body, &key, 16)
+        .unwrap();
+    assert!(!catalog::mapped(
+        &b.db.connection,
+        &net(),
+        &code("CNTEST"),
+        b.conference.get()
+    )
+    .unwrap());
+    assert!(
+        !catalog::dossier_allowed(&b.db.connection, &net(), &node("END1"), &code("CNTEST"))
+            .unwrap()
+    );
+    let original: String =
+        b.db.connection
+            .query_row(
+                "SELECT conference_identity FROM circuitnet_messages WHERE message_id=?1",
+                [m.id.get()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(original, "1".repeat(32));
+    assert_eq!(
+        b.db.circuitnet_catalog_current(&net())
+            .unwrap()
+            .unwrap()
+            .body
+            .entries
+            .len(),
+        2
+    );
+    assert_eq!(b.db.circuitnet_catalog_status(&net()).unwrap().rejected, 1);
+}
+#[test]
+fn catalog_restart_backup_and_restore_cannot_discard_known_revision() {
+    let mut b = board("HOST");
+    let key = Signed::generate_key().unwrap();
+    let a = setup(&mut b, &key);
+    let s =
+        b.db.circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+            .unwrap();
+    choose(&mut b);
+    let backup = b._temp.path().join("snapshot.sqlite3");
+    b.db.backup_to(&backup).unwrap();
+    let old = RuntimeDatabase::open(&backup).unwrap();
+    old.validate_catalog_authority().unwrap();
+    b.db.circuitnet_catalog_check_restore(&old).unwrap();
+    let mut body = next(&s);
+    body.entries[0].description = "Metadata updated".into();
+    body.entries[0].effective_revision = 2;
+    b.db.circuitnet_catalog_publish("operator", body, &key, 8)
+        .unwrap();
+    assert!(matches!(
+        b.db.circuitnet_catalog_check_restore(&old),
+        Err(Error::Catalog(sf_net::circuitnet::catalog::Error::Rollback))
+    ));
+    assert!(b
+        .db
+        .circuitnet_catalog_receive("HOST", &net(), &s, 9)
+        .is_err());
+    let reopened = RuntimeDatabase::open(&b._temp.path().join("native.sqlite3")).unwrap();
+    assert_eq!(
+        reopened.circuitnet_catalog_status(&net()).unwrap().revision,
+        2
+    );
+    reopened.validate_catalog_authority().unwrap();
+    assert_eq!(
+        reopened.circuitnet_catalog_entries(&net()).unwrap()[0].conference,
+        Some(b.conference.get())
+    );
+}
+#[test]
+fn catalog_incoming_generation_policy_and_create_map_are_explicit() {
+    let key = Signed::generate_key().unwrap();
+    let mut host = board("HOST");
+    let a = setup(&mut host, &key);
+    let mut end = board("END1");
+    setup(&mut end, &key);
+    let s = host
+        .db
+        .circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+        .unwrap();
+    end.db
+        .circuitnet_catalog_receive("HOST", &net(), &s, 4)
+        .unwrap();
+    assert!(end
+        .db
+        .circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+        .is_err());
+    choose(&mut host);
+    subscribe(&mut host, "END1");
+    // Ignore prevents END import even with old codename Dossier flags retained.
+    end.db
+        .circuitnet_catalog_choose("operator", &net(), &"1".repeat(32), None, 5)
+        .unwrap();
+    post(&mut host, "Scoped new identity", None);
+    host.db.circuitnet_scan(&net(), 0, 10).unwrap();
+    let prepared = host
+        .db
+        .circuitnet_prepare_neighbor(&host.store, &net(), &node("END1"), 11)
+        .unwrap();
+    assert!(end
+        .db
+        .circuitnet_import(&end.store, &net(), &node("HOST"), &prepared.bytes, 12)
+        .is_err());
+    choose(&mut end);
+    subscribe(&mut end, "HOST");
+    let mut wrong = wire::Batch::decode(&prepared.bytes).unwrap();
+    wrong.messages[0].conference_identity = Some("f".repeat(32));
+    assert!(end
+        .db
+        .circuitnet_import(
+            &end.store,
+            &net(),
+            &node("HOST"),
+            &wrong.encode().unwrap(),
+            13
+        )
+        .is_err());
+    end.db
+        .circuitnet_import(&end.store, &net(), &node("HOST"), &prepared.bytes, 14)
+        .unwrap();
+    assert_eq!(
+        end.db
+            .circuitnet_import(&end.store, &net(), &node("HOST"), &prepared.bytes, 15)
+            .unwrap()
+            .duplicates,
+        1
+    );
+    let mut body = next(&s);
+    let mut entry = body.entries[0].clone();
+    entry.id = "2".repeat(32);
+    entry.codename = code("NEWAREA");
+    entry.effective_revision = 2;
+    body.entries.push(entry);
+    let next = host
+        .db
+        .circuitnet_catalog_publish("operator", body, &key, 16)
+        .unwrap();
+    end.db
+        .circuitnet_catalog_receive("HOST", &net(), &next, 16)
+        .unwrap();
+    let definition = ConferenceDefinition {
+        posting_identity: None,
+        number: 42,
+        name: "Locally selected".into(),
+        description: "Local policy".into(),
+        access_mode: ConferenceAccessMode::AtLeast,
+        read_security: SecurityLevel::new(10).unwrap(),
+        post_security: SecurityLevel::new(10).unwrap(),
+        public_only: true,
+        caller_deletion_enabled: false,
+        maximum_lines: 99,
+        privileged_security_levels: vec![],
+    };
+    end.db
+        .circuitnet_catalog_create_map("operator", &net(), &"2".repeat(32), &definition, 17)
+        .unwrap();
+    assert!(end
+        .db
+        .all_conferences()
+        .unwrap()
+        .iter()
+        .any(|c| c.number == 42));
+    assert!(!end
+        .db
+        .circuitnet_status(&net())
+        .unwrap()
+        .dossiers
+        .iter()
+        .any(|d| d.codename == code("NEWAREA")));
+}
+
+#[test]
+fn catalog_partial_catchup_remains_generic_event_work_and_head_forks_are_audited() {
+    let key = Signed::generate_key().unwrap();
+    let mut host = board("HOST");
+    let a = setup(&mut host, &key);
+    let mut end = board("END1");
+    setup(&mut end, &key);
+    let first = host
+        .db
+        .circuitnet_catalog_publish("operator", initial(&a), &key, 4)
+        .unwrap();
+    end.db
+        .circuitnet_catalog_receive("HOST", &net(), &first, 4)
+        .unwrap();
+    let second = host
+        .db
+        .circuitnet_catalog_publish("operator", next(&first), &key, 5)
+        .unwrap();
+    end.db
+        .circuitnet_catalog_observe_parent(&net(), &node("HOST"), 2, Some(&second.hash), 6)
+        .unwrap();
+    assert!(
+        end.db
+            .circuitnet_catalog_status(&net())
+            .unwrap()
+            .pending_sync
+    );
+    assert!(end
+        .db
+        .event_has_outbound_work(
+            &events::Action::Circuitnet {
+                network: net(),
+                node: Some(node("HOST"))
+            },
+            6
+        )
+        .unwrap());
+    end.db
+        .circuitnet_catalog_receive("HOST", &net(), &second, 7)
+        .unwrap();
+    assert!(
+        !end.db
+            .circuitnet_catalog_status(&net())
+            .unwrap()
+            .pending_sync
+    );
+    assert!(!end
+        .db
+        .circuitnet_catalog_pending(&net(), Some(&node("HOST")))
+        .unwrap());
+    assert!(end
+        .db
+        .circuitnet_catalog_observe_parent(&net(), &node("HOST"), 2, Some(&"f".repeat(64)), 8)
+        .is_err());
+    assert_eq!(
+        end.db.circuitnet_catalog_status(&net()).unwrap().rejected,
+        1
+    );
+    assert_eq!(
+        end.db.circuitnet_catalog_status(&net()).unwrap().revision,
+        2
+    );
+}

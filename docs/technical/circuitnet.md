@@ -284,3 +284,12 @@ generic preparation authority. Exchange timing remains a C5 Event policy.
 See [Files custody](files-custody.md), the [1.3 transport extension](circuitnet-transport.md)
 and [C6 report](../research/m069-files-circuitnet-distribution.md) for implementation
 and acceptance status. No file request service or governance automation is introduced.
+
+## C7 catalog authority
+
+[Signed catalog revisions](circuitnet-catalog.md) are network metadata surrounding
+native messages. A pinned profile enforces immutable conference generation in addition
+to codename. Native mapping and Dossier choices are explicit; catalog arrival is not
+conference creation, subscription or destructive retirement. Current C5 Event authority
+triggers catalog exchange through the same authenticated C3 transport. C6 file codenames
+remain separate and acquire no official governance policy in this milestone.

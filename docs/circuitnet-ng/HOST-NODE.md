@@ -21,3 +21,13 @@ disposable boards. Directed conference traffic remains a conference message, and
 transport encryption does not change who may read it after delivery.
 
 See [CircuitNET commands](../manual/circuitnet.md) and [Events](../manual/events.md).
+
+## Signed catalog forwarding
+
+A HOST verifies its parent's catalog revisions and forwards the original signed
+objects to its direct children through normal exchanges. It does not become the
+publisher or grant itself governance powers. Keep upstream and child Events useful;
+a child's outbound poll can receive updates even without its own inbound listener.
+Review mapping attention and retired areas, and approve only Active-area Dossier
+requests. A newly reused codename has a different immutable ID and requires fresh
+local choice/subscription authority. Do not convert catalog receipt into mass subscribe.

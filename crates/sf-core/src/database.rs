@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 33;
+pub const SCHEMA_VERSION: u32 = 34;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 33] = [
+const MIGRATIONS: [Migration; 34] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1557,6 +1557,11 @@ const MIGRATIONS: [Migration; 33] = [
         name: "native_files_custody",
         sql: include_str!("files.sql"),
     },
+    Migration {
+        version: 34,
+        name: "circuitnet_catalog_authority",
+        sql: include_str!("circuitnet_catalog.sql"),
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1753,6 +1758,11 @@ impl RuntimeDatabase {
         if required >= 33 {
             self.validate_files_authority().map_err(|_| {
                 DatabaseError::IntegrityCheck("native Files authority is inconsistent".into())
+            })?;
+        }
+        if required >= 34 {
+            self.validate_catalog_authority().map_err(|_| {
+                DatabaseError::IntegrityCheck("CircuitNET catalog authority is inconsistent".into())
             })?;
         }
         self.load_board_identity()?
@@ -6663,5 +6673,54 @@ mod native_files_migration_tests {
             .unwrap(),
             0
         );
+    }
+}
+
+#[cfg(test)]
+mod catalog_migration_tests {
+    use super::*;
+    #[test]
+    fn schema_33_to_34_retains_existing_authority_and_rolls_back_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("catalog.sqlite3");
+        let mut c = Connection::open(&path).unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in &MIGRATIONS[..33] {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        c.execute(
+            "INSERT INTO circuitnet_profiles VALUES('synthetic','retained-profile',1)",
+            [],
+        )
+        .unwrap();
+        let broken=Migration{version:34,name:MIGRATIONS[33].name,sql:"CREATE TABLE circuitnet_catalog_authority(network TEXT); CREATE TABLE circuitnet_profiles(conflict TEXT);"};
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 33);
+        apply_migration(&mut c, &MIGRATIONS[33]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 34);
+        assert_eq!(
+            c.query_row("SELECT configuration FROM circuitnet_profiles", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap(),
+            "retained-profile"
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT COUNT(*) FROM circuitnet_catalog_revisions",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert!(c
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query([])
+            .unwrap()
+            .next()
+            .unwrap()
+            .is_none());
     }
 }

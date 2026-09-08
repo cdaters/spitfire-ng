@@ -1696,3 +1696,6 @@ fn real_macos_c5_events_policy_burst_controls_restart_restore() {
 
 #[path = "support/circuitnet_files.rs"]
 mod c6;
+
+#[path = "support/circuitnet_catalog.rs"]
+mod c7;

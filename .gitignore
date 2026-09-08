@@ -57,3 +57,7 @@ docs/**/*.docx
 *.bak
 *.orig
 *.tmp
+
+# Python validation/build-tool cache
+__pycache__/
+*.pyc

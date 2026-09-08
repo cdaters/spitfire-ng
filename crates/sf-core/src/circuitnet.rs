@@ -10,6 +10,7 @@
 // compatibility research, security, and contribution guidelines.
 
 //! Native CircuitNET NG policy, publication, queue and offline receipt authority.
+pub mod catalog;
 pub mod control;
 pub mod files;
 pub mod live;
@@ -22,6 +23,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error(transparent)]
+    Catalog(#[from] wire::catalog::Error),
     #[error(transparent)]
     Files(#[from] crate::files::FilesError),
     #[error("CircuitNET policy does not authorize this operation")]
@@ -163,6 +166,9 @@ fn subscribed(
     neighbor: &NodeId,
     code: &Codename,
 ) -> Result<bool, Error> {
+    if !catalog::dossier_allowed(conn, &p.network, neighbor, code)? {
+        return Ok(false);
+    }
     Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM circuitnet_dossiers WHERE network=?1 AND neighbor=?2 AND codename=?3 AND subscribed=1)",params![p.network.as_str(),neighbor.as_str(),code.as_str()],|r|r.get(0))?)
 }
 fn area(conn: &Connection, p: &Profile, code: &Codename) -> Result<Option<Mapping>, Error> {
@@ -213,7 +219,7 @@ impl RuntimeDatabase {
                     return Err(Error::Conflict);
                 }
                 let retained: bool = tx.query_row(
-                    "SELECT EXISTS(SELECT 1 FROM circuitnet_messages WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_controls WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_destinations WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_file_publications WHERE network=?1)",
+                    "SELECT EXISTS(SELECT 1 FROM circuitnet_messages WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_controls WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_destinations WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_file_publications WHERE network=?1 UNION ALL SELECT 1 FROM circuitnet_catalog_authority WHERE network=?1)",
                     [value.network.as_str()],
                     |r| r.get(0),
                 )?;
@@ -267,6 +273,7 @@ impl RuntimeDatabase {
         if !valid {
             return Err(Error::Policy);
         }
+        catalog::active(&tx, network, &value.codename, false)?;
         let old:Option<(i64,i64)>=tx.query_row("SELECT conference_id,version FROM circuitnet_mappings WHERE network=?1 AND codename=?2",params![network.as_str(),value.codename.as_str()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
         if old.as_ref().map_or(0, |v| v.1) != expected {
             return Err(Error::Conflict);
@@ -292,6 +299,9 @@ impl RuntimeDatabase {
         capacity(&tx)?;
         let (p, _) = profile(&tx, network)?;
         p.neighbor(&value.neighbor)?;
+        if value.subscribed {
+            catalog::bind_dossier(&tx, network, &value.neighbor, &value.codename)?;
+        }
         let version:i64=tx.query_row("SELECT version FROM circuitnet_dossiers WHERE network=?1 AND neighbor=?2 AND codename=?3",params![network.as_str(),value.neighbor.as_str(),value.codename.as_str()],|r|r.get(0)).optional()?.unwrap_or(0);
         if version != value.version {
             return Err(Error::Conflict);
@@ -351,6 +361,12 @@ impl RuntimeDatabase {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MessageCapabilities {
+    pub directed: bool,
+    pub catalog: bool,
+}
+
 struct StoredMessage {
     mid: i64,
     code: String,
@@ -378,6 +394,7 @@ fn load_message(
     };
     Ok((
         Message {
+            conference_identity: conn.query_row("SELECT conference_identity FROM circuitnet_messages WHERE network=?1 AND identity=?2",params![p.network.as_str(),identity.as_str()],|r|r.get(0))?,
             id: identity.clone(),
             origin: NodeId::new(&origin)?,
             codename: Codename::new(&code)?,
@@ -408,13 +425,16 @@ fn publish(
     now: i64,
 ) -> Result<(), Error> {
     capacity(conn)?;
+    if !catalog::message_allowed(conn, &p.network, m)? {
+        return Err(Error::Policy);
+    }
     let version: i64 = conn.query_row(
         "SELECT state_version FROM messages WHERE message_id=?1",
         [mid],
         |r| r.get(0),
     )?;
     conn.execute(
-        "INSERT INTO circuitnet_messages VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        "INSERT INTO circuitnet_messages VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
         params![
             p.network.as_str(),
             m.id.as_str(),
@@ -427,7 +447,8 @@ fn publish(
             m.fingerprint()?,
             version,
             now,
-            m.destination.as_ref().map(NodeId::as_str)
+            m.destination.as_ref().map(NodeId::as_str),
+            m.conference_identity
         ],
     )?;
     let neighbors = if let Some(destination) = &m.destination {
@@ -488,6 +509,9 @@ fn eligible(conn: &Connection, p: &Profile, q: &str) -> Result<bool, Error> {
     let n = NodeId::new(&neighbor)?;
     p.neighbor(&n)?;
     let (m, mid) = load_message(conn, p, &MessageId::new(&identity)?)?;
+    if !catalog::message_allowed(conn, &p.network, &m)? {
+        return Ok(false);
+    }
     if m.destination.is_none() && !subscribed(conn, p, &n, &m.codename)? {
         return Ok(false);
     }
@@ -505,7 +529,7 @@ fn eligible(conn: &Connection, p: &Profile, q: &str) -> Result<bool, Error> {
             return Ok(false);
         }
     } else if let Some(mapping) = area(conn, p, &m.codename)? {
-        if !mapping.send {
+        if !mapping.send || !catalog::mapped(conn, &p.network, &m.codename, mapping.conference)? {
             return Ok(false);
         }
         let valid:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM messages m JOIN message_conferences c USING(conference_id) WHERE m.message_id=?1 AND c.conference_id=?2 AND c.active=1 AND c.public_only=1 AND m.visibility='public')",params![mid,mapping.conference],|r|r.get(0))?;
@@ -547,6 +571,17 @@ impl RuntimeDatabase {
         let mut cursor = after;
         for (mid, code, author, subject, body, encoding, timestamp, parent) in rows {
             cursor = mid;
+            let generation = match catalog::active(&tx, network, &Codename::new(&code)?, false) {
+                Ok(e) => e,
+                Err(Error::Policy) => continue,
+                Err(e) => return Err(e),
+            };
+            if let Some(e) = &generation {
+                let mapped:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM circuitnet_catalog_choices c JOIN circuitnet_mappings m USING(network,conference_id) WHERE c.network=?1 AND c.identity=?2 AND c.decision='mapped' AND m.codename=?3 AND ?4>c.after_message)",params![network.as_str(),e.id,code,mid],|r|r.get(0))?;
+                if !mapped {
+                    continue;
+                }
+            }
             let scope = format!("circuitnet:{network}:{code}");
             if crate::identity::validate_destination(
                 &tx,
@@ -575,8 +610,9 @@ impl RuntimeDatabase {
                     _ => Err(Error::Policy),
                 }
             };
-            let reply=parent.map(|mid|tx.query_row("SELECT identity FROM circuitnet_messages WHERE network=?1 AND message_id=?2 AND codename=?3",params![network.as_str(),mid,code],|r|r.get::<_,String>(0)).optional()).transpose()?.flatten().map(|id|MessageId::new(&id)).transpose()?;
+            let reply=parent.map(|mid|tx.query_row("SELECT identity FROM circuitnet_messages WHERE network=?1 AND message_id=?2 AND codename=?3 AND conference_identity IS ?4",params![network.as_str(),mid,code,generation.as_ref().map(|e|e.id.as_str())],|r|r.get::<_,String>(0)).optional()).transpose()?.flatten().map(|id|MessageId::new(&id)).transpose()?;
             let m = Message {
+                conference_identity: generation.map(|e|e.id),
                 id: MessageId::new(&format!("{}:{:032x}", p.local, rand::random::<u128>()))?,
                 origin: p.local.clone(),
                 codename: Codename::new(&code)?,
@@ -625,6 +661,26 @@ impl RuntimeDatabase {
         directed: bool,
         now: i64,
     ) -> Result<Prepared, Error> {
+        self.circuitnet_prepare_catalog_neighbor(
+            store,
+            network,
+            neighbor,
+            MessageCapabilities {
+                directed,
+                catalog: true,
+            },
+            now,
+        )
+    }
+    pub fn circuitnet_prepare_catalog_neighbor(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        neighbor: &NodeId,
+        capabilities: MessageCapabilities,
+        now: i64,
+    ) -> Result<Prepared, Error> {
+        let MessageCapabilities { directed, catalog } = capabilities;
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -656,6 +712,9 @@ impl RuntimeDatabase {
             .is_err()
             {
                 tx.execute("UPDATE network_outbound_queue SET state='held',reason='circuitnet-identity',version=version+1 WHERE queue_id=?1",[&q])?;
+                continue;
+            }
+            if m.conference_identity.is_some() && !catalog {
                 continue;
             }
             let member_bytes = serde_json::to_vec(&m)?.len() + 1;
@@ -781,6 +840,9 @@ impl RuntimeDatabase {
                     duplicates += 1;
                     continue;
                 }
+                if !catalog::message_allowed(&tx, network, m)? {
+                    return Err(Error::Policy);
+                }
                 if let Some(destination) = &m.destination {
                     let route = p.topology.path(&m.origin, destination)?;
                     let mut arrived = m.path.clone();
@@ -805,7 +867,10 @@ impl RuntimeDatabase {
                     None
                 } else {
                     match mapping {
-                        Some(a) if a.receive => {
+                        Some(a)
+                            if a.receive
+                                && catalog::mapped(&tx, network, &m.codename, a.conference)? =>
+                        {
                             let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM message_conferences WHERE conference_id=?1 AND public_only=1 AND active=1)",[a.conference],|r|r.get(0))?;
                             if !valid {
                                 return Err(Error::Policy);
@@ -980,7 +1045,7 @@ fn insert_native(
     Ok(mid)
 }
 fn reconcile_threads(conn: &Connection, network: &NetworkId) -> Result<(), Error> {
-    let rows:Vec<(i64,i64)>=conn.prepare("SELECT child.message_id,parent.message_id FROM circuitnet_messages child JOIN circuitnet_messages parent ON parent.network=child.network AND parent.identity=child.reply AND parent.codename=child.codename JOIN messages cm ON cm.message_id=child.message_id JOIN messages pm ON pm.message_id=parent.message_id WHERE child.network=?1 AND cm.parent_message_id IS NULL AND cm.conference_id=pm.conference_id LIMIT 1000")?.query_map([network.as_str()],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<Result<_,_>>()?;
+    let rows:Vec<(i64,i64)>=conn.prepare("SELECT child.message_id,parent.message_id FROM circuitnet_messages child JOIN circuitnet_messages parent ON parent.network=child.network AND parent.identity=child.reply AND parent.codename=child.codename AND parent.conference_identity IS child.conference_identity JOIN messages cm ON cm.message_id=child.message_id JOIN messages pm ON pm.message_id=parent.message_id WHERE child.network=?1 AND cm.parent_message_id IS NULL AND cm.conference_id=pm.conference_id LIMIT 1000")?.query_map([network.as_str()],|r|Ok((r.get(0)?,r.get(1)?)))?.collect::<Result<_,_>>()?;
     for (child, parent) in rows {
         let cycle:bool=conn.query_row("WITH RECURSIVE ancestors(id) AS (SELECT ?1 UNION SELECT m.parent_message_id FROM messages m JOIN ancestors a ON m.message_id=a.id WHERE m.parent_message_id IS NOT NULL) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=?2)",params![parent,child],|r|r.get(0))?;
         if cycle {

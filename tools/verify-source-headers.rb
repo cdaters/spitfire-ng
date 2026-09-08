@@ -33,10 +33,11 @@ HEADER_BODY = [
 
 ROOT = File.expand_path("..", __dir__)
 SCOPES = {
-  rust: "crates/*/{src,tests}/**/*.rs",
+  rust: "crates/*/{src,tests,examples}/**/*.rs",
   shell: "tools/*.sh",
   powershell: "tools/*.ps1",
-  ruby: "tools/*.rb"
+  ruby: "tools/*.rb",
+  python: "tools/**/*.py"
 }.freeze
 
 # These tracked files are code-adjacent, but the reviewed policy excludes them
@@ -88,7 +89,7 @@ end
 
 def tracked_source_paths
   tracked_paths.select do |path|
-    %w[.rs .sh .ps1 .rb].include?(File.extname(path).downcase)
+    %w[.rs .sh .ps1 .rb .py].include?(File.extname(path).downcase)
   end
 end
 
@@ -105,7 +106,7 @@ def insertion_index(kind, lines, relative_path)
   case kind
   when :rust, :powershell
     0
-  when :shell
+  when :shell, :python
     abort "#{relative_path}: shell script must retain a shebang on line 1" unless lines[0]&.start_with?("#!")
 
     1

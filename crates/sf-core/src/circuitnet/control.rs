@@ -78,6 +78,7 @@ fn available(conn: &Connection, p: &Profile, c: &Codename) -> Result<bool, Error
         return Ok(false);
     };
     Ok(m.send
+        && catalog::mapped(conn, &p.network, c, m.conference)?
         && m.receive
         && conn.query_row(
             "SELECT active=1 AND public_only=1 FROM message_conferences WHERE conference_id=?1",
@@ -91,6 +92,13 @@ fn apply(conn: &Connection, p: &Profile, r: &Request, now: i64) -> Result<Outcom
         return Ok(Outcome::UnknownCodename);
     }
     let wanted = r.operation == Operation::Subscribe;
+    if wanted {
+        match catalog::bind_dossier(conn, &p.network, &r.requester, c) {
+            Ok(()) => {}
+            Err(Error::Policy) => return Ok(Outcome::UnknownCodename),
+            Err(e) => return Err(e),
+        }
+    }
     if subscribed(conn, p, &r.requester, c)? == wanted {
         return Ok(if wanted {
             Outcome::AlreadySubscribed
@@ -189,6 +197,8 @@ impl RuntimeDatabase {
         if !valid {
             return Err(Error::Policy);
         }
+        let code:String=tx.query_row("SELECT a.codename FROM circuitnet_mappings a JOIN messages m USING(conference_id) WHERE a.network=?1 AND m.message_id=?2",params![network.as_str(),mid],|r|r.get(0))?;
+        catalog::active(&tx, network, &Codename::new(&code)?, false)?;
         tx.execute(
             "INSERT INTO circuitnet_destinations VALUES(?1,?2,?3,?4)",
             params![network.as_str(), mid, destination.as_str(), route_valid],

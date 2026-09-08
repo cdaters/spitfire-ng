@@ -307,3 +307,36 @@ or end-to-end encrypted after delivery.
 
 A completed publication replay returns its durable receipt without payload regardless
 of hash-have support. Hash-have concerns a new publication sharing existing content.
+
+## C7 catalog phase (1.4)
+
+Minor 1.4 adds optional `catalog-sync`. Existing required baseline capabilities are
+unchanged; maximum advertised capability count remains eight. Both ends must negotiate
+minor >=4 and advertise catalog-sync. Test Link has no catalog phase. In Poll mode,
+after mutual Hello validation and before all existing content phases:
+
+1. Initiator sends its catalog phase; responder receives it.
+2. Responder sends its catalog phase; initiator receives it.
+3. Existing symmetric controls/messages/files phases run unchanged.
+
+A catalog phase sends `catalog-head` with revision/hash. Only a direct parent offers
+nonzero authority downstream. The receiver sends `catalog-request` with its current
+revision/hash and enabled flag (explicit local authority pin). The parent checks its
+retained matching predecessor, then sends at most 64 consecutive `catalog-object`
+frames, each containing the unchanged signed snapshot. Each accepted snapshot gets
+`catalog-ack` revision/hash. An object with catalog=null ends the phase. A disabled
+receiver receives only the terminator, not an automatically trusted authority.
+
+Head/request/ack use the existing 4-KiB control bound. A signed object is <=512 KiB;
+the enclosing frame is bounded by 512 KiB + 1 KiB. Full snapshots contain <=256
+retained immutable conference identities. Revision zero has no hash and means no
+accepted catalog. Authenticated peer/profile/tree checks and link holds still apply;
+object authentication separately verifies the locally pinned Ed25519 key and publisher.
+
+Message envelopes gain optional `conference_identity`: 32 lowercase hexadecimal
+digits identifying the catalog generation. It is part of the immutable message
+fingerprint; forwarding preserves it. Absence preserves C2-C6 serialization for
+uncataloged profiles. Catalog-enabled new traffic requires its current active or
+deprecated identity; generation-aware messages are withheld from older peers rather
+than stripping identity. Catalog metadata never contains a local conference number.
+See the [catalog schema and chain contract](circuitnet-catalog.md).

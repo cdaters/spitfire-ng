@@ -272,12 +272,14 @@ fn native_files_journey(b: &Board, root: &Path) {
 fn c6_raw_begin(from: &Board, to: &Board) -> Raw {
     let mut raw = raw(from, to);
     let p = db(from).circuitnet_status(&network()).unwrap().profile;
-    let h = Hello::new(
+    let mut h = Hello::new(
         network(),
         p.local.clone(),
         p.topology.node(&p.local).unwrap().role,
         Mode::Poll,
     );
+    h.maximum_minor = 3;
+    h.capabilities.retain(|c| c != "catalog-sync");
     wire::write(&mut raw, &Frame::Hello { hello: h }).unwrap();
     assert!(matches!(
         wire::read(&mut raw, wire::CONTROL_FRAME),

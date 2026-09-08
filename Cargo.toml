@@ -16,6 +16,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/cdaters/spitfire-ng"
 
 [workspace.dependencies]
+ring = "0.17.14"
 argon2 = { version = "0.5.3", features = ["std"] }
 chrono = "0.4.45"
 chrono-tz = "0.10.4"

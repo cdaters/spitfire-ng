@@ -434,6 +434,14 @@ impl RuntimeDatabase {
         Ok(())
     }
     pub fn event_has_outbound_work(&self, action: &Action, now: i64) -> Result<bool, Error> {
+        if let Action::Circuitnet { network, node } = action {
+            if self
+                .circuitnet_catalog_pending(network, node.as_ref())
+                .map_err(|_| Error::Invalid)?
+            {
+                return Ok(true);
+            }
+        }
         Ok(match action {
             Action::Circuitnet{network,node}=>self.connection.query_row("SELECT EXISTS(SELECT 1 FROM network_outbound_queue q JOIN circuitnet_deliveries d USING(queue_id) WHERE d.network=?1 AND (?2 IS NULL OR d.neighbor=?2) AND q.state IN ('pending','ready','retry') AND q.attempts<12 AND (q.next_attempt IS NULL OR q.next_attempt<=?3)) OR EXISTS(SELECT 1 FROM circuitnet_file_deliveries d JOIN circuitnet_file_publications p USING(network,identity) JOIN circuitnet_file_dossiers s ON s.network=d.network AND s.neighbor=d.neighbor AND s.codename=p.codename WHERE d.network=?1 AND (?2 IS NULL OR d.neighbor=?2) AND d.receipt IS NULL AND d.attempts<12 AND s.subscribed=1)",params![network.as_str(),node.as_ref().map(|n|n.as_str()),now],|r|r.get(0))?,
             Action::Binkp{link}=>self.connection.query_row("SELECT EXISTS(SELECT 1 FROM network_outbound_queue q JOIN ftn_routing_decisions d USING(queue_id) WHERE d.link_id=?1 AND q.state IN ('pending','ready','retry') AND (q.next_attempt IS NULL OR q.next_attempt<=?2)) OR EXISTS(SELECT 1 FROM ftn_file_deliveries WHERE link_id=?1 AND held=0 AND accepted_at IS NULL AND attempts<12 AND session_id IS NULL)",params![link,now],|r|r.get(0))?,
@@ -690,12 +698,21 @@ mod tests {
     }
     #[test]
     fn distribution_examples_are_proposals_without_native_numbers_or_privacy_claims() {
-        let profile: crate::circuitnet::Profile = serde_json::from_str(include_str!(
+        // C7 promotes the joining example to an implementation-neutral seed;
+        // the retained C5 conference proposal remains independently historical.
+        let profile: serde_json::Value = serde_json::from_str(include_str!(
             "../../../docs/circuitnet-ng/config/network-profile.example.json"
         ))
         .unwrap();
-        profile.validate().unwrap();
-        assert!(!profile.enabled);
+        assert_eq!(profile["format"], "circuitnet-ng-joining-seed");
+        assert_eq!(profile["version"], 1);
+        for field in ["node_id", "parent", "listener", "endpoint", "credentials"] {
+            assert!(profile[field].is_null());
+        }
+        assert_eq!(
+            profile["protocol"]["required_catalog_capability"],
+            "catalog-sync"
+        );
         let catalog: serde_json::Value = serde_json::from_str(include_str!(
             "../../../docs/circuitnet-ng/config/conferences.proposed.json"
         ))

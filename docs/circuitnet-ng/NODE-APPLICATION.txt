@@ -1,0 +1,34 @@
+CIRCUITNET NG NODE APPLICATION — NETWORK KIT 1.0
+
+Send this privately to the Network Administrator through the contact method
+published with the network's current joining notice. Do not send credentials.
+
+Required:
+  Sysop name or handle:
+  Preferred administrative contact (email or agreed alternative):
+  BBS name:
+  BBS software and version:
+  Requested role (END or HOST):
+  Charter 1.0 and Rules 1.0 reviewed and accepted (yes/no):
+
+Optional:
+  General location (city/region/country; no street address):
+  Operating system:
+  Public BBS address:
+  Website:
+  Requested Node ID (1-8 alphanumeric characters):
+  Preferred upstream HOST:
+  Inbound connection capability (yes/no/unknown):
+  IPv4/IPv6 capability, if useful:
+  Short board description:
+  Contact/address fields you explicitly permit in a public listing:
+
+DO NOT INCLUDE passwords, TLS private keys, tokens or session credentials.
+Certificate enrollment is a separate process after membership approval.
+Ordinary END nodes may poll outbound behind NAT/firewalls. A static IP and
+inbound reachability are not membership requirements for an END.
+
+The Administrator/Secretary uses this information for membership, Node ID
+uniqueness, routing arrangements and administrative contact. Private contact
+information is not published by default. Ask to correct or remove unnecessary
+application data; retained membership decisions need not retain the full form.

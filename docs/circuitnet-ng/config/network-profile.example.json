@@ -1,26 +1,17 @@
 {
-  "network": "circuitnet-example",
-  "display_name": "Synthetic CircuitNET Example",
-  "local": "END1",
-  "enabled": false,
-  "trusted_offline": false,
-  "topology": {
-    "nodes": [
-      {
-        "id": "ROOT1",
-        "role": "ROOT",
-        "parent": null
-      },
-      {
-        "id": "HOST1",
-        "role": "HOST",
-        "parent": "ROOT1"
-      },
-      {
-        "id": "END1",
-        "role": "END",
-        "parent": "HOST1"
-      }
-    ]
-  }
+  "format": "circuitnet-ng-joining-seed",
+  "version": 1,
+  "network": "circuitnet-ng",
+  "display_name": "CircuitNET NG",
+  "root_node_id": "ROOT",
+  "catalog_authority_file": "catalog-authority.json",
+  "seed_catalog_file": "catalog.json",
+  "protocol": {"major": 1, "catalog_minimum_minor": 4, "required_catalog_capability": "catalog-sync"},
+  "joining_document": "JOINING.md",
+  "node_id": null,
+  "parent": null,
+  "listener": null,
+  "endpoint": null,
+  "credentials": null,
+  "note": "Assign identity and topology after membership approval; enroll credentials separately. No port or live endpoint is prescribed. END may poll outbound behind NAT."
 }

@@ -18,13 +18,14 @@ pub const PROTOCOL: &str = "CIRCUITNET-NG";
 pub const ALPN: &[u8] = b"circuitnet-ng/1";
 pub const MAX_FRAME: usize = MAX_ARTIFACT + 4096;
 pub const CONTROL_FRAME: usize = 4096;
-pub const CAPABILITIES: [&str; 6] = [
+pub const CAPABILITIES: [&str; 7] = [
     "atomic-batch",
     "symmetric-poll",
     "directed-routing",
     "remote-dossier-control",
     "file-distribution",
     "file-hash-have",
+    "catalog-sync",
 ];
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "kebab-case")]
@@ -95,7 +96,7 @@ impl Hello {
             protocol: PROTOCOL.into(),
             major: 1,
             minimum_minor: 0,
-            maximum_minor: 3,
+            maximum_minor: 4,
             capabilities: CAPABILITIES.iter().map(|s| (*s).into()).collect(),
             network,
             node,
@@ -122,6 +123,11 @@ impl Hello {
         };
         let files = has("file-distribution");
         Ok((files, files && has("file-hash-have")))
+    }
+    pub fn catalog_capability(&self, remote: &Self) -> Result<bool, Error> {
+        Ok(self.negotiate(remote)? >= 4
+            && self.capabilities.iter().any(|s| s == "catalog-sync")
+            && remote.capabilities.iter().any(|s| s == "catalog-sync"))
     }
     pub fn negotiate(&self, remote: &Self) -> Result<u16, Error> {
         if remote.protocol != PROTOCOL
@@ -178,6 +184,22 @@ pub enum Frame {
     FileReceipt {
         receipt: super::files::Receipt,
     },
+    CatalogHead {
+        revision: u64,
+        hash: Option<String>,
+    },
+    CatalogRequest {
+        revision: u64,
+        hash: Option<String>,
+        enabled: bool,
+    },
+    CatalogObject {
+        catalog: Option<super::catalog::Signed>,
+    },
+    CatalogAck {
+        revision: u64,
+        hash: Option<String>,
+    },
     Close {},
 }
 pub fn read(reader: &mut impl Read, limit: usize) -> Result<Frame, Error> {
@@ -223,14 +245,14 @@ mod tests {
     fn versions_negotiate_only_common_known_minors() {
         let h = hello();
         let mut r = h.clone();
-        assert_eq!(h.negotiate(&r), Ok(3));
+        assert_eq!(h.negotiate(&r), Ok(4));
         r.maximum_minor = 0;
         assert_eq!(h.negotiate(&r), Ok(0));
         r.major = 2;
         assert_eq!(h.negotiate(&r), Err(Error::UnsupportedVersion));
         r = h.clone();
-        r.minimum_minor = 4;
-        r.maximum_minor = 4;
+        r.minimum_minor = 5;
+        r.maximum_minor = 5;
         assert!(h.negotiate(&r).is_err());
         r = h.clone();
         r.network = NetworkId::new("wrong").unwrap();
@@ -290,5 +312,31 @@ mod tests {
         let mut input = (hostile.len() as u32).to_be_bytes().to_vec();
         input.extend(hostile);
         assert!(read(&mut input.as_slice(), MAX_FRAME).is_err());
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    #[test]
+    fn catalog_capability_requires_both_peers_and_minor_four() {
+        let h = Hello::new(
+            NetworkId::new("synthetic").unwrap(),
+            NodeId::new("END1").unwrap(),
+            Role::End,
+            Mode::Poll,
+        );
+        let mut remote = h.clone();
+        assert!(h.catalog_capability(&remote).unwrap());
+        for minor in 0..4 {
+            remote.maximum_minor = minor;
+            assert!(!h.catalog_capability(&remote).unwrap());
+            assert_eq!(h.negotiate(&remote).unwrap(), minor);
+        }
+        remote = h.clone();
+        remote.capabilities.retain(|c| c != "catalog-sync");
+        assert!(!h.catalog_capability(&remote).unwrap());
+        assert_eq!(h.file_capabilities(&remote).unwrap(), (true, true));
+        assert_eq!(h.c4_capabilities(&remote).unwrap(), (true, true));
     }
 }

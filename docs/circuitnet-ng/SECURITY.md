@@ -17,3 +17,17 @@ may request changes to their own subscriptions. Diagnose an unexpected request b
 request identity and outcome, without copying message bodies or credentials into
 logs. Hold a suspect peer, review its configured identity, and arrange recovery.
 Events do not override transport authentication, conference mapping or holds.
+
+## Signed catalog and downloadable files
+
+Catalog authenticity survives caching, offline import and HOST forwarding because
+an independently pinned publisher signs each revision. Verify the trust fingerprint
+outside the file being verified; a kit manifest detects corruption but is not itself
+an independent trust root. Keep catalog keys separate from public artifacts. Hash
+chains detect forks, missing predecessors and rollback against retained state; an
+empty replacement must recover current trusted history and sync before export.
+
+Published files are available according to destination File Area rules, not made
+private by TLS. Receiving boards enforce local inspection/scanning requirements;
+remote assertions do not bypass quarantine. No application form requests secrets.
+Only deliberately public membership information belongs in a published registry.

@@ -1086,7 +1086,7 @@ netconfig-field-posting-identity = Posting identity requirement
 netconfig-effective-identity = Effective posting identity (saved policy)
 
 # CircuitNET C2 explicitly uses cold-board operator custody.
-circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. C4: direct, route-test, remote-subscribe, remote-unsubscribe, query-subscriptions, control-policy, approve, deny, control-retry. See the CircuitNET manual for full syntax.
+circuitnet-usage = CircuitNET: sfconfig circuitnet <board-config> <operation> <network> [arguments]. Cold setup: init, identity, listener, peer, peer-enabled, map, subscribe, unsubscribe. Live: test-link, poll, live-status, hold, release, live-retry, live-subscribe, live-unsubscribe. C4: direct, route-test, remote-subscribe, remote-unsubscribe, query-subscriptions, control-policy, approve, deny, control-retry. C7: catalog-key, catalog-pin, catalog-status, catalog-list, catalog-import, catalog-export, catalog-draft, catalog-publish, catalog-changes, catalog-create-map, catalog-map, catalog-ignore. See the CircuitNET manual for full syntax.
 circuitnet-file-error = Offline Exchange file unavailable, oversized, unsafe, or output already exists. Retained delivery work can be retried.
 circuitnet-completed = CircuitNET operation completed. Export is pending until the neighbor's durable receipt is acknowledged.
 
@@ -1191,3 +1191,22 @@ files-distribution = File Distribution
 files-area-codename = File Area Codename
 files-subscription = File Subscription
 files-visibility = Transfer is encrypted in transit. Published files follow this BBS's File Area access rules.
+
+# C7 signed network catalog and explicit local choices.
+catalog-title = Network Catalog
+catalog-revision = Catalog Revision
+catalog-available = Available Conference
+catalog-map = Map Existing
+catalog-create-map = Create and Map
+catalog-ignore = Ignore
+catalog-deprecated = Deprecated
+catalog-retired = Retired
+catalog-publish = Publish Revision
+catalog-signature = Invalid Signature
+catalog-rollback = Catalog Rollback
+catalog-fork = Catalog Fork
+catalog-pending = Pending Mapping
+catalog-required = Required Conference
+catalog-rejected = Rejected Catalog Updates
+catalog-reuse = Reuse creates a NEW conference identity. Historical traffic keeps its original identity. Confirm the approved rationale before publishing.
+catalog-sync-pending = Catalog update pending

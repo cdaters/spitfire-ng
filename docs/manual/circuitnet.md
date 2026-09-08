@@ -512,3 +512,26 @@ BBS's File Area access rules; they are not confidential merely because TLS carri
 them. No CircuitNET file request/FREQ capability is implemented. An eventual official
 network may explicitly configure distribution of documents, catalogs or node kits;
 C6 does not automatically distribute them or create official file-area governance.
+
+## Network Catalog (C7)
+
+The official catalog defines network names, purposes and lifecycle. Your BBS still
+chooses its native conference numbers and access rules. A signed catalog update
+never creates conferences, subscribes callers/nodes or deletes historical messages.
+Choose Create and Map, Map Existing or Ignore, then request desired subscriptions.
+Deprecated areas warn about transition; retired areas stop new network distribution
+and remain available locally according to your archive/access choices.
+
+[Catalog administration](../circuitnet-ng/CATALOG-ADMIN.md) documents the capability-
+checked sfconfig commands, publisher drafts/signing, local choices and recovery.
+[Network Kit](../circuitnet-ng/README.md) supplies Charter/Rules 1.0, a signed initial
+catalog and joining/application guides. Normal CircuitNET Poll/Exchange and C5 Events
+move catalog revisions; there is no second scheduler. sfmonitor shows revision,
+publisher, pending mappings, core compliance and rejected update counts.
+
+Each conference now has an immutable network ID as well as its familiar codename.
+Reactivation resumes the original identity. Explicit approved reuse creates a new
+identity and never reassigns historical traffic. Older peers without catalog-sync
+retain their accepted feature set; generation-bound conference work waits for an
+identity-capable peer. Public/directed traffic is still conference traffic, and
+transport encryption does not provide stored-message secrecy.

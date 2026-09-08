@@ -423,6 +423,18 @@ pub fn restore_board(
         .map_err(|source| io_error("create restore staging directory", parent, source))?;
     stage_restored_board(&backup, temporary.path())?;
     validate_staged_board(temporary.path(), &backup)?;
+    if replace {
+        let config = RuntimeConfig::load(&target.join(&backup.manifest.config_name))?;
+        let existing_paths = LogicalPaths::resolve(&target, &config.validate()?)?;
+        let existing = RuntimeDatabase::open_read_only(existing_paths.database())?;
+        if existing.schema_version()? >= 34 {
+            let config = RuntimeConfig::load(&temporary.path().join(&backup.manifest.config_name))?;
+            let restored_paths = LogicalPaths::resolve(temporary.path(), &config.validate()?)?;
+            existing.circuitnet_catalog_check_restore(&RuntimeDatabase::open_read_only(
+                restored_paths.database(),
+            )?)?;
+        }
+    }
     if let Some(evidence) = recovery {
         let config = RuntimeConfig::load(&temporary.path().join(&backup.manifest.config_name))?;
         let paths = LogicalPaths::resolve(temporary.path(), &config.validate()?)?;
@@ -1473,8 +1485,8 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
-        // Synthetic old backups must not accidentally retain schema-32 authority.
-        connection.execute_batch("DROP TRIGGER IF EXISTS circuitnet_file_activity; DROP TRIGGER IF EXISTS file_safety_fence; DROP TRIGGER IF EXISTS file_content_identity_fence; DROP TRIGGER IF EXISTS file_publication_activity; DROP TABLE IF EXISTS file_safety_history; DROP TABLE IF EXISTS file_validation; DROP TABLE IF EXISTS file_content; DROP TABLE IF EXISTS file_area_safety; ALTER TABLE files DROP COLUMN safety_required; DROP TRIGGER IF EXISTS native_message_preparation; DROP TRIGGER IF EXISTS network_queue_activity; DROP TRIGGER IF EXISTS circuitnet_control_activity; DROP TRIGGER IF EXISTS ftn_file_activity_wakeup; DROP TABLE IF EXISTS scheduled_event_history; DROP TABLE IF EXISTS scheduled_events; DROP TABLE IF EXISTS network_preparation;").unwrap();
+        // Synthetic old backups must not accidentally retain later Event authority.
+        connection.execute_batch("DROP TRIGGER IF EXISTS circuitnet_catalog_activity; DROP TRIGGER IF EXISTS circuitnet_file_activity; DROP TRIGGER IF EXISTS file_safety_fence; DROP TRIGGER IF EXISTS file_content_identity_fence; DROP TRIGGER IF EXISTS file_publication_activity; DROP TABLE IF EXISTS file_safety_history; DROP TABLE IF EXISTS file_validation; DROP TABLE IF EXISTS file_content; DROP TABLE IF EXISTS file_area_safety; ALTER TABLE files DROP COLUMN safety_required; DROP TRIGGER IF EXISTS native_message_preparation; DROP TRIGGER IF EXISTS network_queue_activity; DROP TRIGGER IF EXISTS circuitnet_control_activity; DROP TRIGGER IF EXISTS ftn_file_activity_wakeup; DROP TABLE IF EXISTS scheduled_event_history; DROP TABLE IF EXISTS scheduled_events; DROP TABLE IF EXISTS network_preparation;").unwrap();
         if connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=28)",

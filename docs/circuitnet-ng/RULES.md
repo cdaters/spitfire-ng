@@ -1,26 +1,28 @@
-# Proposed CircuitNET NG rules
+# CircuitNET NG Rules
 
-**Review draft.** The joining Sysop explains these expectations to callers.
+Version 1.0 — 2026-09-08. Read with the Charter 1.0.
 
-1. Take responsibility for your BBS's network posts, configuration and moderation.
-2. Stay relevant to the conference. Respect moderators and participating Sysops.
-3. Do not harass, threaten, impersonate, evade restrictions or organize abuse.
-4. Report problems to your Sysop; moderators coordinate with the originating board.
-   Explain restrictions and provide a reasonable review contact.
-5. Use the posting identity policy published by your BBS and conference. Aliases may
-   be allowed; they do not authorize deceptive impersonation. Do not automatically
-   attach private identity or contact details to a public post.
-6. Do not knowingly distribute illegal or malicious material. Preserve only the
-   evidence needed for responsible handling; avoid repeating harmful content.
-   CircuitNET file networking is not currently implemented or authorized by these
-   message-network rules.
-7. Use the configured tree, mapped codenames and authenticated links. Do not forge
-   origin, destination, subscription controls or receipts, or bypass a delivery hold.
-8. Conference messages are readable under destination BBS access rules. Directed
-   routing is not private messaging. TLS protects transport, not stored-message
-   secrecy. Local private messages, where available, mean access-restricted unless
-   explicitly described otherwise by an actual cryptographic feature.
-9. Protect node keys and administrative access. Keep useful backups and current
-   software, and contact neighbors promptly about compromise or service failure.
-10. Respect protocol limits, interoperability and independent implementations.
-    Coordinate planned changes and outages; do not test against unrelated systems.
+1. Sysops take responsibility for their boards' network configuration, caller posts,
+   moderation and response to reports. Explain these Rules to participating callers.
+2. Stay within the conference's published scope. Follow reasonable moderator guidance;
+   take disputes to your Sysop or the published review contact.
+3. Do not harass, threaten, impersonate, evade restrictions or organize abuse. Restrictions
+   should include a reason, scope and a reasonable opportunity for review.
+4. Do not spam, flood, forge origin or receipts, disrupt routing, or bypass holds,
+   subscriptions, access rules or catalog lifecycle restrictions.
+5. Handles are allowed; deceptive impersonation is not. Do not attach another person's
+   private name, account details or contact information without permission. Software
+   never adds private account identity to a network post automatically.
+6. Do not knowingly distribute illegal or malicious material. Report it without
+   needlessly recirculating it. Sysops apply local file inspection/scanning policy,
+   quarantine uncertain files and retain only necessary evidence securely. Scanner
+   failure is not clean. These rules do not create a file-request service.
+7. Use authorized codenames, explicit tree relationships, approved Node IDs and enrolled
+   credentials. Catalog changes require the published governance and signing process.
+8. Conference posts are readable under destination BBS access rules. Directed routing
+   is not private messaging. CircuitNET transport is encrypted/authenticated; public
+   messages are not end-to-end encrypted, and public files are not made private by TLS.
+9. Protect keys and operator access, maintain backups and current software, agree useful
+   poll schedules and report compromise or extended outages promptly to neighbors.
+10. Respect independent implementations and protocol limits. Coordinate operational
+    changes; do not test, poll or send traffic to unrelated systems without authorization.

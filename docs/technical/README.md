@@ -275,3 +275,8 @@ inspection, scanner results, publication fences and payload-aware backup. The
 [CircuitNET 1.3 extension](circuitnet-transport.md#c6-file-distribution-phase-13)
 uses native Files and generic Events for bounded file distribution. See
 [M069](../research/m069-files-circuitnet-distribution.md) for current acceptance.
+
+## C7 network catalog authority
+
+[Catalog schema, signing, chain and local generations](circuitnet-catalog.md) define
+independent network identity, rollback protection and existing TLS/Events integration.

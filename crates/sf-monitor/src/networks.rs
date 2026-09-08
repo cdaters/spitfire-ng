@@ -468,6 +468,8 @@ fn rows(model: &MonitorModel) -> Vec<String> {
             t("events-next"),time(e.next_due),t("events-last"),time(e.last_completed))).collect(),
         Section::Circuitnet => s.circuitnet.iter().flat_map(|n| {
             let mut lines=vec![format!("{} / {} / {:?} | {}: {} | {}: {}",n.network,n.local,n.role,t("circuitnet-listener"),n.listening,t("circuitnet-authentication"),n.credential)];
+            lines.push(format!("{}: {} / {} / {}: {} / {}: {} / {}: {} / {}", t("catalog-revision"), n.catalog.revision, n.catalog.authority.as_ref().map_or("—",|a|a.publisher.as_str()), t("catalog-pending"), n.catalog.pending_mapping, t("catalog-required"), n.catalog.required_unmapped, t("catalog-rejected"), n.catalog.rejected, n.catalog.last_error.as_deref().unwrap_or("—")));
+            if n.catalog.pending_sync {lines.push(t("catalog-sync-pending"));}
             lines.push(format!("{}: {} / {}: {} / {}: {}",t("files-distribution"),n.files.pending,t("files-area-codename"),n.files.mappings.len(),t("files-subscription"),n.files.dossiers.iter().filter(|d|d.subscribed).count()));
             if let Some(files)=&s.native_files {lines.push(format!("{}: {} / {}: {} / {}: {} / {}: {}",t("files-native"),files.published,t("files-pending-approval"),files.pending_approval,t("files-quarantine"),files.quarantined,t("files-scanner-unavailable"),files.scanner_unavailable));}
             lines.extend(n.peers.iter().map(|p|format!("{} {:?} / {}:{} | {}: {} | {}: {} | {}: {} | {}: {} | {}: {} | {}",

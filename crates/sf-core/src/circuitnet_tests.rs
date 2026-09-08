@@ -1113,3 +1113,6 @@ fn privacy_help_describes_transport_and_conference_access_without_secrecy_claims
         assert!(!["Private", "Confidential", "Encrypted Message"].contains(&label.as_str()));
     }
 }
+
+#[path = "circuitnet/catalog_tests.rs"]
+mod catalog_tests;

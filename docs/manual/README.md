@@ -198,3 +198,9 @@ See the [account and posting identity contract](../technical/identity-policy.md)
 scanner policy and quarantine. [CircuitNET](circuitnet.md#file-distribution-c6)
 explains explicitly configured file distribution and the existing Event policies.
 C6 acceptance/publication status is recorded in [M069](../research/m069-files-circuitnet-distribution.md).
+
+## C7 catalog administration and joining
+
+[Catalog Administration](../circuitnet-ng/CATALOG-ADMIN.md) covers signed publication,
+local create/map/ignore, retirement and recovery. [Network Kit](../circuitnet-ng/README.md)
+contains Charter/Rules 1.0, joining/application and role guides.
