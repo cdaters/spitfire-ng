@@ -1,5 +1,18 @@
 # Set up an END node
 
+<!-- public-identity:start -->
+Official network home: https://circuitnetng.org/
+
+Applications Closed. Keep your form locally until applications open.
+
+When opened, the application location is https://circuitnetng.org/apply
+and the joining contact is join@circuitnetng.org.
+Do not send passwords, private keys or authentication secrets.
+
+These are canonical locations; web, mail and download deployment has not
+been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.
+<!-- public-identity:end -->
+
 Start here after membership approval. Have your assigned Node ID, parent HOST,
 approved topology, HOST certificate and connection details, plus the independently
 confirmed catalog authority fingerprint. Read [OPERATIONS](OPERATIONS.md) for

@@ -1,14 +1,27 @@
 {
   "format": "circuitnet-ng-kit-release",
   "kit_version": "1.0",
-  "build_revision": 2,
+  "build_revision": 3,
   "status": "release-candidate",
   "source_repository": "https://github.com/cdaters/spitfire-ng",
   "joining_information_path": "docs/circuitnet-ng/JOINING-INFO.md",
   "applications_open": false,
-  "founding_administrator": null,
-  "network_home": null,
-  "kit_location": null,
-  "application_url": null,
-  "application_contact": null
+  "service_status": "not-verified",
+  "public_identity": {
+    "network_display_name": "CircuitNET NG",
+    "domain": "circuitnetng.org",
+    "roles": {
+      "joining": "join",
+      "founder": "founder"
+    },
+    "paths": {
+      "website": "/",
+      "application": "/apply",
+      "kit": "/downloads/infopack.zip",
+      "catalog_authority": "/network/catalog",
+      "catalog_json": "/catalog/catalog.json",
+      "catalog_signature": "/catalog/catalog.sig",
+      "catalog_public_key": "/catalog/catalog-authority.pub"
+    }
+  }
 }

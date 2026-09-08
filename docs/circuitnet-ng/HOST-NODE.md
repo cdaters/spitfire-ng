@@ -1,5 +1,14 @@
 # Operate a HOST
 
+<!-- public-identity:start -->
+Founding Network Administrator role contact: founder@circuitnetng.org.
+
+Official network home: https://circuitnetng.org/
+
+These are canonical locations; web, mail and download deployment has not
+been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.
+<!-- public-identity:end -->
+
 A HOST serves its direct ENDs and routes their traffic toward the parent ROOT or
 HOST. Use [END-NODE](END-NODE.md) for the common identity, catalog, mapping and
 Event steps. Use [OPERATIONS](OPERATIONS.md) for permissions and command conventions.

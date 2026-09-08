@@ -1,5 +1,23 @@
 # Verify the Network Kit
 
+<!-- public-identity:start -->
+Catalog authority and verification information: https://circuitnetng.org/network/catalog
+
+Catalog JSON: https://circuitnetng.org/catalog/catalog.json
+
+Catalog signature: https://circuitnetng.org/catalog/catalog.sig
+
+Catalog public key: https://circuitnetng.org/catalog/catalog-authority.pub
+
+Current accepted signing-key fingerprint (SHA-256 of raw public key):
+32062995958587344e9f8f0d76351169a7c9d4e5163bf3fef3972eba64e0a2c2
+
+HTTPS provides delivery and discovery, not independent signing authority.
+Confirm the fingerprint through approved enrollment or an already trusted
+authority. Verify the signed catalog and retained revision chain.
+These publication locations are recorded; endpoint service is not verified.
+<!-- public-identity:end -->
+
 This is a documentation/configuration kit, not a software binary release.
 RELEASE.TXT identifies its version, build revision, source repository, source
 reference where supplied, source-content digest and catalog authority fingerprint.

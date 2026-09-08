@@ -231,3 +231,20 @@ private signing-key recovery copies are an explicit risk/availability choice, no
 indefinite archive; public verification material is retained, and recovered signing
 keys are replaced promptly. No custom signature algorithm or automatic trust discovery
 is introduced.
+
+## Public discovery and publication endpoints
+
+[Official public identity](../circuitnet-ng/PUBLIC-IDENTITY.md) is generated from
+[release metadata](../circuitnet-ng/config/release.json). It specifies canonical
+human/JSON/signature/public-key locations and their exact encoding. These are
+publication/discovery endpoints; this release does not deploy or verify them.
+The signed object and independently accepted authority remain the trust boundary.
+HTTPS or a newly downloaded public key cannot replace an existing authority pin.
+
+The future human authority page must derive revision, previous revision, body hash,
+publication timestamp, publisher and fingerprint from the served signed object and
+configured public key. Protocol version comes from the current published protocol
+contract. Validate their consistency before atomically publishing the matching
+JSON/signature/key set; never sign a different wrapper interpretation. Retain prior
+catalogs and key-transition history needed by recovering nodes. No new HTTP adapter
+or live catalog fetch is added to the daemon.

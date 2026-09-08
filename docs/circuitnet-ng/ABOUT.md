@@ -1,5 +1,12 @@
 # About CircuitNET NG
 
+<!-- public-identity:start -->
+Official network home: https://circuitnetng.org/
+
+These are canonical locations; web, mail and download deployment has not
+been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.
+<!-- public-identity:end -->
+
 CircuitNET NG is a modern BBS network. Participating boards share public message
 conferences and, where configured, approved files. Each Sysop runs an independent
 BBS and chooses its local conference numbers, access rules and optional areas.

@@ -5,19 +5,22 @@
        width="1200">
 </p>
 
-C7.1 is complete and accepted: the revised Network Kit 1.0 has a root README.TXT,
-FILE_ID.DIZ and intentional ASCII/CRLF BBS editions, complete role/joining guides,
-historical Sysop-area policy and operational catalog signing-key recovery.
-Schema **35**, wire **1.4 / catalog-sync / catalog-access**, en-US **1.32.0**.
-Conference IDs are generated automatically; local numbers/access remain local.
-Catalog revision 2 retains the 46 identities and original signed history.
-Applications are explicitly not yet open until public contact metadata is supplied.
+C7.2 is complete and accepted: the [official public identity](docs/circuitnet-ng/PUBLIC-IDENTITY.md)
+now comes from one validated release metadata authority. The revised Network Kit 1.0
+uses generated home, joining/founder role addresses, application/download and catalog
+locations. Applications remain **Closed**; URL metadata does not claim deployed
+web, mail or download services. Schema 35 and protocol 1.4 are unchanged.
 
 [Network Kit](docs/circuitnet-ng/README.md),
-[Key custody/recovery](docs/circuitnet-ng/KEY-CUSTODY.md),
-[C7.1 report](docs/research/m071-circuitnet-network-kit-release-readiness.md).
-C1-C7 remain accepted. No production or external BBS traffic, no C8 work.
-Stop for review before another milestone.
+[C7.2 report](docs/research/m072-circuitnet-public-identity-activation.md).
+C1-C7.1 remain accepted. No DNS, registrar, hosting, email or production changes.
+Stop for review; actual deployment and opening require separately authorized work.
+No C8 began.
+
+Six kit tests, signature/reproducibility, source headers, formatting, strict Clippy
+and local links pass. Full private workspace: 836 passed / zero failed / seven
+existing ignored, eight doctest groups. Rust runtime sources are unchanged.
+
 
 # SPITFIRE NG
 

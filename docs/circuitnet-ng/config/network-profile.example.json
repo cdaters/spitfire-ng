@@ -19,5 +19,19 @@
   "endpoint": null,
   "note": "Planning worksheet, not a board configuration import. Replace node, parent, listener and endpoint only with approved enrollment details. No official port is prescribed. END nodes may poll from behind NAT.",
   "directly_importable": false,
-  "path_base": "Directory containing this example file"
+  "path_base": "Directory containing this example file",
+  "public_identity": {
+    "network_display_name": "CircuitNET NG",
+    "official_domain": "circuitnetng.org",
+    "website_url": "https://circuitnetng.org/",
+    "application_url": "https://circuitnetng.org/apply",
+    "kit_url": "https://circuitnetng.org/downloads/infopack.zip",
+    "catalog_authority_url": "https://circuitnetng.org/network/catalog",
+    "catalog_json_url": "https://circuitnetng.org/catalog/catalog.json",
+    "catalog_signature_url": "https://circuitnetng.org/catalog/catalog.sig",
+    "catalog_public_key_url": "https://circuitnetng.org/catalog/catalog-authority.pub",
+    "joining_email": "join@circuitnetng.org",
+    "founder_email": "founder@circuitnetng.org"
+  },
+  "public_identity_source": "release.json"
 }

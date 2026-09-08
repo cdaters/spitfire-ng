@@ -1,5 +1,14 @@
 # CircuitNET NG Network Kit 1.0
 
+<!-- public-identity:start -->
+Official network home: https://circuitnetng.org/
+
+Official kit location: https://circuitnetng.org/downloads/infopack.zip
+
+These are canonical locations; web, mail and download deployment has not
+been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.
+<!-- public-identity:end -->
+
 CircuitNET NG connects independent BBS systems through shared message conferences
 and file distribution. This kit contains the network's Charter, Rules, conference
 list, joining information and operator guides. It contains no BBS software binaries.

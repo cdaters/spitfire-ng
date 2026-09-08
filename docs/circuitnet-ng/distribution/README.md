@@ -48,3 +48,25 @@ in KEY-CUSTODY.md. Automatic trust replacement from a kit is never permitted.
 
 The builder starts no daemon, Event or network transfer. Future distribution through
 CircuitNET Files requires deliberate area/subscription configuration and governance.
+
+## Public identity authority
+
+config/release.json is the only hand-edited public network identity. The validated
+PublicIdentity model combines its domain, role local-parts and endpoint paths into
+HTTPS URLs and role addresses. Generated sections in member Markdown, joining
+information, PUBLIC-IDENTITY.md, the planning worksheet and release provenance use
+that projection. Edit the metadata then run --update-docs --check; ordinary builds
+reject stale derived content. Marker comments delimit generated source sections and
+are omitted from delivered editions. No personal contact is inferred from Git.
+
+Applications remain closed independently of domain ownership. Service status is
+not-verified until a separate deployment operation is explicitly performed; the
+builder rejects opening applications without an explicit verified-open status.
+This is an operator release declaration, not a reachability probe. Building starts
+no DNS, web, mail or network enrollment work. Network Kit 1.0 revised build 3
+supersedes build 2 as the pre-opening candidate.
+
+The kit includes a derived catalog.sig sidecar copied from the accepted signed
+wrapper. Signature verification still uses the unchanged catalog and pinned key;
+no new signature/key is created. Domain-change fixture tests rebuild the actual
+archive and verify that all generated URLs and role addresses move together.

@@ -1,5 +1,13 @@
 # Node application field specification
 
+<!-- public-identity:start -->
+Applications Closed. Keep your form locally until applications open.
+
+When opened, the application location is https://circuitnetng.org/apply
+and the joining contact is join@circuitnetng.org.
+Do not send passwords, private keys or authentication secrets.
+<!-- public-identity:end -->
+
 Network Kit 1.0. This is a form specification, not a deployed submission endpoint.
 Use bounded plain text, escape rendered values, and keep submissions private.
 

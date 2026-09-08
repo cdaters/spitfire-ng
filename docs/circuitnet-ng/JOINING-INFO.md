@@ -1,24 +1,26 @@
 # Current joining information
 
-Applications are not yet open. No public application destination has been assigned.
+Applications Closed. Applications are not yet open. Keep completed forms locally.
 
-Check the public source repository for the latest joining information:
+The following are canonical public locations, not claims of deployed services.
+Web, mail and download availability has not been verified by this kit.
+
+Official network home: https://circuitnetng.org/
+
+Founding Network Administrator: founder@circuitnetng.org
+
+Joining contact when opened: join@circuitnetng.org
+
+Application location when opened: https://circuitnetng.org/apply
+
+Official Network Kit location: https://circuitnetng.org/downloads/infopack.zip
+
+Do not submit an application until an opening notice is published and the
+submission destination is confirmed. Never send authentication secrets.
+
+Current joining information is maintained with the public kit source:
 https://github.com/cdaters/spitfire-ng
 
 docs/circuitnet-ng/JOINING-INFO.md
 
-If this copy is still current, keep an application locally until an approved
-destination is published. Do not send it to a guessed address.
-
-Founding Network Administrator: Not yet published.
-
-Network home: Not yet published.
-
-Current kit location: Not yet published.
-
-Application web location: Not yet published.
-
-Application contact: Not yet published.
-
-These values come from config/release.json. A release maintainer updates that
-one source and regenerates the kit when public details are chosen.
+See [PUBLIC-IDENTITY](PUBLIC-IDENTITY.md) for catalog publication locations.

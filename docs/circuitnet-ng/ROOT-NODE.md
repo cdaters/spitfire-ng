@@ -1,5 +1,14 @@
 # Operate ROOT
 
+<!-- public-identity:start -->
+Founding Network Administrator role contact: founder@circuitnetng.org.
+
+Official network home: https://circuitnetng.org/
+
+These are canonical locations; web, mail and download deployment has not
+been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.
+<!-- public-identity:end -->
+
 ROOT is the top routing node for the configured tree. It has no upstream target.
 The Network Administrator is a human governance office; ROOT is a technical role.
 The same person may perform both during founding administration, but owning ROOT

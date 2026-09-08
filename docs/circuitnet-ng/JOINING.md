@@ -1,12 +1,25 @@
 # Joining CircuitNET NG
 
+<!-- public-identity:start -->
+Applications Closed. Keep your form locally until applications open.
+
+When opened, the application location is https://circuitnetng.org/apply
+and the joining contact is join@circuitnetng.org.
+Do not send passwords, private keys or authentication secrets.
+
+Founding Network Administrator role contact: founder@circuitnetng.org.
+
+These are canonical locations; web, mail and download deployment has not
+been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.
+<!-- public-identity:end -->
+
 ## Before applying
 
 Read the [Charter](CHARTER.md), [Rules](RULES.md) and
 [conference list](CONFERENCES.md). Check [current joining information](JOINING-INFO.md)
 for application availability and the approved contact. If applications are not
 open, keep your completed form locally and check that information again later.
-There is no implied submission address.
+The addresses above identify the planned submission paths, not an open service.
 
 The network begins under a Founding Network Administrator. That person approves
 initial members and Node IDs, maintains records and arranges upstream HOSTs until

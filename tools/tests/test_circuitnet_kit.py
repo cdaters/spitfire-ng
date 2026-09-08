@@ -15,6 +15,9 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+import copy
+import shutil
+from unittest.mock import patch
 import tempfile
 import unittest
 import zipfile
@@ -30,7 +33,7 @@ class CircuitnetKitTests(unittest.TestCase):
         validator = ROOT / "target/debug/examples/catalog-artifact"
         self.assertTrue(validator.is_file())
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             first = KIT.build(root / "one", validator)
             second = KIT.build(root / "two", validator)
             self.assertEqual(first.read_bytes(), second.read_bytes())
@@ -130,6 +133,87 @@ class CircuitnetKitTests(unittest.TestCase):
             KIT.plain("```\n" + "x" * 80 + "\n```\n")
         with self.assertRaises(ValueError):
             KIT.plain("injected\x1b[31m")
+
+    def test_public_identity_validation_and_closed_service_boundary(self):
+        metadata = json.loads((KIT.SOURCE / "config/release.json").read_text())
+        identity = KIT.PublicIdentity.parse(metadata)
+        self.assertEqual(identity.domain, "circuitnetng.org")
+        expected = {
+            "website": "https://circuitnetng.org/",
+            "application": "https://circuitnetng.org/apply",
+            "kit": "https://circuitnetng.org/downloads/infopack.zip",
+            "catalog_authority": "https://circuitnetng.org/network/catalog",
+            "catalog_json": "https://circuitnetng.org/catalog/catalog.json",
+            "catalog_signature": "https://circuitnetng.org/catalog/catalog.sig",
+            "catalog_public_key": "https://circuitnetng.org/catalog/catalog-authority.pub"}
+        self.assertEqual({key: identity.url(key) for key in expected}, expected)
+        self.assertEqual(identity.email("joining"), "join@circuitnetng.org")
+        self.assertEqual(identity.email("founder"), "founder@circuitnetng.org")
+        self.assertFalse(metadata["applications_open"])
+        self.assertEqual(metadata["service_status"], "not-verified")
+        for category, name, value in [("paths", "application", "https://elsewhere.invalid/apply"),
+                                       ("paths", "kit", "/../secret"),
+                                       ("roles", "founder", "personal@example.org")]:
+            wrong = copy.deepcopy(metadata)
+            wrong["public_identity"][category][name] = value
+            with self.assertRaises(ValueError):
+                KIT.PublicIdentity.parse(wrong)
+        wrong = copy.deepcopy(metadata)
+        wrong["applications_open"] = True
+        with self.assertRaises(ValueError):
+            KIT.PublicIdentity.parse(wrong)
+
+    def test_domain_fixture_regenerates_actual_kit_without_drift(self):
+        validator = ROOT / "target/debug/examples/catalog-artifact"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "docs/circuitnet-ng"
+            shutil.copytree(KIT.SOURCE, source)
+            shutil.copytree(ROOT / "docs/technical", root / "docs/technical")
+            for name in ["LICENSE-MIT", "LICENSE-APACHE"]:
+                shutil.copyfile(ROOT / name, root / name)
+            metadata_path = source / "config/release.json"
+            metadata = json.loads(metadata_path.read_text())
+            metadata["public_identity"]["domain"] = "fixture.example.org"
+            metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+            with patch.object(KIT, "ROOT", root), patch.object(KIT, "SOURCE", source):
+                with self.assertRaisesRegex(ValueError, "generated"):
+                    KIT.build(root / "stale", validator, check=True)
+                KIT.build(root / "unused", validator, update=True, check=True)
+                archive_path = KIT.build(root / "changed", validator)
+                with zipfile.ZipFile(archive_path) as archive:
+                    identity = KIT.PublicIdentity.parse(metadata)
+                    for name in ["README.TXT", "ABOUT.TXT", "JOINING.TXT", "APPLICATION.TXT",
+                                 "ENDNODE.TXT", "HOSTNODE.TXT", "ROOTNODE.TXT", "SECURITY.TXT",
+                                 "JOININFO.TXT", "NETWORK.TXT", "RELEASE.TXT"]:
+                        data = archive.read(name)
+                        self.assertNotIn(b"circuitnetng.org", data, name)
+                        self.assertIn(b"fixture.example.org", data, name)
+                        self.assertNotIn(b"<!--", data, name)
+                    for key in identity.paths:
+                        self.assertIn(identity.url(key).encode(), archive.read("NETWORK.TXT"))
+                    for role in identity.roles:
+                        self.assertIn(identity.email(role).encode(), archive.read("NETWORK.TXT"))
+                    self.assertIn(b"Applications Closed", archive.read("APPLICATION.TXT"))
+                    self.assertIn("has not been verified", " ".join(archive.read("README.TXT").decode().split()))
+                    profile = json.loads(archive.read("config/network-profile.example.json"))
+                    self.assertEqual(profile["public_identity"], identity.projection())
+                    self.assertEqual(profile["public_identity_source"], "release.json")
+                    authority = json.loads(archive.read("config/catalog-authority.json"))
+                    fingerprint = KIT.digest(bytes.fromhex(authority["public_key"]))
+                    self.assertIn(fingerprint.encode(), archive.read("SECURITY.TXT"))
+                    self.assertIn(fingerprint.encode(), archive.read("RELEASE.TXT"))
+                    catalog = json.loads(archive.read("config/catalog.json"))
+                    self.assertEqual(archive.read("config/catalog.sig"),
+                                     (catalog["signature"] + "\n").encode())
+                    # Only the two configured role addresses appear in member editions.
+                    emails = set()
+                    for name in archive.namelist():
+                        if name.startswith("markdown/") or name.endswith(".TXT"):
+                            text = archive.read(name).decode()
+                            emails.update(re.findall(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", text))
+                            self.assertNotRegex(text, r"localhost|127\.0\.0\.1|<domain>|TBD|TODO")
+                    self.assertEqual(emails, {identity.email("joining"), identity.email("founder")})
 
     def test_charter_continuity_and_joining_release_source(self):
         charter = (KIT.SOURCE / "CHARTER.md").read_text()

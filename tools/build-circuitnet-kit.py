@@ -12,6 +12,7 @@
 
 """Build and validate the rights-safe Network Kit and its BBS text editions."""
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -37,7 +38,7 @@ EDITIONS = {
     "NODE-IDENTITY.md": "NODEKEY.TXT", "OPERATIONS.md": "OPERATE.TXT",
     "CATALOG-ADMIN.md": "CATALOG.TXT", "VERIFICATION.md": "VERIFY.TXT",
     "PROTOCOL.md": "PROTOCOL.TXT", "APPLICATION-FIELDS.md": "APPFIELDS.TXT",
-    "NOTICE.md": "NOTICE.TXT",
+    "NOTICE.md": "NOTICE.TXT", "PUBLIC-IDENTITY.md": "NETWORK.TXT",
 }
 HUMAN = list(EDITIONS)
 CONFIG = ["catalog.json", "catalog-authority.json", "catalog-review.json",
@@ -115,24 +116,155 @@ def generated(objects):
             "CONFERENCE-CHANGES.md": "\n".join(changes).rstrip() + "\n"}
 
 
+@dataclass(frozen=True)
+class PublicIdentity:
+    network_display_name: str
+    domain: str
+    roles: dict
+    paths: dict
+
+    @classmethod
+    def parse(cls, metadata):
+        raw = metadata["public_identity"]
+        if set(raw) != {"network_display_name", "domain", "roles", "paths"}:
+            raise ValueError("unexpected public identity fields")
+        identity = cls(**raw)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 .-]{0,79}", identity.network_display_name):
+            raise ValueError("invalid network display name")
+        if not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", identity.domain):
+            raise ValueError("invalid official domain")
+        if set(identity.roles) != {"joining", "founder"} or any(
+                not isinstance(v, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,30}", v)
+                for v in identity.roles.values()):
+            raise ValueError("invalid public role addresses")
+        if set(identity.paths) != {"website", "application", "kit", "catalog_authority",
+                                  "catalog_json", "catalog_signature", "catalog_public_key"}:
+            raise ValueError("missing public endpoint path")
+        if any(not isinstance(v, str) or not re.fullmatch(r"/[a-z0-9/._-]*", v)
+               or ".." in v or "//" in v for v in identity.paths.values()):
+            raise ValueError("invalid public endpoint path")
+        if type(metadata["applications_open"]) is not bool or metadata["service_status"] not in {
+                "not-verified", "verified-open"}:
+            raise ValueError("invalid application/deployment status")
+        if metadata["applications_open"] and metadata["service_status"] != "verified-open":
+            raise ValueError("opening applications requires explicit verified service status")
+        return identity
+
+    def url(self, name):
+        return "https://" + self.domain + self.paths[name]
+
+    def email(self, role):
+        return self.roles[role] + "@" + self.domain
+
+    def projection(self):
+        return {"network_display_name": self.network_display_name, "official_domain": self.domain,
+                **{name + "_url": self.url(name) for name in self.paths},
+                **{role + "_email": self.email(role) for role in self.roles}}
+
+
 def joining(metadata):
-    if metadata["applications_open"] and not (metadata["application_url"] or metadata["application_contact"]):
-        raise ValueError("open applications require a public submission destination")
-    fields = [("Founding Network Administrator", "founding_administrator"),
-              ("Network home", "network_home"), ("Current kit location", "kit_location"),
-              ("Application web location", "application_url"),
-              ("Application contact", "application_contact")]
+    identity = PublicIdentity.parse(metadata)
     lines = ["# Current joining information", "",
              "Applications are open." if metadata["applications_open"] else
-             "Applications are not yet open. No public application destination has been assigned.", "",
-             "Check the public source repository for the latest joining information:",
-             metadata["source_repository"], "", metadata["joining_information_path"], "",
-             "If this copy is still current, keep an application locally until an approved",
-             "destination is published. Do not send it to a guessed address.", ""]
-    for label, key in fields:
-        lines += [f"{label}: {metadata[key] or 'Not yet published.'}", ""]
-    lines += ["These values come from config/release.json. A release maintainer updates that",
-              "one source and regenerates the kit when public details are chosen.", ""]
+             "Applications Closed. Applications are not yet open. Keep completed forms locally.", "",
+             "The following are canonical public locations, not claims of deployed services.",
+             "Web, mail and download availability has not been verified by this kit." if
+             metadata["service_status"] == "not-verified" else
+             "Release administration has explicitly recorded the application service as open.", ""]
+    for label, value in [("Official network home", identity.url("website")),
+                         ("Founding Network Administrator", identity.email("founder")),
+                         ("Joining contact when opened", identity.email("joining")),
+                         ("Application location when opened", identity.url("application")),
+                         ("Official Network Kit location", identity.url("kit"))]:
+        lines += [f"{label}: {value}", ""]
+    lines += ["Do not submit an application until an opening notice is published and the",
+              "submission destination is confirmed. Never send authentication secrets.", "",
+              "Current joining information is maintained with the public kit source:",
+              metadata["source_repository"], "", metadata["joining_information_path"], "",
+              "See [PUBLIC-IDENTITY](PUBLIC-IDENTITY.md) for catalog publication locations.", ""]
+    return "\n".join(lines)
+
+
+PUBLIC_BLOCK = re.compile(r"<!-- public-identity:start -->.*?<!-- public-identity:end -->", re.S)
+
+
+def identity_sections(metadata, authority):
+    identity = PublicIdentity.parse(metadata)
+    home = f"Official network home: {identity.url('website')}"
+    closed = ("Applications Closed. Keep your form locally until applications open." if
+              not metadata["applications_open"] else "Applications are open.")
+    apply = (f"{closed}\n\nWhen opened, the application location is {identity.url('application')}\n"
+             f"and the joining contact is {identity.email('joining')}.\n"
+             "Do not send passwords, private keys or authentication secrets.")
+    status = ("These are canonical locations; web, mail and download deployment has not\n"
+              "been verified. See [JOINING-INFO](JOINING-INFO.md) for opening status.")
+    admin = f"Founding Network Administrator role contact: {identity.email('founder')}."
+    catalog = (f"Catalog authority and verification information: {identity.url('catalog_authority')}\n\n"
+               f"Catalog JSON: {identity.url('catalog_json')}\n\n"
+               f"Catalog signature: {identity.url('catalog_signature')}\n\n"
+               f"Catalog public key: {identity.url('catalog_public_key')}\n\n"
+               "Current accepted signing-key fingerprint (SHA-256 of raw public key):\n"
+               f"{digest(bytes.fromhex(authority['public_key']))}\n\n"
+               "HTTPS provides delivery and discovery, not independent signing authority.\n"
+               "Confirm the fingerprint through approved enrollment or an already trusted\n"
+               "authority. Verify the signed catalog and retained revision chain.\n"
+               "These publication locations are recorded; endpoint service is not verified.")
+    return {"README.md": home + "\n\nOfficial kit location: " + identity.url('kit') + "\n\n" + status,
+            "ABOUT.md": home + "\n\n" + status,
+            "JOINING.md": apply + "\n\n" + admin + "\n\n" + status,
+            "NODE-APPLICATION.md": apply,
+            "APPLICATION-FIELDS.md": apply,
+            "END-NODE.md": home + "\n\n" + apply + "\n\n" + status,
+            "HOST-NODE.md": admin + "\n\n" + home + "\n\n" + status,
+            "ROOT-NODE.md": admin + "\n\n" + home + "\n\n" + status,
+            "SECURITY.md": catalog,
+            "VERIFICATION.md": catalog}
+
+
+def public_identity_document(metadata, authority):
+    identity = PublicIdentity.parse(metadata)
+    lines = ["# Official network identity and publication locations", "",
+             f"{identity.network_display_name} uses {identity.domain} as its official home.", "",
+             ("Applications Closed." if not metadata["applications_open"] else "Applications are open."),
+             ("Web, email and download services have not been verified." if
+              metadata["service_status"] == "not-verified" else
+              "Application service opening is recorded by release administration."),
+             "These are the intended publication locations; no deployment is claimed.", ""]
+    purposes = {"website": "Network introduction", "application": "Node application when opened",
+                "kit": "Current documentation/configuration Network Kit",
+                "catalog_authority": "Human catalog authority and verification page",
+                "catalog_json": "Signed machine catalog", "catalog_signature": "Signature sidecar",
+                "catalog_public_key": "Catalog signing public key"}
+    for name, purpose in purposes.items():
+        lines += [f"## {purpose}", "", identity.url(name), ""]
+    lines += ["## Public role contacts", "", f"Joining: {identity.email('joining')}", "",
+              f"Founding Network Administrator: {identity.email('founder')}", "",
+              "Do not submit applications until opening is announced. Credential enrollment",
+              "occurs after membership approval; no application includes authentication secrets.", "",
+              "## Catalog publication contract", "",
+              "The human authority page should show the current revision, catalog body hash,",
+              "signing-key fingerprint, publisher, protocol version, publication date and",
+              "previous revision, with artifact links and verification instructions.", "",
+              "catalog.json is the unchanged signed wrapper: body, hash and signature.",
+              "Its catalog SHA-256 covers the canonical body, not the entire JSON file.",
+              "catalog.sig contains the same 64-byte signature as 128 lowercase hexadecimal",
+              "characters followed by LF. It is a convenience copy, not a separate signature",
+              "of the JSON wrapper. Reject disagreement with the wrapper signature.",
+              "catalog-authority.pub contains the 32-byte public key as 64 lowercase",
+              "hexadecimal characters followed by LF. It contains no private signing material.", "",
+              "HTTPS discovery does not establish trust in a replacement signing key.",
+              "Use an independently accepted authority and verify the catalog signature and",
+              "revision chain as described in [VERIFICATION](VERIFICATION.md).",
+              "An online page must generate its current values from the actual published",
+              "catalog and authority, not copy the values from this older kit indefinitely.", "",
+              "Current kit authority fingerprint (SHA-256 of raw public key):",
+              digest(bytes.fromhex(authority['public_key'])), "",
+              "## Future site sections", "",
+              "Conference information, public node listings, Files, standards and downloads",
+              "may receive separate pages. Their publication requires separate work.",
+              "A future independent CircuitNet Technical Standards identity may be considered;",
+              "it is not an active organization, site or dependency. This network home remains",
+              "the canonical location for both network and technical documentation.", ""]
     return "\n".join(lines)
 
 
@@ -156,6 +288,7 @@ def plain(markdown):
         local = EDITIONS.get(Path(base).name)
         destination = local if local else target
         return label if label == destination else f"{label} ({destination})"
+    markdown = re.sub(r"<!-- public-identity:(?:start|end) -->\n?", "", markdown)
     text = ascii_text(re.sub(r"\[([^]]+)\]\(([^)]+)\)", link, markdown))
     text = text.replace("**", "").replace("`", "") if "```" not in text else text
     result, paragraph, code = [], [], False
@@ -229,7 +362,28 @@ def build(output, validator, check=False, update=False, source_commit=None):
     objects, history_paths = checked_catalog(validator)
     metadata = json.loads((SOURCE / "config/release.json").read_text())
     docs = generated(objects)
+    identity = PublicIdentity.parse(metadata)
+    authority = json.loads((SOURCE / "config/catalog-authority.json").read_text())
     docs["JOINING-INFO.md"] = joining(metadata)
+    docs["PUBLIC-IDENTITY.md"] = public_identity_document(metadata, authority)
+    for name, section in identity_sections(metadata, authority).items():
+        original = (SOURCE / name).read_text()
+        block = "<!-- public-identity:start -->\n" + section + "\n<!-- public-identity:end -->"
+        if PUBLIC_BLOCK.search(original):
+            docs[name] = PUBLIC_BLOCK.sub(lambda _: block, original)
+        else:
+            heading, rest = original.split("\n", 1)
+            docs[name] = heading + "\n\n" + block + "\n" + rest
+    example_path = SOURCE / "config/network-profile.example.json"
+    example = json.loads(example_path.read_text())
+    example["display_name"] = identity.network_display_name
+    example["public_identity"] = identity.projection()
+    example["public_identity_source"] = "release.json"
+    example_text = json.dumps(example, indent=2) + "\n"
+    if update:
+        example_path.write_text(example_text)
+    elif example_path.read_text() != example_text:
+        raise ValueError("generated example identity differs; use --update-docs")
     for name, text in docs.items():
         path = SOURCE / name
         if update:
@@ -273,6 +427,7 @@ def build(output, validator, check=False, update=False, source_commit=None):
                 link = os.path.relpath(destination, str(Path(name).parent))
                 return f"[{label}]({link}{'#' + anchor if anchor else ''})"
             data = re.sub(r"\[([^]]+)\]\(([^)]+)\)", rewrite, data.decode()).encode()
+            data = re.sub(rb"<!-- public-identity:(?:start|end) -->\n?", b"", data)
         if any(marker in data for marker in PRIVATE):
             raise ValueError(f"private marker in {name}")
         contents[name] = data
@@ -286,6 +441,7 @@ def build(output, validator, check=False, update=False, source_commit=None):
     authority = json.loads(contents["config/catalog-authority.json"])
     fingerprint = digest(bytes.fromhex(authority["public_key"]))
     contents["config/catalog-authority.pub"] = (authority["public_key"] + "\n").encode()
+    contents["config/catalog.sig"] = (objects[-1]["signature"] + "\n").encode("ascii")
     contents["FILE_ID.DIZ"] = ("CircuitNET NG Network Kit 1.0\r\n"
         "Charter, rules, conference list,\r\n"
         "joining information and setup guides\r\n"
@@ -294,6 +450,9 @@ def build(output, validator, check=False, update=False, source_commit=None):
     source_digest = digest(b"".join(name.encode() + b"\0" + bytes.fromhex(digest(data))
                                   for name, data in sorted(contents.items())))
     release = (f"CircuitNET NG Network Kit 1.0 - revised build {metadata['build_revision']}\n\n"
+        f"Official home: {identity.url('website')}\n"
+        f"Official kit location: {identity.url('kit')}\n"
+        "Canonical locations only; deployment is not verified by this kit.\n"
         f"Source: {metadata['source_repository']}\n"
         f"Source commit: {source_commit or 'Uncommitted candidate; identify by source digest.'}\n"
         f"Source-content SHA-256:\n{source_digest}\n"

@@ -1,5 +1,13 @@
 # CircuitNET NG node application
 
+<!-- public-identity:start -->
+Applications Closed. Keep your form locally until applications open.
+
+When opened, the application location is https://circuitnetng.org/apply
+and the joining contact is join@circuitnetng.org.
+Do not send passwords, private keys or authentication secrets.
+<!-- public-identity:end -->
+
 Check [JOINING-INFO](JOINING-INFO.md) for whether applications are open and where
 to send this form. Fields marked required are needed for a membership decision.
 Keep optional fields blank if they are not useful to your application.
