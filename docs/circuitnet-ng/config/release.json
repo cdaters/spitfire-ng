@@ -1,7 +1,7 @@
 {
   "format": "circuitnet-ng-kit-release",
   "kit_version": "1.0",
-  "build_revision": 4,
+  "build_revision": 5,
   "status": "release-candidate",
   "source_repository": "https://github.com/cdaters/spitfire-ng",
   "joining_information_path": "docs/circuitnet-ng/JOINING-INFO.md",

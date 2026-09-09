@@ -18,8 +18,8 @@ change rationale and entries. Each entry has an immutable 128-bit hexadecimal ID
 codename, name, description, category, required flag, lifecycle, effective revision,
 optional retirement revision, historical reference and moderator role. Snapshots
 retain all established identities, including retired generations. Entries sort by
-immutable ID. JSON field order and compact UTF-8 serialization are specified by the
-wire implementation; no floating point, arbitrary object keys or local IDs occur.
+immutable ID. JSON field order and compact UTF-8 serialization are specified below and in the
+[implementation contract](circuitnet-ng-specification.md); no floating point, arbitrary object keys or local IDs occur.
 The SHA-256 catalog hash covers this unsigned body. Ed25519 signs the domain
 `CIRCUITNET-NG-CATALOG-1\n` followed by the exact canonical body bytes. The wrapper
 contains body, hash and hexadecimal signature. Standard ring Ed25519 is used.

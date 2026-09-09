@@ -1,0 +1,246 @@
+{
+  "format": "circuitnet-ng-vectors",
+  "version": 1,
+  "hello": {
+    "protocol": "CIRCUITNET-NG",
+    "major": 1,
+    "minimum_minor": 0,
+    "maximum_minor": 4,
+    "capabilities": [
+      "atomic-batch",
+      "symmetric-poll",
+      "directed-routing",
+      "remote-dossier-control",
+      "file-distribution",
+      "file-hash-have",
+      "catalog-sync",
+      "catalog-access"
+    ],
+    "network": "conformance",
+    "node": "USAZ001",
+    "role": "END",
+    "mode": "poll"
+  },
+  "batch": {
+    "format": "circuitnet-ng-offline",
+    "version": 1,
+    "network": "conformance",
+    "sender": "USAZ001",
+    "neighbor": "USAZ000",
+    "messages": [
+      {
+        "id": "USAZ001:00000000000000000000000000000001",
+        "origin": "USAZ001",
+        "codename": "RETRO",
+        "author": "Synthetic",
+        "subject": "Parent",
+        "body": "Café 漢字 \"quotes\" \\ tab\tline\r\n",
+        "timestamp": 1788800000,
+        "reply": null,
+        "path": [
+          "USAZ001"
+        ]
+      },
+      {
+        "id": "USAZ001:00000000000000000000000000000002",
+        "origin": "USAZ001",
+        "codename": "RETRO",
+        "author": "Synthetic",
+        "subject": "Reply",
+        "body": "Public test text.\r\n",
+        "timestamp": 1788800000,
+        "reply": "USAZ001:00000000000000000000000000000001",
+        "path": [
+          "USAZ001"
+        ]
+      }
+    ]
+  },
+  "batch_canonical_hex": "7b22666f726d6174223a22636972637569746e65742d6e672d6f66666c696e65222c2276657273696f6e223a312c226e6574776f726b223a22636f6e666f726d616e6365222c2273656e646572223a225553415a303031222c226e65696768626f72223a225553415a303030222c226d65737361676573223a5b7b226964223a225553415a3030313a3030303030303030303030303030303030303030303030303030303030303031222c226f726967696e223a225553415a303031222c22636f64656e616d65223a22524554524f222c22617574686f72223a2253796e746865746963222c227375626a656374223a22506172656e74222c22626f6479223a22436166c3a920e6bca2e5ad97205c2271756f7465735c22205c5c207461625c746c696e655c725c6e222c2274696d657374616d70223a313738383830303030302c227265706c79223a6e756c6c2c2270617468223a5b225553415a303031225d7d2c7b226964223a225553415a3030313a3030303030303030303030303030303030303030303030303030303030303032222c226f726967696e223a225553415a303031222c22636f64656e616d65223a22524554524f222c22617574686f72223a2253796e746865746963222c227375626a656374223a225265706c79222c22626f6479223a225075626c6963207465737420746578742e5c725c6e222c2274696d657374616d70223a313738383830303030302c227265706c79223a225553415a3030313a3030303030303030303030303030303030303030303030303030303030303031222c2270617468223a5b225553415a303031225d7d5d7d",
+  "batch_hash": "5772fe320bdaf95cf2266555a1293b7ef8aa8b9ccd8891100453d5779c7de4ac",
+  "message_fingerprints": [
+    "4d25e37d018d7ea06fee9c0533ec667fd7a275a1c847ac6dda4933231f0e482d",
+    "0d793297a5576b2b9c99a25369ad34c2601550d0b05e734deadb7d1557c9371a"
+  ],
+  "receipt": {
+    "format": "circuitnet-ng-offline-receipt",
+    "version": 1,
+    "network": "conformance",
+    "sender": "USAZ000",
+    "neighbor": "USAZ001",
+    "artifact": "5772fe320bdaf95cf2266555a1293b7ef8aa8b9ccd8891100453d5779c7de4ac",
+    "accepted": [
+      "USAZ001:00000000000000000000000000000001",
+      "USAZ001:00000000000000000000000000000002"
+    ]
+  },
+  "directed": {
+    "format": "circuitnet-ng-offline",
+    "version": 1,
+    "network": "conformance",
+    "sender": "USAZ001",
+    "neighbor": "USAZ000",
+    "messages": [
+      {
+        "conference_identity": "11111111111111111111111111111111",
+        "id": "USAZ001:00000000000000000000000000000003",
+        "origin": "USAZ001",
+        "codename": "RETRO",
+        "author": "Synthetic",
+        "subject": "Parent",
+        "body": "Public test text.\r\n",
+        "timestamp": 1788800000,
+        "reply": null,
+        "path": [
+          "USAZ001"
+        ],
+        "destination": "USAZ000"
+      }
+    ]
+  },
+  "directed_hash": "46c3a539798a163f80d4f4b4b8fa454e6b2486eb896f5baf48c6e0aa85a53ace",
+  "controls": [
+    {
+      "network": "conformance",
+      "id": "USAZ001:00000000000000000000000000000001",
+      "requester": "USAZ001",
+      "target": "USAZ000",
+      "operation": "subscribe",
+      "codename": "RETRO"
+    },
+    {
+      "network": "conformance",
+      "id": "USAZ001:00000000000000000000000000000002",
+      "requester": "USAZ001",
+      "target": "USAZ000",
+      "operation": "unsubscribe",
+      "codename": "RETRO"
+    },
+    {
+      "network": "conformance",
+      "id": "USAZ001:00000000000000000000000000000003",
+      "requester": "USAZ001",
+      "target": "USAZ000",
+      "operation": "query-subscriptions",
+      "codename": null
+    }
+  ],
+  "control_fingerprints": [
+    "7c77acf8f1798f81da521def69bb245ed34cbbb524b2efa790fb24a5328c7db4",
+    "45184617a803ee2e214c6b427f2869fefddb56d221bcb504efa7142abc6c1fc8",
+    "b9897c5213ba1fad5c4281dd4c2d2cc89d3bce061c108758db7f8aeb8743d2a4"
+  ],
+  "publication": {
+    "network": "conformance",
+    "id": "USAZ001:00000000000000000000000000000001",
+    "origin": "USAZ001",
+    "codename": "KITDOCS",
+    "sha256": "16288d3c29f55336304d06a31afc77164b9b878bfa4daaa8496e62fa6355b499",
+    "size": 15,
+    "filename": "fixture.txt",
+    "description": "Harmless conformance fixture",
+    "timestamp": 1788800000,
+    "path": [
+      "USAZ001"
+    ]
+  },
+  "publication_fingerprint": "2977172ee1a79aebdfd8fb8f18be5a3c3f8818893d22b3e55d0457bae8d981a0",
+  "file_want": {
+    "type": "file-want",
+    "want": {
+      "decision": "have"
+    }
+  },
+  "authority": {
+    "network": "conformance",
+    "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "publisher": "ROOT",
+    "public_key": "7d01d67fe1e2d2d3ebbf048dac854ee885a78f211a0bf92a4e6d3372ab753a56"
+  },
+  "catalogs": [
+    {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 1,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "previous_revision": 0,
+        "previous_hash": null,
+        "published_at": 1788800000,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+      "signature": "0ffc9b3b9bdea51b33518b5c2d277922e47a4ce7a28885da6a7570dc1832f94e161890162660fa956c845c54f7958a676db5f37dcf29e8c3c323d8c7b2c47805"
+    },
+    {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 2,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 2,
+        "previous_revision": 1,
+        "previous_hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+        "published_at": 1788800001,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          },
+          {
+            "access": "sysops",
+            "id": "22222222222222222222222222222222",
+            "codename": "SUPPORT",
+            "display_name": "Operator Support",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": true,
+            "status": "active",
+            "effective_revision": 2,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "295243decb7bf58a9a5e604d11e4ba33d61603998f9c4240253e6862c010edf7",
+      "signature": "ed3aa8df780c424658990898f03642d19d34181ac9d6dae7724ee21dae746bef56a197ed49ed8af0e99acbd6ff5adde6b08714b09e65b7d1820ddfa3d3a9ba02"
+    }
+  ],
+  "catalog_canonical_hex": [
+    "7b22666f726d6174223a22636972637569746e65742d6e672d636174616c6f67222c22736368656d61223a312c226e6574776f726b223a22636f6e666f726d616e6365222c22636174616c6f675f6964223a226161616161616161616161616161616161616161616161616161616161616161222c227265766973696f6e223a312c2270726576696f75735f7265766973696f6e223a302c2270726576696f75735f68617368223a6e756c6c2c227075626c69736865645f6174223a313738383830303030302c227075626c6973686572223a22524f4f54222c22676f7665726e616e63655f7265666572656e6365223a2273796e7468657469632d617070726f76616c222c22726174696f6e616c65223a22436f6e666f726d616e63652073656564222c22696e74656e74223a226f7264696e617279222c22656e7472696573223a5b7b226964223a223131313131313131313131313131313131313131313131313131313131313131222c22636f64656e616d65223a22524554524f222c22646973706c61795f6e616d65223a22526574726f20436f6d707574696e67222c226465736372697074696f6e223a2253796e7468657469632064697363757373696f6e222c2263617465676f7279223a22636f6d707574696e67222c227265717569726564223a66616c73652c22737461747573223a22616374697665222c226566666563746976655f7265766973696f6e223a312c22726574697265645f7265766973696f6e223a6e756c6c2c22686973746f726963616c5f7265666572656e6365223a22222c226d6f64657261746f725f726f6c65223a2254657374206d6f64657261746f72227d5d7d",
+    "7b22666f726d6174223a22636972637569746e65742d6e672d636174616c6f67222c22736368656d61223a322c226e6574776f726b223a22636f6e666f726d616e6365222c22636174616c6f675f6964223a226161616161616161616161616161616161616161616161616161616161616161222c227265766973696f6e223a322c2270726576696f75735f7265766973696f6e223a312c2270726576696f75735f68617368223a2231333035396234643063336238313431646535313530353536613532626537333765633365363062376466333366383563303533316662393234386635383836222c227075626c69736865645f6174223a313738383830303030312c227075626c6973686572223a22524f4f54222c22676f7665726e616e63655f7265666572656e6365223a2273796e7468657469632d617070726f76616c222c22726174696f6e616c65223a22436f6e666f726d616e63652073656564222c22696e74656e74223a226f7264696e617279222c22656e7472696573223a5b7b226964223a223131313131313131313131313131313131313131313131313131313131313131222c22636f64656e616d65223a22524554524f222c22646973706c61795f6e616d65223a22526574726f20436f6d707574696e67222c226465736372697074696f6e223a2253796e7468657469632064697363757373696f6e222c2263617465676f7279223a22636f6d707574696e67222c227265717569726564223a66616c73652c22737461747573223a22616374697665222c226566666563746976655f7265766973696f6e223a312c22726574697265645f7265766973696f6e223a6e756c6c2c22686973746f726963616c5f7265666572656e6365223a22222c226d6f64657261746f725f726f6c65223a2254657374206d6f64657261746f72227d2c7b22616363657373223a227379736f7073222c226964223a223232323232323232323232323232323232323232323232323232323232323232222c22636f64656e616d65223a22535550504f5254222c22646973706c61795f6e616d65223a224f70657261746f7220537570706f7274222c226465736372697074696f6e223a2253796e7468657469632064697363757373696f6e222c2263617465676f7279223a22636f6d707574696e67222c227265717569726564223a747275652c22737461747573223a22616374697665222c226566666563746976655f7265766973696f6e223a322c22726574697265645f7265766973696f6e223a6e756c6c2c22686973746f726963616c5f7265666572656e6365223a22222c226d6f64657261746f725f726f6c65223a2254657374206d6f64657261746f72227d5d7d"
+  ]
+}

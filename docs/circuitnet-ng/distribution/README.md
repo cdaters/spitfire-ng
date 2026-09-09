@@ -63,8 +63,8 @@ Applications remain closed independently of domain ownership. Service status is
 not-verified until a separate deployment operation is explicitly performed; the
 builder rejects opening applications without an explicit verified-open status.
 This is an operator release declaration, not a reachability probe. Building starts
-no DNS, web, mail or network enrollment work. Network Kit 1.0 revised build 4
-supersedes build 3 as the pre-opening candidate.
+no DNS, web, mail or network enrollment work. Network Kit 1.0 revised build 5
+supersedes build 4 as the pre-opening candidate.
 
 The kit includes a derived catalog.sig sidecar copied from the accepted signed
 wrapper. Signature verification still uses the unchanged catalog and pinned key;
@@ -77,3 +77,7 @@ assignment helper is allowlisted into technical/; no membership reservation list
 is packaged. ADDRESSING, DOSSIERS and SYSOPACC root editions derive from their
 canonical Markdown. Required and operator-only conference groups derive from the
 unchanged signed catalog, not a second hand-maintained policy list.
+
+The technical directory includes the implementation-neutral 1.4 specification and
+implementation guide. The conformance peer/vectors remain an independently runnable
+source suite linked from those documents; they are not a BBS software binary release.

@@ -185,6 +185,8 @@ impl Fixture {
 #[test]
 fn progress_is_not_exact_reads_and_reset_is_not_readership() {
     let mut f = Fixture::new();
+    // Exercise a fixture clock older than the SQLite read-trigger clock without sleeping.
+    f.now -= 2;
     let c = f.area(1, 5);
     let a = f.post(c, 0, false, None);
     let _b = f.post(c, 0, false, None);
@@ -193,6 +195,19 @@ fn progress_is_not_exact_reads_and_reset_is_not_readership() {
     f.db.mark_read(f.user, c, a.number).unwrap();
     f.db.mark_read(f.user, c, last.number).unwrap();
     f.db.mark_read(f.sysop, c, last.number).unwrap();
+    // Read triggers use SQLite unixepoch(), not the fixture's captured timestamp.
+    // Snapshot after those observations; otherwise a second boundary under load
+    // correctly excludes the newer reads as future activity and makes this flaky.
+    let observed: i64 =
+        f.db.connection
+            .query_row(
+                "SELECT MAX(last_at) FROM conference_health_reads WHERE conference_id=?1",
+                [c.get()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(observed > f.now);
+    f.now = observed;
     f.settle();
     let m = &f.detail(c).windows[1];
     assert_eq!((m.readers, m.progress, m.local_posts), (2, 3, 3));

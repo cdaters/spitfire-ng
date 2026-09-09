@@ -100,6 +100,12 @@ class CircuitnetKitTests(unittest.TestCase):
                 transport = archive.read("technical/circuitnet-transport.md").decode()
                 self.assertIn("supported minor range 0 through 4", transport)
                 self.assertIn("catalog-access", transport)
+                self.assertIn("technical/circuitnet-ng-specification.md", names)
+                self.assertIn("technical/circuitnet-implementation.md", names)
+                specification = archive.read("technical/circuitnet-ng-specification.md").decode()
+                self.assertIn("accepting BBS", specification)
+                self.assertIn("reference implementation", specification)
+                self.assertNotIn("CARGO_MANIFEST_DIR", specification)
                 self.assertNotIn("supported minor range 0 through 3", transport)
 
     def test_generated_documents_follow_signed_data_without_exposing_ids(self):

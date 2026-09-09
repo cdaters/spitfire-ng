@@ -1040,19 +1040,21 @@ impl<'a> Session<'a> {
         let Some(batch) = batch else {
             return Ok(());
         };
-        if !self.directed && batch.messages.iter().any(|m| m.destination.is_some()) {
-            return Err(Error::UnsupportedVersion);
-        }
         let bytes = batch.encode().map_err(|_| Error::MalformedFrame)?;
         self.health.bytes += bytes.len() as u64;
         let result = {
             let _guard = custody(self.runtime.network_lock.lock())?;
             let mut d = self.admitted()?;
-            match d.circuitnet_import_neighbor(
+            match d.circuitnet_import_capable_neighbor(
                 &self.runtime.network_artifacts,
                 &self.profile.network,
                 &self.peer.node,
                 &bytes,
+                core::MessageCapabilities {
+                    directed: self.directed,
+                    catalog: self.catalog,
+                    catalog_access: self.catalog_access,
+                },
                 now(),
             ) {
                 Ok(result) => result,
@@ -1091,6 +1093,7 @@ impl<'a> Session<'a> {
 }
 fn core_error(e: core::Error) -> Error {
     match e {
+        core::Error::UnsupportedCapability => Error::UnsupportedVersion,
         core::Error::Conflict => Error::ConflictingMessage,
         core::Error::Policy => Error::UnauthorizedCodename,
         core::Error::Codec(_) => Error::MalformedFrame,

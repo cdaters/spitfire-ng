@@ -1,5 +1,9 @@
 # CircuitNET NG native foundation
 
+For independent implementations, begin with the current
+[wire specification](circuitnet-ng-specification.md). The implementation history
+and native storage mapping below are not prerequisites for another BBS.
+
 Current live protocol is CIRCUITNET-NG 1.4, with messages, directed routing,
 Dossier controls, Files and signed catalog sync. The milestone-labeled sections
 below record how the foundation evolved. See the current
@@ -99,7 +103,7 @@ independently established neighbor authority. C2 explicitly requires operator-tr
 offline custody and exact expected neighbor; files carry assertions, not credentials.
 This is suitable for isolated development exchange, not admission of Internet files.
 
-Version 1 JSON is UTF-8, strict about unknown fields, with deterministic struct
+Version 1 JSON is UTF-8, strict about unknown fields, with explicitly documented canonical
 field order. A batch contains format/version, network, sender, intended neighbor,
 and up to 32 messages; maximum encoded artifact size is 4 MiB. A message contains
 origin-scoped random 128-bit identity, origin, codename, frozen author, subject,

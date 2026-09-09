@@ -1,5 +1,11 @@
 # SPITFIRE NG Documentation
 
+[Implementation-neutral CIRCUITNET-NG specification](technical/circuitnet-ng-specification.md),
+[implementation guide](technical/circuitnet-implementation.md) and
+[independent conformance peer](../tools/circuitnet-conformance/README.md) are the
+starting points for another implementation. [C9 report](research/m076-circuitnet-independent-interoperability.md)
+records tested profiles and limits.
+
 [Conference Health](manual/conference-health.md) describes native readership/activity and the optional caller bulletin.
 
 [Public network identity](circuitnet-ng/PUBLIC-IDENTITY.md) records canonical publication locations and service-state boundaries.

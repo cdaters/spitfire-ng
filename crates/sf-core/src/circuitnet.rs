@@ -23,6 +23,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("CircuitNET feature was not negotiated")]
+    UnsupportedCapability,
     #[error(transparent)]
     Catalog(#[from] wire::catalog::Error),
     #[error(transparent)]
@@ -805,7 +807,38 @@ impl RuntimeDatabase {
         bytes: &[u8],
         now: i64,
     ) -> Result<Imported, Error> {
-        let result = self.circuitnet_import_inner(store, network, expected_neighbor, bytes, now);
+        self.circuitnet_import_capable_neighbor(
+            store,
+            network,
+            expected_neighbor,
+            bytes,
+            MessageCapabilities {
+                catalog_access: true,
+                directed: true,
+                catalog: true,
+            },
+            now,
+        )
+    }
+    /// Live hosts supply the capabilities negotiated with the authenticated peer.
+    /// Admission checks them under the same write transaction as catalog policy.
+    pub fn circuitnet_import_capable_neighbor(
+        &mut self,
+        store: &dyn NetworkArtifactStore,
+        network: &NetworkId,
+        expected_neighbor: &NodeId,
+        bytes: &[u8],
+        capabilities: MessageCapabilities,
+        now: i64,
+    ) -> Result<Imported, Error> {
+        let result = self.circuitnet_import_inner(
+            store,
+            network,
+            expected_neighbor,
+            bytes,
+            capabilities,
+            now,
+        );
         if result.is_err()
             && Batch::decode(bytes)
                 .is_ok_and(|b| b.messages.iter().any(|m| m.destination.is_some()))
@@ -826,6 +859,7 @@ impl RuntimeDatabase {
         network: &NetworkId,
         expected_neighbor: &NodeId,
         bytes: &[u8],
+        capabilities: MessageCapabilities,
         now: i64,
     ) -> Result<Imported, Error> {
         let _permit = store.admit_import()?;
@@ -842,6 +876,27 @@ impl RuntimeDatabase {
             || batch.neighbor != p.local
         {
             return Err(Error::Policy);
+        }
+        if (!capabilities.directed && batch.messages.iter().any(|m| m.destination.is_some()))
+            || (!capabilities.catalog
+                && batch
+                    .messages
+                    .iter()
+                    .any(|m| m.conference_identity.is_some()))
+        {
+            return Err(Error::UnsupportedCapability);
+        }
+        if !capabilities.catalog_access {
+            if let Some(catalog) = catalog::current(&tx, network)? {
+                if batch.messages.iter().any(|m| {
+                    catalog.body.entries.iter().any(|entry| {
+                        m.conference_identity.as_deref() == Some(entry.id.as_str())
+                            && entry.access == catalog::Access::Sysops
+                    })
+                }) {
+                    return Err(Error::UnsupportedCapability);
+                }
+            }
         }
         let seen:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM circuitnet_imports WHERE network=?1 AND neighbor=?2 AND artifact=?3)",params![network.as_str(),expected_neighbor.as_str(),artifact],|r|r.get(0))?;
         let mut imported = 0;

@@ -2,6 +2,8 @@
 
 CIRCUITNET-NG 1.4 is the current live transport contract. The sections below
 distinguish the baseline exchange from later negotiated capabilities.
+Independent implementers should start with the consolidated
+[CIRCUITNET-NG 1.4 specification](circuitnet-ng-specification.md).
 Native SPITFIRE messages remain canonical. This transport supplies authenticated
 neighbor authority to the C2 service; it owns no alternate message store.
 
@@ -100,15 +102,18 @@ ALPN failure can reject at TLS before an application error is possible.
 
 An offer contains exactly the [C2 envelope](circuitnet.md): fields in canonical
 hash order are `format`, `version`, `network`, `sender`, `neighbor`, `messages`.
-Message field order is `id`, `origin`, `codename`, `author`, `subject`, `body`,
-`timestamp`, `reply`, `path`. Strings are encoded by the deterministic C2 serde JSON
-encoder with no whitespace; optional reply is explicit JSON null. Canonical
+Message field order is optional `conference_identity`, then `id`, `origin`,
+`codename`, `author`, `subject`, `body`, `timestamp`, `reply`, `path`, then optional
+`destination`. Absent extension fields are omitted. Strings use the canonical JSON
+rules in the consolidated specification with no whitespace; optional reply is explicit JSON null. Canonical
 receipt order is `format`, `version`, `network`, `sender`, `neighbor`, `artifact`,
 `accepted`. The artifact is lowercase SHA-256 of the reconstructed canonical C2
 Batch encoding. Independent implementations must reproduce that encoding: UTF-8
 non-ASCII characters remain literal, control characters and quotes/backslashes use
 JSON escapes. The current strict message text rules exclude ambiguous controls.
-The checked Rust codec and round-trip tests are the executable reference.
+Public independent golden vectors and both production/Python codec tests verify
+these bytes; source-code defaults are not an unstated contract. Receipt sender is
+the accepting node and neighbor is the original batch sender, reversing batch direction.
 
 `imported` and `duplicates` are nonnegative 32-bit counts whose sum must equal the
 exact offer member count. They describe this receipt observation. A committed

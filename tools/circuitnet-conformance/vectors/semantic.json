@@ -1,0 +1,330 @@
+[
+  {
+    "name": "unsupported-major",
+    "operation": "negotiate",
+    "remote": {
+      "protocol": "CIRCUITNET-NG",
+      "major": 2,
+      "minimum_minor": 0,
+      "maximum_minor": 4,
+      "capabilities": [
+        "atomic-batch",
+        "symmetric-poll",
+        "directed-routing",
+        "remote-dossier-control",
+        "file-distribution",
+        "file-hash-have",
+        "catalog-sync",
+        "catalog-access"
+      ],
+      "network": "conformance",
+      "node": "USAZ000",
+      "role": "HOST",
+      "mode": "poll"
+    },
+    "expected": "unsupported-version"
+  },
+  {
+    "name": "unknown-optional-capability",
+    "operation": "negotiate",
+    "remote": {
+      "protocol": "CIRCUITNET-NG",
+      "major": 1,
+      "minimum_minor": 0,
+      "maximum_minor": 4,
+      "capabilities": [
+        "atomic-batch",
+        "symmetric-poll",
+        "future-optional"
+      ],
+      "network": "conformance",
+      "node": "USAZ000",
+      "role": "HOST",
+      "mode": "poll"
+    },
+    "expected": "ok",
+    "minor": 4,
+    "capabilities": [
+      "atomic-batch",
+      "symmetric-poll"
+    ]
+  },
+  {
+    "name": "bad-catalog-signature",
+    "operation": "catalog-verify",
+    "catalog": {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 2,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 2,
+        "previous_revision": 1,
+        "previous_hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+        "published_at": 1788800001,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          },
+          {
+            "access": "sysops",
+            "id": "22222222222222222222222222222222",
+            "codename": "SUPPORT",
+            "display_name": "Operator Support",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": true,
+            "status": "active",
+            "effective_revision": 2,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "295243decb7bf58a9a5e604d11e4ba33d61603998f9c4240253e6862c010edf7",
+      "signature": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "expected": "invalid-signature"
+  },
+  {
+    "name": "catalog-rollback",
+    "operation": "catalog-follows",
+    "previous": {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 2,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 2,
+        "previous_revision": 1,
+        "previous_hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+        "published_at": 1788800001,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          },
+          {
+            "access": "sysops",
+            "id": "22222222222222222222222222222222",
+            "codename": "SUPPORT",
+            "display_name": "Operator Support",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": true,
+            "status": "active",
+            "effective_revision": 2,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "295243decb7bf58a9a5e604d11e4ba33d61603998f9c4240253e6862c010edf7",
+      "signature": "ed3aa8df780c424658990898f03642d19d34181ac9d6dae7724ee21dae746bef56a197ed49ed8af0e99acbd6ff5adde6b08714b09e65b7d1820ddfa3d3a9ba02"
+    },
+    "catalog": {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 1,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 1,
+        "previous_revision": 0,
+        "previous_hash": null,
+        "published_at": 1788800000,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+      "signature": "0ffc9b3b9bdea51b33518b5c2d277922e47a4ce7a28885da6a7570dc1832f94e161890162660fa956c845c54f7958a676db5f37dcf29e8c3c323d8c7b2c47805"
+    },
+    "expected": "catalog-rollback"
+  },
+  {
+    "name": "same-revision-fork",
+    "operation": "catalog-follows",
+    "previous": {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 2,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 2,
+        "previous_revision": 1,
+        "previous_hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+        "published_at": 1788800001,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          },
+          {
+            "access": "sysops",
+            "id": "22222222222222222222222222222222",
+            "codename": "SUPPORT",
+            "display_name": "Operator Support",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": true,
+            "status": "active",
+            "effective_revision": 2,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "295243decb7bf58a9a5e604d11e4ba33d61603998f9c4240253e6862c010edf7",
+      "signature": "ed3aa8df780c424658990898f03642d19d34181ac9d6dae7724ee21dae746bef56a197ed49ed8af0e99acbd6ff5adde6b08714b09e65b7d1820ddfa3d3a9ba02"
+    },
+    "catalog": {
+      "body": {
+        "format": "circuitnet-ng-catalog",
+        "schema": 2,
+        "network": "conformance",
+        "catalog_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 2,
+        "previous_revision": 1,
+        "previous_hash": "13059b4d0c3b8141de5150556a52be737ec3e60b7df33f85c0531fb9248f5886",
+        "published_at": 1788800001,
+        "publisher": "ROOT",
+        "governance_reference": "synthetic-approval",
+        "rationale": "Conformance seed",
+        "intent": "ordinary",
+        "entries": [
+          {
+            "id": "11111111111111111111111111111111",
+            "codename": "RETRO",
+            "display_name": "Retro Computing",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": false,
+            "status": "active",
+            "effective_revision": 1,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          },
+          {
+            "access": "sysops",
+            "id": "22222222222222222222222222222222",
+            "codename": "SUPPORT",
+            "display_name": "Operator Support",
+            "description": "Synthetic discussion",
+            "category": "computing",
+            "required": true,
+            "status": "active",
+            "effective_revision": 2,
+            "retired_revision": null,
+            "historical_reference": "",
+            "moderator_role": "Test moderator"
+          }
+        ]
+      },
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "signature": "ed3aa8df780c424658990898f03642d19d34181ac9d6dae7724ee21dae746bef56a197ed49ed8af0e99acbd6ff5adde6b08714b09e65b7d1820ddfa3d3a9ba02"
+    },
+    "expected": "catalog-fork"
+  },
+  {
+    "name": "exact-artifact-replay",
+    "operation": "batch-replay",
+    "batch": {
+      "format": "circuitnet-ng-offline",
+      "version": 1,
+      "network": "conformance",
+      "sender": "USAZ001",
+      "neighbor": "USAZ000",
+      "messages": [
+        {
+          "id": "USAZ001:00000000000000000000000000000001",
+          "origin": "USAZ001",
+          "codename": "RETRO",
+          "author": "Synthetic",
+          "subject": "Parent",
+          "body": "Café 漢字 \"quotes\" \\ tab\tline\r\n",
+          "timestamp": 1788800000,
+          "reply": null,
+          "path": [
+            "USAZ001"
+          ]
+        },
+        {
+          "id": "USAZ001:00000000000000000000000000000002",
+          "origin": "USAZ001",
+          "codename": "RETRO",
+          "author": "Synthetic",
+          "subject": "Reply",
+          "body": "Public test text.\r\n",
+          "timestamp": 1788800000,
+          "reply": "USAZ001:00000000000000000000000000000001",
+          "path": [
+            "USAZ001"
+          ]
+        }
+      ]
+    },
+    "expected": "ok",
+    "imported": 0,
+    "duplicates": 2
+  }
+]

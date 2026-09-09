@@ -14,3 +14,6 @@ The included technical/ specifications define framing, signatures, revision chai
 lifecycle, compatibility and resource bounds. [SECURITY](SECURITY.md) explains
 what those mechanisms mean for members. [CATALOG-ADMIN](CATALOG-ADMIN.md) covers
 operator commands, and [KEY-CUSTODY](KEY-CUSTODY.md) covers trust replacement.
+
+Implementers: start with the [wire specification](../technical/circuitnet-ng-specification.md)
+and [implementation guide](../technical/circuitnet-implementation.md) in technical/.

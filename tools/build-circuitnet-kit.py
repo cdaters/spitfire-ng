@@ -46,7 +46,8 @@ HUMAN = list(EDITIONS)
 CONFIG = ["catalog.json", "catalog-authority.json", "catalog-review.json",
           "network-profile.example.json", "catalog.schema.json", "release.json", "regions.json"]
 TECHNICAL = ["circuitnet-catalog.md", "circuitnet-transport.md", "circuitnet.md",
-             "files-custody.md", "events.md", "circuitnet-addressing.md"]
+             "files-custody.md", "events.md", "circuitnet-addressing.md",
+             "circuitnet-ng-specification.md", "circuitnet-implementation.md"]
 PRIVATE = [b"/Users/", b"/private/tmp/", b"BEGIN PRIVATE KEY",
            b"research/samples/", b".local-development/"]
 INTERNAL = re.compile(r"\b(?:C[1-8](?:\.1)?|M0[0-9]{2}|Codex|Astra|CNTEST)\b|acceptance harness", re.I)

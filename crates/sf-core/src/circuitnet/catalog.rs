@@ -46,7 +46,7 @@ pub(super) fn authority(c: &Connection, n: &NetworkId) -> Result<Option<Authorit
     .map(|s| serde_json::from_str(&s).map_err(Error::from))
     .transpose()
 }
-fn current(c: &Connection, n: &NetworkId) -> Result<Option<Signed>, Error> {
+pub(super) fn current(c: &Connection, n: &NetworkId) -> Result<Option<Signed>, Error> {
     c.query_row("SELECT object FROM circuitnet_catalog_revisions WHERE network=?1 ORDER BY revision DESC LIMIT 1",[n.as_str()],|r|r.get::<_,String>(0)).optional()?.map(|s|Signed::decode(s.as_bytes()).map_err(Error::from)).transpose()
 }
 /// None is the explicitly ungoverned C2-C6 profile, never unknown under a pin.

@@ -1,5 +1,34 @@
 # SPITFIRE NG Status
 
+## C9 independent interoperability
+
+C9 independent CIRCUITNET-NG interoperability is complete and accepted. An
+original Python peer, public conformance vectors and implementation-neutral
+specification prove bidirectional Core messages, threading, ACK/replay, direct
+routing metadata, Dossier controls, Files/hash-have and signed Catalog/access.
+The peer shares no production CircuitNET code and does not claim full HOST fanout.
+A reproduced unnegotiated generation/access receive bug is fixed atomically at
+native admission; an existing Health test clock race is corrected without changing
+Health behavior. Schema **36**, protocol **1.4**, localization unchanged.
+
+[Specification](docs/technical/circuitnet-ng-specification.md),
+[implementation guide](docs/technical/circuitnet-implementation.md),
+[reference peer](tools/circuitnet-conformance/README.md),
+[C9 report](docs/research/m076-circuitnet-independent-interoperability.md).
+
+C1–C8.1 remain accepted. Node IDs remain simple 1–8 character identifiers; geographic
+assignment is administrative, not a routing hierarchy. Applications remain Closed.
+No public service, production system or external live CircuitNET traffic changed.
+Exact next action: stop for C9 review; no subsequent milestone is authorized.
+
+Private full workspace: 856 passed / 0 failed / 7 existing ignored; eight doctest
+groups. Public rechecks: two vectors, one Health fixture and one independent native
+journey; 24 Python conformance and12 kit/addressing tests pass. Headers167, fmt,
+strict Clippy, diff and local links pass. Cargo-audit unavailable.
+Private source: `5719d4413deaaa1b4b0261715f17f9b9f76b8998`.
+
+## Previous accepted checkpoint
+
 C8.1 Network Kit operator reconciliation is complete and accepted. The kit groups
 required and Sysop-only conferences, explains Dossiers/Events/Files from both ends
 of a link and uses explicit directory consent. International Node IDs follow a
