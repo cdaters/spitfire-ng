@@ -372,6 +372,50 @@ mod tests {
         }
     }
     #[test]
+    fn geographic_assignment_names_preserve_existing_wire_and_topology_contract() {
+        for name in [
+            "CNETROOT", "USAZ000", "USAZ001", "USAZ900", "CAON001", "AUNS012", "GBEN021",
+            "END00001", "HOST0001", "ROOT0001",
+        ] {
+            assert_eq!(NodeId::new(&name.to_lowercase()).unwrap().as_str(), name);
+        }
+        let mut tree = Topology {
+            nodes: vec![
+                Node {
+                    id: NodeId::new("CNETROOT").unwrap(),
+                    role: Role::Root,
+                    parent: None,
+                },
+                Node {
+                    id: NodeId::new("USAZ000").unwrap(),
+                    role: Role::Host,
+                    parent: Some(NodeId::new("CNETROOT").unwrap()),
+                },
+                Node {
+                    id: NodeId::new("USAZ900").unwrap(),
+                    role: Role::Host,
+                    parent: Some(NodeId::new("CNETROOT").unwrap()),
+                },
+                Node {
+                    id: NodeId::new("USAZ001").unwrap(),
+                    role: Role::End,
+                    parent: Some(NodeId::new("USAZ000").unwrap()),
+                },
+            ],
+        };
+        tree.validate().unwrap();
+        let before = tree.nodes[3].id.clone();
+        tree.nodes[3].parent = Some(NodeId::new("USAZ900").unwrap());
+        tree.validate().unwrap();
+        assert_eq!(tree.nodes[3].id, before);
+        tree.nodes.push(tree.nodes[3].clone());
+        assert!(tree.validate().is_err());
+        // Assignment policy is deliberately not a new wire parser restriction.
+        assert!(NodeId::new("USAZ900").is_ok());
+        assert!(NodeId::new("US/AZ001").is_err());
+    }
+
+    #[test]
     fn six_node_unique_routes_and_end_transit_prohibition() {
         let nodes = [
             ("ROOT1", Role::Root, None),

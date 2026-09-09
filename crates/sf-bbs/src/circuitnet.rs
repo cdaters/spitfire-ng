@@ -331,6 +331,25 @@ pub fn run(config: &Path, args: &[OsString]) -> Result<String, ApplicationError>
                 db.circuitnet_catalog_choose(actor, &network, id, Some(c.id.get()), now)
             })?;
         }
+        ("catalog-access-levels", [selector, values]) => {
+            let levels = if *values == "-" {
+                Vec::new()
+            } else {
+                values
+                    .split(',')
+                    .map(|value| {
+                        value
+                            .parse::<u16>()
+                            .ok()
+                            .and_then(|n| sf_core::SecurityLevel::new(n).ok())
+                            .ok_or_else(usage)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            authority.circuitnet(config_cap, |db, _, actor| {
+                db.circuitnet_catalog_access_levels(actor, &network, selector, &levels, now)
+            })?;
+        }
         ("catalog-create-map", [selector, number]) => {
             let number = number.parse::<u16>().map_err(|_| usage())?;
             authority.circuitnet(config_cap, |db, _, actor| {

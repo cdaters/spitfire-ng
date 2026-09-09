@@ -621,14 +621,45 @@ fn catalog_sysop_areas_do_not_grant_callers_or_old_peers_access() {
     let visiting = MessageActor::new(visitor.id, SecurityLevel::new(100).unwrap());
     assert!(end.db.conference(visiting, 17).is_err());
     end.db
-        .connection
-        .execute(
-            "INSERT INTO conference_privileged_security VALUES(?1,40)",
-            [end.conference.get()],
+        .circuitnet_catalog_access_levels(
+            "operator",
+            &net(),
+            "CNTEST",
+            &[SecurityLevel::new(40).unwrap()],
+            14,
         )
         .unwrap();
     assert!(end.db.conference(visiting, 17).is_ok());
     assert!(end.db.conference(actor, 17).is_err());
+    assert!(end
+        .db
+        .circuitnet_catalog_access_levels(
+            "operator",
+            &net(),
+            "CNTEST",
+            &[
+                SecurityLevel::new(40).unwrap(),
+                SecurityLevel::new(40).unwrap()
+            ],
+            15
+        )
+        .is_err());
+    assert!(end.db.conference(visiting, 17).is_ok());
+    end.db
+        .circuitnet_catalog_access_levels("operator", &net(), "CNTEST", &[], 16)
+        .unwrap();
+    assert!(end.db.conference(visiting, 17).is_err());
+    assert!(end.db.conference(actor, 17).is_err());
+    let audits: i64 = end
+        .db
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM circuitnet_changes WHERE operation='catalog-local-access-levels'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(audits, 2);
     end.db
         .connection
         .execute(

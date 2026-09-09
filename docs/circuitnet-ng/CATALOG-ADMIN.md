@@ -97,3 +97,9 @@ and technical specification retain these identities for recovery and history.
 Reject an unexpected key, broken chain, older revision or conflicting same-number
 revision. Fetch missing predecessors in order. See [OPERATIONS](OPERATIONS.md)
 for retained-history limits and [KEY-CUSTODY](KEY-CUSTODY.md) for recovery.
+
+
+Local visiting-Sysop access is configured with the stopped-board
+`catalog-access-levels` command; see [SYSOP-ACCESS](SYSOP-ACCESS.md) for dedicated
+levels, account assignment, verification and revocation. Do not lower normal
+security requirements to simulate a privileged grant.

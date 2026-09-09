@@ -13,18 +13,20 @@ CircuitNET NG connects independent BBS systems through shared message conference
 and file distribution. This kit contains the network's Charter, Rules, conference
 list, joining information and operator guides. It contains no BBS software binaries.
 
-## Start here
+## Where to start
 
-Read [ABOUT](ABOUT.md) for the network layout and terms, then
-[GOALS](GOALS.md), [CONFERENCES](CONFERENCES.md) and [FILES](FILES.md).
+To connect your existing BBS, start with [ABOUT](ABOUT.md), then
+[ADDRESSING](ADDRESSING.md) and [JOINING](JOINING.md). Once approved, follow
+[END-NODE](END-NODE.md) through the first exchange. It includes links to the
+subscription and access procedures when you need them.
 
-To join, read [RULES](RULES.md), [CHARTER](CHARTER.md) and
-[JOINING](JOINING.md). Check [JOINING-INFO](JOINING-INFO.md) before completing
-[APPLICATION](NODE-APPLICATION.md).
+Review [CONFERENCES](CONFERENCES.md), [RULES](RULES.md) and [CHARTER](CHARTER.md)
+before applying. [JOINING-INFO](JOINING-INFO.md) records the current opening status;
+[NODE-APPLICATION](NODE-APPLICATION.md) is the application form.
 
-Already assigned a Node ID? Follow [END-NODE](END-NODE.md) from enrollment to
-an exchange. Operators serving other boards should also read
-[HOST-NODE](HOST-NODE.md) or [ROOT-NODE](ROOT-NODE.md).
+Experienced network Sysops can start with their END, HOST or ROOT role guide and
+consult [CATALOG-ADMIN](CATALOG-ADMIN.md) and [SECURITY](SECURITY.md).
+Technical implementers will find the protocol specifications in technical/.
 
 ## Find a document
 

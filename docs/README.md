@@ -274,3 +274,11 @@ See the [identity contract](technical/identity-policy.md), [caller instructions]
 
 See [CircuitNET Network Kit release readiness](research/m071-circuitnet-network-kit-release-readiness.md) for the revised kit, Sysop access, generated identities
 and deliberate authority replacement. Member setup starts with the kit README.
+
+
+## CircuitNET addressing and operator onboarding
+
+[Network Kit](circuitnet-ng/README.md), [Node IDs](circuitnet-ng/ADDRESSING.md),
+[Dossiers](circuitnet-ng/DOSSIERS.md), [local Sysop access](circuitnet-ng/SYSOP-ACCESS.md)
+and [C8.1 report](research/m075-circuitnet-addressing-onboarding-reconciliation.md)
+document assignment, conference obligations and migration limits.

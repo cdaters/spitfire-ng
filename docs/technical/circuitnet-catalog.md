@@ -1,6 +1,7 @@
 # CircuitNET catalog authority
 
-Schema 35 and CIRCUITNET-NG 1.4 implement signed network conference metadata,
+Catalog storage introduced through schema 35 (current board schema 36) and
+CIRCUITNET-NG 1.4 implement signed network conference metadata,
 local mapping choices and explicit signing-authority recovery. Native SPITFIRE
 messages remain canonical; no local conference number is sent on the wire.
 
@@ -248,3 +249,15 @@ contract. Validate their consistency before atomically publishing the matching
 JSON/signature/key set; never sign a different wrapper interpretation. Retain prior
 catalogs and key-transition history needed by recovering nodes. No new HTTP adapter
 or live catalog fetch is added to the daemon.
+
+
+## Local visiting-Sysop grants
+
+`sfconfig circuitnet BOARD catalog-access-levels NETWORK CODENAME LEVELS`
+replaces up to five distinct nonzero local privileged conference levels; `-` clears
+all. The stopped-board operation requires Read Configuration and Change Sensitive
+Configuration. It uses one transaction to validate a mapped active Sysop area with
+read/post 9999, replace native conference grants and append a safe local audit.
+It does not alter the signed catalog, caller accounts, subscriptions or messages.
+Every caller at a granted effective level gains access; use a dedicated reviewed
+level and the [operator procedure](../circuitnet-ng/SYSOP-ACCESS.md).

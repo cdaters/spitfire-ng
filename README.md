@@ -1,5 +1,25 @@
 <p align="center">
 
+C8.1 Network Kit operator reconciliation is complete and accepted. The kit groups
+required and Sysop-only conferences, explains Dossiers/Events/Files from both ends
+of a link and uses explicit directory consent. International Node IDs follow a
+versioned assignment convention within the existing 1–8 alphanumeric contract;
+role and topology remain separate. A read-only assignment helper and a local,
+capability-gated visiting-Sysop grant/revoke command support the guides.
+
+Schema **36**, CircuitNET **1.4**, en-US **1.34.0**. Signed catalog revision 2 remains
+unchanged: SUPPORT/CHITCHAT required; SYSOP/SPITFIRE/DOORS optional and Sysop-only.
+CNETROOT is a new-assignment reservation; the accepted seed publisher remains ROOT.
+Established topology/identity migration and address reuse remain explicitly deferred.
+[Network Kit](docs/circuitnet-ng/README.md),
+[addressing](docs/circuitnet-ng/ADDRESSING.md),
+[C8.1 report](docs/research/m075-circuitnet-addressing-onboarding-reconciliation.md).
+
+C1–C8 remain accepted. Applications Closed; no DNS/web/mail deployment or production
+changes. Stop for C8.1 review; C9 has not begun.
+
+## Previous accepted C8 checkpoint
+
   <img src="docs/assets/branding/spitfire-ng-banner.png"
        alt="SPITFIRE NG — Next Generation BBS Software"
        width="1200">

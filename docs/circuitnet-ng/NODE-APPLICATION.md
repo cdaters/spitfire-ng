@@ -8,32 +8,59 @@ and the joining contact is join@circuitnetng.org.
 Do not send passwords, private keys or authentication secrets.
 <!-- public-identity:end -->
 
-Check [JOINING-INFO](JOINING-INFO.md) for whether applications are open and where
-to send this form. Fields marked required are needed for a membership decision.
-Keep optional fields blank if they are not useful to your application.
+Complete this form when applications open. Review Charter 1.0 and Rules 1.0 first.
+Membership review information is private unless identified below as public or you
+choose an optional publication box. No legal name or street address is required.
 
 ```
-Sysop name or handle (required):
-Preferred contact/email (required):
-BBS name (required):
-BBS software and version (required):
-Requested role: END or HOST (required):
-Charter 1.0 accepted: yes/no (required):
-Rules 1.0 accepted: yes/no (required):
+CIRCUITNET NG NODE APPLICATION
 
-General location/region:
-Operating system:
-Public BBS address:
-Website:
-Requested Node ID (1-8 alphanumeric characters):
-Preferred upstream HOST:
-Inbound CircuitNET connection possible: yes/no/unknown:
-Address families: IPv4/IPv6/both/unknown:
-Short BBS description:
-Fields you consent to publish (default: none):
+MEMBERSHIP REVIEW
+Sysop name/handle:
+Preferred administrative contact/email:
+BBS name:
+Country (name):
+State/province/region (name):
+BBS software and version:
+Operating system (optional):
+Requested role: [ ] END  [ ] HOST
+Requested Node ID (optional; assignment requires approval):
+Preferred upstream HOST (optional):
+Can accept inbound CircuitNET calls? [ ] Yes  [ ] No  [ ] Unsure
+Useful address families (optional): [ ] IPv4  [ ] IPv6
+BBS caller connection address (optional):
+Website (optional):
+Short BBS description (optional):
+
+REQUIRED PUBLIC MEMBERSHIP RECORD
+An accepted node lists its Node ID, BBS name and role.
+[ ] I agree to publication of these three fields after approval.
+
+OPTIONAL PUBLIC DIRECTORY FIELDS - unchecked means NO
+[ ] Publish my Sysop name/handle.
+[ ] Publish my general country/region.
+[ ] Publish my BBS caller connection address.
+[ ] Publish my website.
+[ ] Publish my software and version.
+[ ] Publish this contact email (may differ from review contact):
+Public contact email, only if checked:
+[ ] Publish my short BBS description.
+
+AGREEMENT
+[ ] I have read and agree to Charter 1.0 and Rules 1.0.
+[ ] I will protect node credentials and enforce conference access rules.
 ```
 
-DO NOT INCLUDE passwords, private keys, authentication tokens or session secrets.
-Certificate enrollment follows membership approval. A static IP is not required
-for an END that polls its HOST. A legal name or street address is not required.
-See [APPLICATION-FIELDS](APPLICATION-FIELDS.md) for the web-form field specification.
+The minimal public membership record lets members identify which BBS owns an
+assignment and its network role. An inbound network endpoint or public caller
+address is not required for an outbound-polling END. A static IP is not required.
+Country/region supports assignment, not automatic location publication; the
+geographic Node ID itself reveals its assigned country/region convention.
+
+DO NOT INCLUDE passwords, TLS private keys, session secrets, tokens or catalog
+signing keys. Certificate enrollment follows approval through a separate exchange.
+To correct review data or withdraw optional publication consent, contact the
+Administrator through [JOINING-INFO](JOINING-INFO.md). Future directory exports must
+omit withdrawn optional fields; downloaded older copies cannot be recalled.
+
+[APPLICATION-FIELDS](APPLICATION-FIELDS.md) specifies the corresponding web fields.

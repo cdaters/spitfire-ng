@@ -1,5 +1,11 @@
 # CircuitNET NG native foundation
 
+Current live protocol is CIRCUITNET-NG 1.4, with messages, directed routing,
+Dossier controls, Files and signed catalog sync. The milestone-labeled sections
+below record how the foundation evolved. See the current
+[transport contract](circuitnet-transport.md) and
+[node assignment policy](circuitnet-addressing.md).
+
 C2 defines an independent, development/offline public-conference adapter around
 native SPITFIRE messages. The interface gate was written before implementation. C1/M063 remains
 private historical authority; this independently authored contract contains no
@@ -38,7 +44,7 @@ Unknown/unavailable codenames never create conferences or mappings. Results expo
 only finite codes and the requester's own subscription list. Pending results are
 retried in subsequent finite polls; terminal results stop automatic resubmission.
 
-Protocol 1.2 negotiates `directed-routing` and `remote-dossier-control` independently.
+Introduced in protocol 1.2, current 1.4 negotiates `directed-routing` and `remote-dossier-control` independently.
 Minors 0–1 keep their existing phase sequence and conference encoding. Directed
 work is withheld from peers without its capability; controls are sent only after
 mutual capability agreement. Offline directed envelopes share C2 custody and
@@ -126,8 +132,8 @@ C3 defines authenticated enrollment, version/capability negotiation, bounded
 batches, acknowledgement/retry state and channel protection in its separate wire contract.
 Legacy codecs are a separate deferred compatibility boundary, with no empty codec
 or speculative C3 tables. Third-party adapters can implement this envelope without
-SPITFIRE database knowledge. Conference Health remains future native analytics
-across all conferences. Private mail, directed public routing, files, governance, catalog creation,
+SPITFIRE database knowledge. Conference Health is implemented as native analytics across all conferences;
+see [Conference Health](conference-health.md). Private mail, directed public routing, files, governance, catalog creation,
 remote Dossier commands and live transport are outside C2; live transport is C3.
 
 ## Schema 29 and implementation map
@@ -185,7 +191,7 @@ CircuitNET parent metadata untouched and rejects native cycles.
 
 Offline trust is deliberately local operator authority, not packet authentication.
 No cryptographic origin verification, secret enrollment or public wire stability
-is claimed. A future transport must supply established neighbor authority rather
+is claimed. Any additional future transport must supply established neighbor authority rather
 than treating this profile's opt-in as Internet trust. The boundaries permit a
 future non-SPITFIRE implementation to supply its own canonical native storage.
 

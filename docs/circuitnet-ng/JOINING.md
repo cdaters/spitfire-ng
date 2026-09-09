@@ -56,3 +56,19 @@ with your HOST before posting it. Public conversation can use CHITCHAT.
 Tell your HOST about planned outages and changes to connection or certificate
 information. Node retirement and reassignment are recorded; old identity and
 traffic history are not silently erased.
+
+## Collect these before configuration
+
+Your approval contact should supply your assigned Node ID and role, your HOST's
+Node ID, the approved complete tree, the HOST endpoint/port/certificate name, and
+its public certificate with an independently confirmed fingerprint. Agree how your
+own public certificate will be enrolled. Obtain the current signed catalog and
+predecessors, accepted catalog authority fingerprint, Charter/Rules, required
+conference list, subscription approval procedure and agreed polling interval.
+Private keys stay on their owning systems. If any of these is missing, ask your
+HOST before configuring a live link.
+
+Give country and region by name for the [address assignment](ADDRESSING.md).
+Do not choose a numeric range as a substitute for administrative approval.
+The application separates private review information, the minimal public membership
+record and optional directory publication choices. Applications remain Closed.

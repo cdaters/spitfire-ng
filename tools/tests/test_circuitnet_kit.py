@@ -13,6 +13,7 @@
 """Release journey: delivered bytes, signatures, text, references and reproducibility."""
 import importlib.util
 import json
+import posixpath
 from pathlib import Path
 import re
 import copy
@@ -82,6 +83,9 @@ class CircuitnetKitTests(unittest.TestCase):
                 self.assertFalse(profile["directly_importable"])
                 self.assertEqual(profile["joining_document"], "../markdown/JOINING.md")
                 self.assertIn("markdown/JOINING.md", names)
+                for field in ["addressing_document", "region_table"]:
+                    target = (Path("config") / profile[field]).as_posix()
+                    self.assertIn(posixpath.normpath(target), names)
                 # Review from a fresh extraction, not repository-relative files.
                 extracted = root / "outsider"
                 archive.extractall(extracted)
@@ -113,6 +117,46 @@ class CircuitnetKitTests(unittest.TestCase):
                 restricted.append(entry["codename"])
                 self.assertEqual(entry["required"], entry["codename"] == "SUPPORT")
         self.assertEqual(set(restricted), {"SUPPORT", "SYSOP", "SPITFIRE", "DOORS"})
+
+    def test_operator_journeys_grouping_consent_and_verified_catalog_flow(self):
+        objects, _ = KIT.checked_catalog(ROOT / "target/debug/examples/catalog-artifact")
+        catalog = KIT.generated(objects)["CONFERENCES.md"]
+        required, operators, general = [catalog.index(title) for title in [
+            "## REQUIRED NETWORK CONFERENCES", "## SYSOP / NETWORK OPERATOR CONFERENCES",
+            "## GENERAL CALLER CONFERENCES"]]
+        self.assertLess(required, operators)
+        self.assertLess(operators, general)
+        required_codes = {e["codename"] for e in objects[-1]["body"]["entries"] if e["required"]}
+        self.assertEqual(required_codes, {"SUPPORT", "CHITCHAT"})
+        for code in required_codes:
+            self.assertIn("### " + code + " -", catalog[required:operators])
+        for code in ["SYSOP", "SPITFIRE", "DOORS"]:
+            self.assertIn("### " + code + " -", catalog[operators:general])
+        self.assertNotIn("### SUPPORT", catalog[general:])
+        application = (KIT.SOURCE / "NODE-APPLICATION.md").read_text()
+        self.assertNotIn("Fields you consent to publish", application)
+        for phrase in ["unchecked means NO", "Country (name)", "REQUIRED PUBLIC MEMBERSHIP RECORD",
+                       "[ ] Publish my Sysop", "[ ] Publish my general", "DO NOT INCLUDE passwords"]:
+            self.assertIn(phrase, application)
+        dossier = (KIT.SOURCE / "DOSSIERS.md").read_text()
+        codes = {e["codename"] for e in objects[-1]["body"]["entries"]}
+        for code in ["RETRO", "SUPPORT", "CHITCHAT"]:
+            self.assertIn(code, codes)
+            self.assertIn(code, dossier)
+        self.assertIn("directional", dossier)
+        end = (KIT.SOURCE / "END-NODE.md").read_text()
+        for phrase in ["900", "15 minutes", "Hybrid", "Scheduled", "Manual", "pending_sync",
+                       "catalog-status", "sfmonitor", "same connection", "EVENTS conference"]:
+            self.assertIn(phrase, end)
+        files = (KIT.SOURCE / "FILES.md").read_text()
+        for phrase in ["Remote file-subscription requests are not implemented", "byte zero",
+                       "file-map", "file-subscribe", "required approval", "approve FILE_ID"]:
+            self.assertIn(phrase, files)
+        access = (KIT.SOURCE / "SYSOP-ACCESS.md").read_text()
+        self.assertIn("catalog-access-levels", access)
+        self.assertIn("SUPPORT -", access)
+        self.assertIn("ordinary caller", access)
+        self.assertIn("Signature", (KIT.SOURCE / "VERIFICATION.md").read_text())
 
     def test_renderer_structure_encoding_width_and_visible_destinations(self):
         source = "# Title\n\nA ‘quoted’ sentence — with [guide](END-NODE.md).\n\n" + (
@@ -170,6 +214,8 @@ class CircuitnetKitTests(unittest.TestCase):
             source = root / "docs/circuitnet-ng"
             shutil.copytree(KIT.SOURCE, source)
             shutil.copytree(ROOT / "docs/technical", root / "docs/technical")
+            (root / "tools").mkdir()
+            shutil.copyfile(ROOT / "tools/circuitnet-addressing.py", root / "tools/circuitnet-addressing.py")
             for name in ["LICENSE-MIT", "LICENSE-APACHE"]:
                 shutil.copyfile(ROOT / name, root / name)
             metadata_path = source / "config/release.json"

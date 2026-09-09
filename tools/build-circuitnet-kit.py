@@ -39,12 +39,14 @@ EDITIONS = {
     "CATALOG-ADMIN.md": "CATALOG.TXT", "VERIFICATION.md": "VERIFY.TXT",
     "PROTOCOL.md": "PROTOCOL.TXT", "APPLICATION-FIELDS.md": "APPFIELDS.TXT",
     "NOTICE.md": "NOTICE.TXT", "PUBLIC-IDENTITY.md": "NETWORK.TXT",
+    "ADDRESSING.md": "ADDRESSING.TXT", "DOSSIERS.md": "DOSSIERS.TXT",
+    "SYSOP-ACCESS.md": "SYSOPACC.TXT",
 }
 HUMAN = list(EDITIONS)
 CONFIG = ["catalog.json", "catalog-authority.json", "catalog-review.json",
-          "network-profile.example.json", "catalog.schema.json", "release.json"]
+          "network-profile.example.json", "catalog.schema.json", "release.json", "regions.json"]
 TECHNICAL = ["circuitnet-catalog.md", "circuitnet-transport.md", "circuitnet.md",
-             "files-custody.md", "events.md"]
+             "files-custody.md", "events.md", "circuitnet-addressing.md"]
 PRIVATE = [b"/Users/", b"/private/tmp/", b"BEGIN PRIVATE KEY",
            b"research/samples/", b".local-development/"]
 INTERNAL = re.compile(r"\b(?:C[1-8](?:\.1)?|M0[0-9]{2}|Codex|Astra|CNTEST)\b|acceptance harness", re.I)
@@ -88,11 +90,24 @@ def generated(objects):
              "SUPPORT is core and Sysop-only. SYSOP, SPITFIRE and DOORS are optional",
              "and Sysop-only. Verified visiting Sysops may receive locally granted access;",
              "ordinary callers receive no privileges from catalog membership.", ""]
-    for e in sorted(body["entries"], key=lambda e: (e["codename"], e["effective_revision"])):
-        access = "Sysops and verified visiting Sysops only" if e.get("access") == "sysops" else "Callers authorized by local conference rules"
-        lines += [f"## {e['codename']} - {e['display_name']}", "", e["description"], "",
-                  f"Status: {'Required/Core' if e['required'] else 'Optional'}; {e['status']}.",
-                  f"Access: {access}.", ""]
+    groups = [
+        ("REQUIRED NETWORK CONFERENCES", lambda e: e["required"],
+         "Required on every participating board. Preserve each area's access rules."),
+        ("SYSOP / NETWORK OPERATOR CONFERENCES", lambda e: not e["required"] and e.get("access") == "sysops",
+         "SUPPORT above is also Sysop-only. These additional operator areas are optional."),
+        ("GENERAL CALLER CONFERENCES", lambda e: not e["required"] and e.get("access") != "sysops",
+         "Optional areas for callers authorized by local conference rules.")]
+    for title, predicate, introduction in groups:
+        lines += [f"## {title}", "", introduction, ""]
+        for entry in sorted(filter(predicate, body["entries"]),
+                            key=lambda e: (not e["required"], e["codename"] != "SUPPORT",
+                                           e["codename"], e["effective_revision"])):
+            lines += [f"### {entry['codename']} - {entry['display_name']}", "",
+                entry["description"], "",
+                "Requirement: " + ("Required on every participating board." if entry["required"] else "Optional."),
+                "Status: " + entry["status"] + ".",
+                "Access: " + ("Sysops and verified visiting Sysops; granted locally." if entry.get("access") == "sysops"
+                             else "Callers authorized by local conference rules."), ""]
     changes = ["# CircuitNET NG conference changes", "",
                "Generated from signed revision history.", ""]
     old = {}
@@ -262,6 +277,10 @@ def public_identity_document(metadata, authority):
               "## Future site sections", "",
               "Conference information, public node listings, Files, standards and downloads",
               "may receive separate pages. Their publication requires separate work.",
+              "The planned public Node Directory is " + identity.url("website") + "nodes.",
+              "It will show Node ID, BBS name and role plus only explicitly consented",
+              "optional fields, with BBS name/Node ID search and consented location search.",
+              "The directory is not deployed; see the application publication choices.",
               "A future independent CircuitNet Technical Standards identity may be considered;",
               "it is not an active organization, site or dependency. This network home remains",
               "the canonical location for both network and technical documentation.", ""]
@@ -344,7 +363,7 @@ def plain(markdown):
             while i + 1 < len(lines) and lines[i + 1].startswith("  "):
                 i += 1; value += " " + lines[i].strip()
             result.extend(wrapped(value.replace("`", "").replace("**", ""), marker + " ", " " * (len(marker) + 1)))
-        elif line.startswith(("Status:", "Access:")):
+        elif line.startswith(("Status:", "Access:", "Requirement:")):
             flush(); result.extend(wrapped(line))
         else:
             paragraph.append(line.strip())
@@ -400,6 +419,7 @@ def build(output, validator, check=False, update=False, source_commit=None):
     sources = {"markdown/" + name: SOURCE / name for name in HUMAN}
     sources.update({"config/" + name: SOURCE / "config" / name for name in CONFIG})
     sources.update({"technical/" + name: ROOT / "docs/technical" / name for name in TECHNICAL})
+    sources["technical/circuitnet-addressing.py"] = ROOT / "tools/circuitnet-addressing.py"
     sources.update({name: ROOT / name for name in ["LICENSE-MIT", "LICENSE-APACHE"]})
     sources.update({"config/catalog-history/" + p.name: p for p in history_paths[:-1]})
     reverse = {path.resolve(): name for name, path in sources.items()}

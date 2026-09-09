@@ -17,7 +17,7 @@
   "parent": null,
   "listener": null,
   "endpoint": null,
-  "note": "Planning worksheet, not a board configuration import. Replace node, parent, listener and endpoint only with approved enrollment details. No official port is prescribed. END nodes may poll from behind NAT.",
+  "note": "Planning worksheet, not a board configuration import. Replace node, parent, listener and endpoint only with approved enrollment details. No official port is prescribed. END nodes may poll from behind NAT. The accepted seed publisher is ROOT; CNETROOT is reserved for future assignment, not a replacement value for this seed.",
   "directly_importable": false,
   "path_base": "Directory containing this example file",
   "public_identity": {
@@ -33,5 +33,7 @@
     "joining_email": "join@circuitnetng.org",
     "founder_email": "founder@circuitnetng.org"
   },
-  "public_identity_source": "release.json"
+  "public_identity_source": "release.json",
+  "addressing_document": "../markdown/ADDRESSING.md",
+  "region_table": "regions.json"
 }

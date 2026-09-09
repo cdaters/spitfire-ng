@@ -1,0 +1,100 @@
+{
+  "format": "circuitnet-ng-regions",
+  "version": 1,
+  "country_authority": "ISO 3166-1 alpha-2",
+  "subdivision_authority": "ISO 3166-2",
+  "scope": "Initial network assignment mappings; not a complete world subdivision list",
+  "regions": [
+    {
+      "country": "US",
+      "country_name": "United States",
+      "region": "AZ",
+      "region_name": "Arizona",
+      "subdivision": "US-AZ"
+    },
+    {
+      "country": "US",
+      "country_name": "United States",
+      "region": "CA",
+      "region_name": "California",
+      "subdivision": "US-CA"
+    },
+    {
+      "country": "US",
+      "country_name": "United States",
+      "region": "TX",
+      "region_name": "Texas",
+      "subdivision": "US-TX"
+    },
+    {
+      "country": "CA",
+      "country_name": "Canada",
+      "region": "ON",
+      "region_name": "Ontario",
+      "subdivision": "CA-ON"
+    },
+    {
+      "country": "CA",
+      "country_name": "Canada",
+      "region": "BC",
+      "region_name": "British Columbia",
+      "subdivision": "CA-BC"
+    },
+    {
+      "country": "CA",
+      "country_name": "Canada",
+      "region": "QC",
+      "region_name": "Quebec",
+      "subdivision": "CA-QC"
+    },
+    {
+      "country": "AU",
+      "country_name": "Australia",
+      "region": "NS",
+      "region_name": "New South Wales",
+      "subdivision": "AU-NSW"
+    },
+    {
+      "country": "AU",
+      "country_name": "Australia",
+      "region": "VI",
+      "region_name": "Victoria",
+      "subdivision": "AU-VIC"
+    },
+    {
+      "country": "AU",
+      "country_name": "Australia",
+      "region": "QL",
+      "region_name": "Queensland",
+      "subdivision": "AU-QLD"
+    },
+    {
+      "country": "GB",
+      "country_name": "United Kingdom",
+      "region": "EN",
+      "region_name": "England",
+      "subdivision": "GB-ENG"
+    },
+    {
+      "country": "GB",
+      "country_name": "United Kingdom",
+      "region": "SC",
+      "region_name": "Scotland",
+      "subdivision": "GB-SCT"
+    },
+    {
+      "country": "GB",
+      "country_name": "United Kingdom",
+      "region": "WA",
+      "region_name": "Wales",
+      "subdivision": "GB-WLS"
+    },
+    {
+      "country": "GB",
+      "country_name": "United Kingdom",
+      "region": "NI",
+      "region_name": "Northern Ireland",
+      "subdivision": "GB-NIR"
+    }
+  ]
+}

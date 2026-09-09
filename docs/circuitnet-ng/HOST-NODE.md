@@ -98,3 +98,13 @@ shown in [OPERATIONS](OPERATIONS.md). Compare catalog revision with the parent;
 resolve unsupported capabilities before enabling operator-only traffic on a link.
 Back up metadata and payload stores, and coordinate certificate renewal before
 expiry. A missed exchange does not justify recreating messages or receipts.
+
+## Caller service and local policy
+
+This role can run a normal caller-facing BBS as well as route traffic. Keep local
+mappings and caller access separate from relay subscriptions. Use the full
+[DOSSIERS](DOSSIERS.md) example for both sides of a link and
+[SYSOP-ACCESS](SYSOP-ACCESS.md) to grant or revoke verified visitor access.
+The [END schedule explanation](END-NODE.md#what-the-schedule-means) applies to each
+reachable neighbor. [FILES](FILES.md) includes both operators' file setup steps.
+[ADDRESSING](ADDRESSING.md) explains regional assignments without changing routes.

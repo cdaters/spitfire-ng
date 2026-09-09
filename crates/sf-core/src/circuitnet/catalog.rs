@@ -15,6 +15,7 @@ use sf_net::circuitnet::catalog::Error as CatalogError;
 pub use sf_net::circuitnet::catalog::{
     Access, Authority, Body, ConferenceInput, Entry, Intent, Lifecycle, Signed,
 };
+use std::collections::BTreeSet;
 mod keys;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -511,6 +512,45 @@ impl RuntimeDatabase {
             }
             Ok(LocalEntry{entry,decision,conference})
         }).collect()
+    }
+    /// Replace local visiting-Sysop grants, retaining the catalog's restricted mapping.
+    pub fn circuitnet_catalog_access_levels(
+        &mut self,
+        actor: &str,
+        network: &NetworkId,
+        selector: &str,
+        levels: &[crate::SecurityLevel],
+        now: i64,
+    ) -> Result<(), Error> {
+        let unique: BTreeSet<_> = levels.iter().map(|l| l.get()).collect();
+        if levels.len() > 5 || unique.len() != levels.len() || unique.contains(&0) {
+            return Err(Error::Policy);
+        }
+        let tx = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        capacity(&tx)?;
+        let signed = current(&tx, network)?.ok_or(Error::Policy)?;
+        let entry = signed.body.select(selector)?;
+        if entry.access != Access::Sysops || entry.status != Lifecycle::Active {
+            return Err(Error::Policy);
+        }
+        let conference: i64 = tx.query_row(
+            "SELECT conference_id FROM circuitnet_catalog_choices WHERE network=?1 AND identity=?2 AND decision='mapped'",
+            params![network.as_str(), entry.id], |r| r.get(0))?;
+        if !access_mapping(&tx, entry, conference)? {
+            return Err(Error::Policy);
+        }
+        tx.execute(
+            "DELETE FROM conference_privileged_security WHERE conference_id=?1",
+            [conference],
+        )?;
+        for level in unique {
+            tx.execute("INSERT INTO conference_privileged_security(conference_id,security_level) VALUES(?1,?2)", params![conference, level])?;
+        }
+        audit(&tx, network, actor, "catalog-local-access-levels", now)?;
+        tx.commit()?;
+        Ok(())
     }
     pub fn circuitnet_catalog_status(&self, n: &NetworkId) -> Result<CatalogStatus, Error> {
         let authority = authority(&self.connection, n)?;

@@ -52,6 +52,13 @@ is SHA-256 of the raw public key. config/catalog-authority.pub contains that pub
 key in hexadecimal; config/catalog-authority.json binds it to the network/publisher.
 No private signing key belongs in this package.
 
+Follow [END-NODE](END-NODE.md#check-catalog-health-without-separate-tools) for normal
+SPITFIRE verification. Catalog import and sync check authority, signature and
+revision chain automatically. Inspect catalog-status on a stopped board or
+live-status/sfmonitor Networks while running. Separate compilation is not needed.
+
+## Advanced offline verification
+
 The offline catalog-artifact utility described in [KEY-CUSTODY](KEY-CUSTODY.md)
 verifies the signature without a board or network call:
 

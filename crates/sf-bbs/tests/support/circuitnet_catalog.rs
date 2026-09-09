@@ -554,6 +554,27 @@ fn real_macos_c71_human_creation_access_and_local_key_recovery() {
         assert!(listing.contains("Underwater Basket Weaving"));
         assert!(!listing.contains(&identity));
         run(b, "catalog-create-map", &["BASKETS", "77"]);
+        run(b, "catalog-access-levels", &["BASKETS", "40"]);
+        assert_eq!(
+            db(b)
+                .all_conferences()
+                .unwrap()
+                .into_iter()
+                .find(|c| c.number == 77)
+                .unwrap()
+                .privileged_security_levels,
+            vec![SecurityLevel::new(40).unwrap()]
+        );
+        run(b, "catalog-access-levels", &["BASKETS", "-"]);
+        assert!(db(b)
+            .all_conferences()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.number == 77)
+            .unwrap()
+            .privileged_security_levels
+            .is_empty());
+
         let mut database = db(b);
         let hash = CredentialHasher::new(&PasswordHashConfig {
             memory_kib: 8,

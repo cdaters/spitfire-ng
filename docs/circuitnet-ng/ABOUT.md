@@ -53,3 +53,38 @@ Node-to-node transport is encrypted and authenticated. Public conference message
 are not end-to-end encrypted. After arrival, access follows the receiving BBS's
 conference rules. Directed routing selects a destination; it is not private mail.
 See [SECURITY](SECURITY.md) and [FILES](FILES.md).
+
+## Your first BBS network
+
+Some Sysops already run other BBS networks; for others this is their first one.
+CircuitNET connects the conferences you choose to matching conferences on other
+boards. You continue to run your own users, local conferences and File Areas.
+The guides take you from an assigned node through your first successful exchange.
+
+Your local conference 12, Retro Computing, can map to RETRO. Another board maps
+RETRO to its conference 4. CircuitNET uses RETRO, so local numbers need not match.
+The official catalog lists available areas. You map the ones you carry, arrange
+subscriptions with your HOST and choose when to Poll. The HOST forwards queued
+messages to other subscribed boards, through ROOT when another branch is involved.
+HOST and ROOT can also have callers and their own conferences and File Areas.
+END means it does not serve downstream CircuitNET nodes.
+
+## A normal message journey
+
+A caller at one BBS posts in its local Retro Computing conference:
+
+```
+To: Craig Daters
+Subject: Restoring a classic computer
+```
+
+That local area maps to RETRO. The message travels to subscribed BBSes, including
+another board whose local RETRO mapping uses a different number. Craig can read
+it there under that board's access rules. The To name does not choose a BBS or
+make the message private. No destination Node ID is needed.
+
+For deliberately directed conference traffic, the operator additionally selects
+Destination Node USAZ017. That selects one BBS instead of normal conference
+fanout. It still belongs to the conference and is not private or end-to-end
+encrypted. [ADDRESSING](ADDRESSING.md) explains assignments and this distinction.
+[DOSSIERS](DOSSIERS.md) shows both sides of an actual subscription setup.

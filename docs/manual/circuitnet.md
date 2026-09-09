@@ -8,8 +8,14 @@ translation and no separate CircuitNET message base.
 C3 adds live exchange over encrypted, authenticated transport. C4 adds directed
 routing and authenticated remote Dossier requests. Use explicitly configured
 neighbors; no public port or automatic discovery is assigned. C2 offline exchange
-remains available when explicitly enabled. C6 adds native file distribution. Private mail, legacy packets and governance automation remain outside
-this implementation.
+remains available when explicitly enabled. C6 adds native file distribution. Signed catalog publication is implemented; voting automation, private mail and
+legacy packets remain outside this implementation.
+
+For actual membership setup, use the self-contained
+[Network Kit END guide](../circuitnet-ng/END-NODE.md). The offline and live topology examples below
+are explicitly isolated development examples; CNTEST is not an official catalog
+area. Current production assignment policy is documented in
+[Node IDs](../circuitnet-ng/ADDRESSING.md). Applications remain Closed.
 
 ## Identity and the tree
 
@@ -33,10 +39,11 @@ a node's identity/tree cannot be changed after it has retained message history.
 ## Conferences and Dossiers
 
 A codename identifies a network conference independently of its local number.
-HOST conference 17 and END conference 4 can both be `CNTEST`. Codenames use one
+HOST conference 17 and END conference 4 can both map to `RETRO`. Codenames use one
 to eight uppercase letters/digits, with internal hyphens permitted. Local native
-conferences must already exist and be public-only. Mapping creates no conferences.
-No historical conference catalog is installed.
+conferences must already exist and be public-only. Mapping an existing conference creates none; catalog-create-map explicitly creates
+one at the locally chosen number. The signed modern catalog is available in the
+Network Kit; proprietary historical catalogs are not installed.
 
 A **Dossier** is the set of codenames an adjacent node is subscribed to receive.
 It is separate from the board's own local mapping. Configure both ends of each
@@ -50,7 +57,7 @@ Previously accepted messages and receipts remain. A file already offered to a
 neighbor may still be acknowledged after removal. Re-subscribing permits future
 traffic; it does not automatically replay history or release held work.
 
-## Offline operator commands
+## Offline operator commands (isolated development examples)
 
 Stop the board first. The commands acquire the normal cold-board operation lock;
 they fail if a daemon or another cold operation owns it. The local operator needs
@@ -150,6 +157,8 @@ ownership. C2 stops at this offline slice; live transport, enrollment, governanc
 revived catalogs and third-party adapters require subsequent review.
 
 ## Live setup: END, HOST and ROOT
+
+This is an isolated development topology example, not official catalog setup.
 
 Create four disposable boards with their own native public conferences. Use the
 same profile name and full tree on each board. The local Node ID differs:

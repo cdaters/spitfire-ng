@@ -66,15 +66,19 @@ unacknowledged delivery; retry the existing work.
 
 ## Limits and recovery planning
 
+The configured tree currently admits at most 128 nodes. Geographic assignment
+ranges are naming capacity, not a promise that one tree supports every address.
+
 The current catalog retains at most 256 conference identities, including retired
 ones, and 4,096 revisions. These are history-preserving bounds, not quotas for
 active discussion. Plan a reviewed software/catalog migration before reaching
 one; do not delete tombstones or reset revision numbers. There are at most 64
 retained signing-key epochs. Status and advanced catalog details aid planning.
 
-Established tree changes are not an automatic topology-migration service. Agree
-changes with the Administrator and affected neighbors, hold traffic, back up and
-reconcile outstanding receipts before changing relationships.
+Established profiles reject identity/tree changes after retaining catalog or
+traffic history. No supported migration command currently changes that tree.
+Coordinate a future migration with the Administrator; do not bypass the guard by
+editing the database. See [ADDRESSING](ADDRESSING.md).
 
 File transfer and archive policies impose bounded sizes and inspection limits.
 Consult the supplied technical Files specification before enabling a file-area
@@ -86,3 +90,13 @@ mapping decisions are retained. Restoring over a board with newer known catalog
 or signing-key state fails closed. Recover current trusted history rather than
 removing that safeguard. Signing-key backups have separate custody: see
 [KEY-CUSTODY](KEY-CUSTODY.md).
+
+
+## Conference Health
+
+SPITFIRE NG Conference Health is available in sfmonitor. It distinguishes network
+message volume from local reader progress across all native conferences. A busy
+network area with no local readers may deserve review; it is never automatically
+unmapped or retired. Hot Conferences output uses native caller access rules and
+excludes operator-only areas from ordinary callers. The kit does not change its
+settings; see the installed manual's docs/manual/conference-health.md for details.

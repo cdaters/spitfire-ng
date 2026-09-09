@@ -35,3 +35,28 @@ No password, private key, token or authentication fields. No automatic confirmat
 email or network call is implied. Retain only membership/operational information
 needed after approval; Secretary handles correction and removal requests. Public
 node information is a separately reviewed projection, never a dump of applications.
+
+## Explicit publication consent contract
+
+The human form supersedes the earlier free-form consent prompt. Add required
+`country_name` and `region_name` strings (1-120 characters each) for assignment;
+these are administrative information, not consent to publish location. The helper
+matches approved names/codes; an unsupported region goes to human review.
+
+Require `public_membership_acknowledged=true` before approval: only assigned
+Node ID, BBS name and role form the minimal public membership record. No public
+caller address or inbound-connect capability is mandatory. Explain that a regional
+Node ID reveals its geographic assignment even when location publication is off.
+
+`public_fields_consent` is a bounded set, default empty, selected by individual
+checkboxes from: sysop_handle, location, public_bbs_address, website, software,
+public_contact_email, description. Reject unknown values. A separate optional
+public_contact_email (254 characters maximum) is released only with its checked
+consent; never project the private review contact as a fallback. Missing optional
+values remain omitted even if checked. OS, private review contact, connectivity,
+certificate information and internal review notes never enter directory output.
+
+Directory rows use Node ID, BBS name and role plus only selected optional fields.
+Search may use BBS name and Node ID, or region/handle only when published. Record
+consent and withdrawal date in membership records. No distributed registry or
+web form service is implemented by this field specification.

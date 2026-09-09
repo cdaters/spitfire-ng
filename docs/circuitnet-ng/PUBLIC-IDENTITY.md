@@ -70,6 +70,10 @@ Current kit authority fingerprint (SHA-256 of raw public key):
 
 Conference information, public node listings, Files, standards and downloads
 may receive separate pages. Their publication requires separate work.
+The planned public Node Directory is https://circuitnetng.org/nodes.
+It will show Node ID, BBS name and role plus only explicitly consented
+optional fields, with BBS name/Node ID search and consented location search.
+The directory is not deployed; see the application publication choices.
 A future independent CircuitNet Technical Standards identity may be considered;
 it is not an active organization, site or dependency. This network home remains
 the canonical location for both network and technical documentation.

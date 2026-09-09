@@ -61,3 +61,13 @@ revision history to make a new key work.
 Review retained-history limits and topology migration constraints in
 [OPERATIONS](OPERATIONS.md). A network-wide change requires coordination, not
 an unannounced local tree edit.
+
+## Caller service and local policy
+
+This role can run a normal caller-facing BBS as well as route traffic. Keep local
+mappings and caller access separate from relay subscriptions. Use the full
+[DOSSIERS](DOSSIERS.md) example for both sides of a link and
+[SYSOP-ACCESS](SYSOP-ACCESS.md) to grant or revoke verified visitor access.
+The [END schedule explanation](END-NODE.md#what-the-schedule-means) applies to each
+reachable neighbor. [FILES](FILES.md) includes both operators' file setup steps.
+[ADDRESSING](ADDRESSING.md) explains regional assignments without changing routes.
