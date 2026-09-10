@@ -24,6 +24,12 @@ pub(crate) struct BoardOperationLock {
 
 impl BoardOperationLock {
     pub(crate) fn acquire(root: &Path) -> Result<Self, ApplicationError> {
+        let lock = Self::acquire_maintenance(root)?;
+        crate::deployment::check_board_access(root)?;
+        Ok(lock)
+    }
+
+    pub(crate) fn acquire_maintenance(root: &Path) -> Result<Self, ApplicationError> {
         let path = lock_path(root)?;
         let file = OpenOptions::new()
             .read(true)

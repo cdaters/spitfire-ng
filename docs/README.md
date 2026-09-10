@@ -1,5 +1,11 @@
 # SPITFIRE NG Documentation
 
+[Updating SPITFIRE NG](operator/upgrades.md), [deployment storage](operator/deployment-storage.md)
+and the [deployment contract](technical/deployment.md) describe authenticated
+updates, pre-commit recovery and runtime rollback preserving current durable
+state. [Manual restore recovery](operator/backup-restore.md#interrupted-manual-restore-keep-the-board-stopped)
+is a separate disaster-recovery operation with explicit interruption limits.
+
 [Implementation-neutral CIRCUITNET-NG specification](technical/circuitnet-ng-specification.md),
 [implementation guide](technical/circuitnet-implementation.md) and
 [independent conformance peer](../tools/circuitnet-conformance/README.md) are the

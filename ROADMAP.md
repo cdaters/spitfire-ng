@@ -1,5 +1,37 @@
 # SPITFIRE NG Roadmap
 
+## D1 deployment foundation
+
+**D1 COMPLETE / ACCEPTED.**
+
+D1 adds authenticated local release packages, stopped-board updates, verified
+pre-upgrade checkpoints, backup/storage policy and compatible runtime rollback.
+An update failure before commit can recover the prior database/configuration.
+Runtime rollback after commit preserves current board data and network evidence;
+an incompatible previous runtime is refused. Manual disaster restore is separate
+and destructive. An interrupted manual restore can require reviewed intervention;
+D1 has no automatic finalization command for ambiguous publication.
+
+[Updating and runtime rollback](docs/operator/upgrades.md),
+[backup and manual-restore recovery](docs/operator/backup-restore.md),
+[storage policy and validation limits](docs/operator/deployment-storage.md),
+[deployment contract](docs/technical/deployment.md).
+
+Schema **36**, CIRCUITNET-NG **1.4** and FTN/QWK semantics remain unchanged.
+Release authority is separate from CircuitNET catalog trust. en-US advances to
+**1.35.0**. This is current-source publication,
+not a new prebuilt binary archive. No production board or public service changed.
+
+There is no full installer/service manager, live update, whole-host/cloud backup,
+automatic pruning or classic 3.7 migration. Large managed libraries still require
+validation reads with metadata-only backups; terabyte-scale acceptance is not
+claimed. Real Windows activation/reboot acceptance remains deferred.
+
+Next major milestone: **D2 — Caller login, new-user, and session completeness**.
+Exact next action: **review D1 publication, then authorize D2**. D2 has not begun.
+
+Earlier sections below describe their historical checkpoints.
+
 ## C9 independent interoperability
 
 C9 independent CIRCUITNET-NG interoperability is complete and accepted. An

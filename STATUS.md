@@ -1,5 +1,62 @@
 # SPITFIRE NG Status
 
+## D1 deployment foundation
+
+**D1 COMPLETE / ACCEPTED.** This source publication has passed the sanitized
+public acceptance gate. No new binary archive or production deployment is implied.
+
+D1 adds authenticated local release packages, stopped-board updates, verified
+pre-upgrade checkpoints, backup/storage policy and compatible runtime rollback.
+An update failure before commit can recover the prior database/configuration.
+Runtime rollback after commit preserves current board data and network evidence;
+an incompatible previous runtime is refused. Manual disaster restore is separate
+and destructive. An interrupted manual restore can require reviewed intervention;
+D1 has no automatic finalization command for ambiguous publication.
+
+[Updating and runtime rollback](docs/operator/upgrades.md),
+[backup and manual-restore recovery](docs/operator/backup-restore.md),
+[storage policy and validation limits](docs/operator/deployment-storage.md),
+[deployment contract](docs/technical/deployment.md).
+
+Schema **36**, CIRCUITNET-NG **1.4** and FTN/QWK semantics remain unchanged.
+Release authority is separate from CircuitNET catalog trust. en-US advances to
+**1.35.0**. This is current-source publication,
+not a new prebuilt binary archive. No production board or public service changed.
+
+There is no full installer/service manager, live update, whole-host/cloud backup,
+automatic pruning or classic 3.7 migration. Large managed libraries still require
+validation reads with metadata-only backups; terabyte-scale acceptance is not
+claimed. Real Windows activation/reboot acceptance remains deferred.
+
+Next major milestone: **D2 — Caller login, new-user, and session completeness**.
+Exact next action: **review D1 publication, then authorize D2**. D2 has not begun.
+
+Public validation: **805 passed / 0 failed / 8 ignored**, six completed empty
+doctest groups, using `cargo test --workspace --offline -- --test-threads=1`.
+Focused D1: **11 passed**; backup/restore: **21 passed**; explicit native CLI
+journey: **1 passed**, using separately compiled disposable signed releases.
+The native journey covers both synthetic upgrades, failed-update recovery, newer
+network evidence preservation, runtime rollback, repeat update, manual restore
+and incompatible-runtime refusal. Synthetic capacity campaigns do not allocate
+large libraries.
+
+Two earlier default workspace attempts stopped at existing tests: an operator
+slow-subscriber `BrokenPipe`, then a four-board Hello-frame assertion. Both passed
+in isolation, and the complete serialized workspace run passed without changing
+source, assertions or timeouts. Serial scheduling retains explicit concurrency
+tests; no test was skipped to obtain the gate.
+
+Fmt, strict all-target/all-feature offline Clippy, diff, **179 source headers**,
+and **181 Markdown documents / 1,279 local path links / 0 missing targets** pass.
+The link checker excludes remote URLs and fragment anchors. Cargo-audit is
+unavailable; no audit pass is claimed. Source/path review excludes private
+planning, credentials, generated signing material, acceptance artifacts and
+proprietary historical inputs. Testing used disposable local boards and localhost
+traffic only. No external update service, production BBS or public service was
+operated.
+
+Earlier sections below describe their historical checkpoints.
+
 ## C9 independent interoperability
 
 C9 independent CIRCUITNET-NG interoperability is complete and accepted. An

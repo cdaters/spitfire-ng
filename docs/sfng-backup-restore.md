@@ -40,15 +40,19 @@ The format-1 snapshot is a directory headed by `spitfire-backup.toml`. The
 manifest records the backup format, producing SPITFIRE NG version, creation
 time, exact SQLite schema, board/Sysop identity, configuration filename, and a
 sorted entry inventory with kind, portable relative path, byte length, and
-lowercase SHA-256.
+lowercase SHA-256. This unsigned inventory supports checksum/integrity
+verification against recorded expectations; it is not cryptographic
+authentication. Recomputed manifest hashes cannot reveal an attacker who changed
+both the native content and manifest. See [snapshot protection](operator/backup-restore.md#protect-the-snapshot).
 
 | Boundary | Snapshot content | Restore destination |
 |---|---|---|
 | Static configuration | Exact validated TOML bytes | Board root, retaining the configuration filename |
 | Operational state | A transactionally consistent SQLite backup at exact current schema | Configured logical `WORK` database filename |
-| SYSTEM resources | Every regular file below logical `SYSTEM`, recursively, including presentation-profile descriptors, provenance, assets, JOKER policy, and SSH host key | Same relative path below restored `SYSTEM`; configured profiles and SSH key location are revalidated before acceptance |
+| SYSTEM resources | Regular files below logical `SYSTEM`, recursively, including presentation-profile descriptors, provenance, assets, JOKER policy, and SSH host key; transient `qwk-handoff/` and `ftn-handoff/` candidates excluded | Same relative path below restored `SYSTEM`; configured profiles and SSH key location are revalidated before acceptance |
 | DISPLAY resources | Every regular file below logical `DISPLAY`, recursively | Same relative path below restored `DISPLAY` |
-| Cataloged file bytes | Every cataloged row's independently verified managed bytes, including retained recoverable tombstones | `EXTERNAL/files/<storage-key>/<filename>` |
+| Managed cataloged file bytes | Independently verified board-managed bytes, including retained recoverable tombstones; external-root payloads are excluded | `EXTERNAL/files/<storage-key>/<filename>` |
+| Native content | Schema-33 content catalog, once per content hash | `EXTERNAL/files/.content/<sha256>`; derived views rebuilt on restore |
 
 SQLite remains authoritative for board identity; callers and Argon2id
 credentials; private profiles and preferences; statistics and new-file
@@ -77,7 +81,13 @@ metadata in a second model.
 
 Transient `WORK/runtime-status.toml`, incomplete `WORK/upload-staging` bytes,
 logs or other uncataloged working files, and uncataloged external bytes are
-not snapshot state. The schema-18 memory-only live event ring and schema-19
+not snapshot state. External storage locators/metadata survive in SQLite, but
+external-media payloads are neither read nor copied; restore resets their
+availability to unknown. Managed metadata-only policy belongs to the separate
+[D1 snapshot format](technical/deployment.md#recovery-snapshot-format), whose
+planning still hashes managed bytes even when it does not copy them.
+Executables and an installation's runtime inventory are also excluded.
+The schema-18 memory-only live event ring and schema-19
 operator endpoint/session state are also excluded.
 Git source recovery, historical samples, research work,
 emulator images, cloud copies, and external storage
@@ -91,7 +101,7 @@ performs these operations while the board is cold:
 1. canonicalize and validate the real configuration file;
 2. require relative, non-overlapping SYSTEM/WORK/DISPLAY/MESSAGE/EXTERNAL
    paths so the snapshot is portable and the whole restore can be staged;
-3. open SQLite and require current schema 24, exact migration names,
+3. open SQLite and require current schema 36, exact migration names,
    and no nonterminal file operation or active transfer/inspection use,
    `PRAGMA quick_check = ok`, no foreign-key violations, and configuration /
    database identity agreement;
@@ -99,8 +109,8 @@ performs these operations while the board is cold:
    the same read-only validation to the copy;
 5. reject resource symlinks, special files, non-UTF-8 portable names,
    traversal, excessive inventory, and case-conflicting manifest paths;
-6. enumerate every catalog row, open its bytes through `FileStorage`, and
-   require the catalog size and SHA-256 before copying;
+6. enumerate managed catalog rows and native content, open their bytes through
+   `FileStorage`, and require the catalog size and SHA-256 before copying;
 7. hash and synchronize every copied entry, write the manifest last, and
    re-read the complete directory through the restore validator; and
 8. publish the staging directory under the requested nonexistent name.
@@ -112,9 +122,9 @@ the operating-system lock, not file existence, determines ownership.
 ## Restore Validation and Determinism
 
 Restore validates the entire backup before it creates or renames any board
-target. This build accepts exact schema-10 through schema-23 snapshots.
-An older schema is restored unchanged; only subsequent normal writable startup
-applies the transactional migrations through schema 24. Validation rejects
+target. This build accepts schema-10 through schema-36 snapshots.
+The schema version remains unchanged; subsequent normal writable startup
+applies the transactional migrations through schema 36. Validation rejects
 unknown manifest fields, an unsupported older/newer schema, unsafe or duplicate
 paths, missing or undeclared files,
 incorrect lengths or hashes, identity disagreement, and any mismatch between
@@ -126,22 +136,46 @@ filesystem as the target. The backed configuration resolves relative to that
 new root; all logical directories are created; configuration, database,
 resources, and catalog bytes are placed at their authoritative paths. Before
 publication, SPITFIRE NG again validates configuration and identity, opens the
-database read-only, verifies every cataloged byte through `FileStorage`, and
+database read-only, verifies the cataloged managed payloads through `FileStorage` (external
+payload references are retained without reading external media), and
 loads the stock menus/help/display resources.
 
 A new restore renames the complete staging board to its nonexistent target.
 For `--replace`, the stopped target is first renamed to the deterministic
 hidden sibling `.<board>.spitfire-restore-rollback`; the staged board is then
-renamed into place. If publication fails, the original directory is renamed
-back. The completed rollback directory is removed only after the new target is
+renamed into place. If publication fails, renaming the original directory
+back is attempted; a failure of that recovery returns both target and rollback
+paths for inspection. The completed rollback directory is removed only after the new target is
 published. If a rollback directory already exists, restore refuses to proceed
 so a Sysop can inspect it instead of guessing which copy is authoritative.
 
-This yields deterministic covered state: the restored configuration, SQLite,
-SYSTEM/DISPLAY trees, and cataloged file tree are exactly the validated
-snapshot. Data created after the snapshot is intentionally absent after an
-explicit replacement. Untrusted partial uploads and stale runtime state do not
-reappear.
+This is error recovery for a returned rename failure, not a persisted updater
+transaction or a power-loss-safe atomic exchange. A crash between the two
+renames can leave the target absent. No automatic update recovery or retained
+successful installation rollback point is implemented by this native format.
+D1 now provides separate [managed deployment and runtime rollback](technical/deployment.md);
+post-commit runtime rollback preserves current board state and does not call this
+disaster-restore mechanism.
+
+A returned cleanup error can occur after successful publication and partial
+deletion of the prior directory. Managed restore records `ManualRestore` before
+native publication, but neither the native workflow nor that record supplies a
+crash-replay/finalization interface for manual restore. The wrapper clears a
+returned-error record only when inventoried prior bytes still match; after
+success it clears the record only after active-runtime inspection. A crash in
+between requires intervention. See the [operator interruption runbook](operator/backup-restore.md#interrupted-manual-restore-keep-the-board-stopped).
+Do not infer authority from directory names or bypass catalog/FTN guards.
+
+Configuration and covered resource bytes come from the validated snapshot.
+The database retains the snapshot schema but undergoes network custody,
+Events, BinkP, CircuitNET/FTN/QWK hold and external-storage recovery. Same-root
+replacement reconciles proven later FTN serial/acknowledgement evidence and
+rejects snapshots that discard a newer known signed CircuitNET catalog revision
+or conflict with its authority/history. It is not an exact database-byte rewind.
+Post-snapshot caller/message/resource changes are intentionally absent after an
+explicit replacement, subject to those recovery protections. Untrusted partial
+uploads and stale runtime state do not reappear. Do not bypass a replacement
+refusal using a new-root restore or a binary that lacks the protection.
 
 ## Security and Operational Limits
 

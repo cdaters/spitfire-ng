@@ -25,7 +25,8 @@ caller identity and SSH caller access; those features are not in the published
 - [Terminal Clients](terminal-clients.md)
 - [Secure SSH Caller Transport](../sfng-secure-ssh-transport.md)
 - [Backup and Restore](backup-restore.md)
-- [Upgrades and Rollback](upgrades.md)
+- [Upgrades and Runtime Rollback](upgrades.md)
+- [Deployment Storage and Backup Contents](deployment-storage.md)
 - [Troubleshooting](troubleshooting.md)
 - [Support and Bug Reports](support.md)
 
@@ -66,4 +67,5 @@ configuration, safe queue actions, directory/quarantine visibility and verified
 restore recovery. Same-root replacement retains proven later FTN serial floors
 and matching peer acknowledgements. New-root recovery uses a stopped surviving
 source, retires its origination, and keeps uncertain work held. No live public
-FidoNet participation or N6/N7 functionality is claimed.
+FidoNet participation is claimed. Later accepted N6 [hub operations](../manual/ftn-hub.md)
+and N7 [file networking](../manual/ftn-files.md) extend this recovery foundation.

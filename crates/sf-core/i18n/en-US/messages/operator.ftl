@@ -1,6 +1,12 @@
 # SPITFIRE NG canonical en-US interactive operator catalog.
 operator-usage = Usage:
     spitfire [--locale <BCP47>] --version
+    spitfire version
+    spitfire deployment adopt <CONFIG> <INSTALL> <SOURCE> <PUBLIC-KEY>
+    spitfire --installation <INSTALL> update [--check|--dry-run|--recover]
+    spitfire --installation <INSTALL> backup [list]
+    spitfire --installation <INSTALL> restore <ID> --replace
+    spitfire --installation <INSTALL> rollback [--list|--yes]
     spitfire [--locale <BCP47>] init-fixture <OUTPUT-DIRECTORY>
     spitfire [--locale <BCP47>] setup <OUTPUT-DIRECTORY>
     spitfire [--locale <BCP47>] config <CONFIG-FILE>

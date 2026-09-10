@@ -18,6 +18,7 @@ pub mod circuitnet;
 pub mod circuitnet_live;
 pub mod conference_health;
 mod configuration;
+pub mod deployment;
 pub use configuration::{
     configuration_version, current_operator_identity, ConfigurationDomainSummary,
     ConfigurationResult, ConfigurationSnapshot, OfflineConfiguration, SecretStatus,
@@ -108,6 +109,9 @@ where
 }
 
 fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
+    if let Some(output) = deployment::special_cli(&arguments)? {
+        return Ok(output);
+    }
     match arguments.as_slice() {
         [command, config, rest @ ..] if command == "events" => {
             events::run(&PathBuf::from(config), rest)
@@ -115,10 +119,12 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
         [command, config, rest @ ..] if command == "circuitnet" => {
             circuitnet::run(&PathBuf::from(config), rest)
         }
-        [command] if command == "--version" || command == "-V" => Ok(op_args(
-            "operator-version",
-            sf_core::LocalizationArgs::new().with("version", sf_core::PRODUCT_VERSION),
-        )),
+        [command] if command == "version" || command == "--version" || command == "-V" => {
+            Ok(op_args(
+                "operator-version",
+                sf_core::LocalizationArgs::new().with("version", sf_core::PRODUCT_VERSION),
+            ))
+        }
         [command, package] if command == "language-validate" => {
             let package = sf_core::validate_language_package(&PathBuf::from(package))?;
             Ok(op_args(

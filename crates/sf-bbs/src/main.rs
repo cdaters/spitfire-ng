@@ -19,7 +19,16 @@ fn main() -> ExitCode {
         .try_init()
         .ok();
 
-    match sf_bbs::run_cli(env::args_os().skip(1)) {
+    let arguments: Vec<_> = env::args_os().skip(1).collect();
+    match sf_bbs::deployment::entry(arguments.clone()) {
+        Ok(Some(code)) => return code,
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("error: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    match sf_bbs::run_cli(arguments) {
         Ok(output) => {
             println!("{output}");
             ExitCode::SUCCESS

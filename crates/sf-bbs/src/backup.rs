@@ -384,13 +384,33 @@ pub fn restore_board(
     target_root: &Path,
     replace: bool,
 ) -> Result<RestoreReport, ApplicationError> {
+    restore_board_inner(backup_directory, target_root, replace, false)
+}
+
+pub(crate) fn restore_board_locked(
+    backup_directory: &Path,
+    target_root: &Path,
+) -> Result<RestoreReport, ApplicationError> {
+    restore_board_inner(backup_directory, target_root, true, true)
+}
+
+fn restore_board_inner(
+    backup_directory: &Path,
+    target_root: &Path,
+    replace: bool,
+    already_locked: bool,
+) -> Result<RestoreReport, ApplicationError> {
     let backup = validate_backup_directory(backup_directory)?;
     let target = new_path_with_existing_parent(target_root)?;
     if backup.root == target || backup.root.starts_with(&target) || target.starts_with(&backup.root)
     {
         return Err(BoardBackupError::BackupTargetOverlap.into());
     }
-    let _operation_lock = BoardOperationLock::acquire(&target)?;
+    let _operation_lock = if already_locked {
+        None
+    } else {
+        Some(BoardOperationLock::acquire(&target)?)
+    };
 
     match (target.exists(), replace) {
         (true, false) => return Err(BoardBackupError::RestoreTargetExists(target).into()),
@@ -443,6 +463,10 @@ pub fn restore_board(
             "offline-restore",
             chrono::Utc::now().timestamp(),
         )?;
+    }
+
+    if target.exists() {
+        crate::deployment::preserve_locator(&target, temporary.path())?;
     }
 
     let staged_path = temporary.keep();
@@ -624,6 +648,96 @@ fn validate_backup_directory(path: &Path) -> Result<ValidatedBackup, BoardBackup
     })
 }
 
+/// Build a format-1 native restore input from a fully materialized D1 board.
+/// D1 verifies its own coverage/references before this bridge; the native
+/// validator independently checks the resulting catalog and authority.
+pub(crate) fn deployment_restore_input(
+    config_path: &Path,
+    destination: &Path,
+    source_version: &str,
+) -> Result<(), ApplicationError> {
+    let config = RuntimeConfig::load(config_path)?;
+    let validated = config.validate()?;
+    let root = config_path
+        .parent()
+        .ok_or_else(|| ApplicationError::MissingBoardRoot(config_path.into()))?;
+    let paths = LogicalPaths::resolve(root, &validated)?;
+    validate_native_layout(&validated, &paths)?;
+    let database = RuntimeDatabase::open_read_only(paths.database())?;
+    let identity = database.validate_current_snapshot()?;
+    let config_name = one_component_name(config_path)?;
+    let mut entries = vec![
+        copy_entry(
+            config_path,
+            destination,
+            &format!("configuration/{config_name}"),
+            BackupEntryKind::Configuration,
+        )?,
+        copy_entry(
+            paths.database(),
+            destination,
+            DATABASE_BACKUP_PATH,
+            BackupEntryKind::Database,
+        )?,
+    ];
+    copy_resource_tree(
+        paths.get(LogicalPath::System),
+        destination,
+        "resources/system",
+        BackupEntryKind::SystemResource,
+        &mut entries,
+    )?;
+    copy_resource_tree(
+        paths.get(LogicalPath::Display),
+        destination,
+        "resources/display",
+        BackupEntryKind::DisplayResource,
+        &mut entries,
+    )?;
+    let storage = FileStorage::open_existing(&paths)?;
+    for (area, file) in database.managed_cataloged_files()? {
+        if database.file_admission(file.id)?.is_some() {
+            continue;
+        }
+        storage.open_download(&area, &file)?;
+        let relative = format!("files/{}/{}", area.storage_key, file.filename);
+        entries.push(copy_entry(
+            &paths.get(LogicalPath::External).join(&relative),
+            destination,
+            &relative,
+            BackupEntryKind::CatalogedFile,
+        )?);
+    }
+    for (hash, size) in database.content_catalog()? {
+        storage.open_content(&hash, size)?;
+        entries.push(copy_entry(
+            &paths
+                .get(LogicalPath::External)
+                .join("files/.content")
+                .join(&hash),
+            destination,
+            &format!("native-content/{hash}"),
+            BackupEntryKind::NativeContent,
+        )?);
+    }
+    entries.sort_by(|a, b| (a.kind, &a.path).cmp(&(b.kind, &b.path)));
+    write_manifest(
+        destination,
+        &BackupManifest {
+            format_version: BACKUP_FORMAT_VERSION,
+            created_by_version: source_version.into(),
+            created_at: now_unix_seconds()?,
+            schema_version: SCHEMA_VERSION,
+            board_name: identity.name().into(),
+            sysop_name: identity.sysop_name().into(),
+            config_name,
+            entries,
+        },
+    )?;
+    validate_backup_directory(destination)?;
+    Ok(())
+}
+
 fn stage_restored_board(
     backup: &ValidatedBackup,
     staging_root: &Path,
@@ -785,7 +899,7 @@ fn validate_existing_restore_target(
     Ok(())
 }
 
-fn validate_native_layout(
+pub(crate) fn validate_native_layout(
     config: &ValidatedConfig,
     paths: &LogicalPaths,
 ) -> Result<(), BoardBackupError> {
@@ -817,7 +931,9 @@ fn validate_native_layout(
     Ok(())
 }
 
-fn validate_real_logical_directories(paths: &LogicalPaths) -> Result<(), BoardBackupError> {
+pub(crate) fn validate_real_logical_directories(
+    paths: &LogicalPaths,
+) -> Result<(), BoardBackupError> {
     for logical in LogicalPath::ALL {
         let path = paths.get(logical);
         let relative = path

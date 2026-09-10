@@ -139,7 +139,9 @@ runtime, service deployment, and release packaging are outside these controls.
 The [FTN Sysop chapter](ftn-core.md) documents the implemented typed sfconfig
 policy import, protected packet/directory operations and read-only status counts.
 Cold restore holds uncertain FTN work and origin serial allocation; no manual SQL
-release is prescribed. Full Networks UI and BinkP remain later work.
+release is prescribed. This paragraph describes the historical N3 minimum.
+[BinkP](binkp.md) and the [Networks cockpit](network-operations.md) were implemented
+in subsequent accepted milestones; the current recovery extensions follow below.
 
 ## N5 operator and recovery extension
 
@@ -148,7 +150,8 @@ configuration, safe queue actions, directory/quarantine visibility and verified
 restore recovery. Same-root replacement retains proven later FTN serial floors
 and matching peer acknowledgements. New-root recovery uses a stopped surviving
 source, retires its origination, and keeps uncertain work held. No live public
-FidoNet participation or N6/N7 functionality is claimed.
+FidoNet participation is claimed. Later accepted N6 [hub operations](ftn-hub.md)
+and N7 [file networking](ftn-files.md) extend this recovery foundation.
 
 ## N6 hub extension
 

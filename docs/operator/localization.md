@@ -73,4 +73,5 @@ identifiers. Modern/Minimal 1.6.0 and Classic 1.7.0 remain unchanged.
 See the [FTN Sysop procedure](../manual/ftn-core.md) for isolated operation and
 [Technical Reference](../technical/ftn-core.md) for authority/privacy/recovery.
 Native messages remain canonical; private FTN mail is separate from QWK private
-mail. BinkP is not implemented and live public FidoNet is not claimed.
+mail. Native [BinkP transport](../manual/binkp.md) is implemented; live
+public FidoNet participation is not claimed.

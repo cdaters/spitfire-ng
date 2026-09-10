@@ -1,5 +1,7 @@
 # SPITFIRE NG Technical Reference
 
+[D1 deployment](deployment.md) specifies authenticated releases, installation transactions, backup capacity and runtime rollback compatibility.
+
 [Conference Health specification](conference-health.md) describes native readership/activity and the optional caller bulletin.
 
 [Public network identity](../circuitnet-ng/PUBLIC-IDENTITY.md) records canonical publication locations and service-state boundaries.

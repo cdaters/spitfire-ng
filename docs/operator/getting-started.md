@@ -346,7 +346,8 @@ spitfire backup \
 
 The validated snapshot contains the exact configuration, consistent SQLite
 state, SYSTEM and DISPLAY resources, presentation packages, catalog metadata,
-and every cataloged file's bytes. It excludes runtime status, incomplete
+and cataloged board-managed file bytes/native content objects. External payload
+references are retained, but external bytes are neither read nor copied. It excludes runtime status, incomplete
 upload staging, terminal logs, source, and research material. Protect it as
 sensitive because it includes password hashes, caller profiles, and private
 messages.

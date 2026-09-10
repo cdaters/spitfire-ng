@@ -150,5 +150,6 @@ SSH caller transport.
 
 ## N2 QWK networking
 
-The N2 typed QWK partner/queue workflow is documented in the Sysop manual. Caller offline QWK remains separate, and FTN/BinkP are not implemented.
+The N2 typed QWK partner/queue workflow is documented in the Sysop manual. Caller offline QWK remains separate. Native [FTN](../manual/ftn-core.md) and
+[BinkP](../manual/binkp.md) are implemented through their own authority and transport.
 See [QWK networking](../manual/qwk-networking.md) for the implemented scope and interoperability limits.
