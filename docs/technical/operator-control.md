@@ -318,6 +318,14 @@ receipt/audit recovery. No raw configuration editor or direct client database
 access exists. See [Configuration Authority](configuration.md) and the
 [sfconfig manual](../manual/sfconfig.md).
 
+D2 uses protocol 1.19 for the extended caller-policy snapshot. Servers project
+the prior configuration field set for older clients while retaining the actual
+opaque version token; field-scoped edits preserve policy omitted from that view.
+D2 clients require minor 19 for configuration access. No new operator capability
+or external network protocol is introduced. See the
+[caller-session contract](caller-sessions.md) for the compatibility boundary.
+
+
 ## B021-D maintenance and recovery boundary
 
 `MaintenanceService::ALL` is a closed three-owner navigation descriptor registry

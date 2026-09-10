@@ -44,6 +44,9 @@ pub enum ConfigurationField {
     NewCallerSecurity,
     SysopSecurity,
     LoginAttempts,
+    AllowNewUsers,
+    LoginTimeoutSeconds,
+    RegistrationTimeoutSeconds,
     MinimumPasswordLength,
     MaximumPasswordLength,
     PostLoginJourney,
@@ -107,6 +110,9 @@ impl ConfigurationField {
             Self::NewCallerSecurity => "sfconfig-field-new-security",
             Self::SysopSecurity => "sfconfig-field-sysop-security",
             Self::LoginAttempts => "sfconfig-field-login-attempts",
+            Self::AllowNewUsers => "sfconfig-field-allow-new-users",
+            Self::LoginTimeoutSeconds => "sfconfig-field-login-timeout",
+            Self::RegistrationTimeoutSeconds => "sfconfig-field-registration-timeout",
             Self::MinimumPasswordLength => "sfconfig-field-min-password",
             Self::MaximumPasswordLength => "sfconfig-field-max-password",
             Self::PostLoginJourney => "sfconfig-field-journey",
@@ -135,6 +141,7 @@ impl ConfigurationField {
                 "nodes"
             }
             Self::NewCallerSecurity
+            | Self::AllowNewUsers
             | Self::SysopSecurity
             | Self::LoginAttempts
             | Self::MinimumPasswordLength
@@ -186,6 +193,9 @@ impl ConfigurationField {
             NewCallerSecurity,
             SysopSecurity,
             LoginAttempts,
+            AllowNewUsers,
+            LoginTimeoutSeconds,
+            RegistrationTimeoutSeconds,
             MinimumPasswordLength,
             MaximumPasswordLength,
             PostLoginJourney,
@@ -243,6 +253,9 @@ impl ConfigurationField {
             Self::NewCallerSecurity => c.new_caller_security.to_string(),
             Self::SysopSecurity => c.sysop_security.to_string(),
             Self::LoginAttempts => c.maximum_login_attempts.to_string(),
+            Self::AllowNewUsers => c.allow_new_users.to_string(),
+            Self::LoginTimeoutSeconds => c.login_timeout_seconds.to_string(),
+            Self::RegistrationTimeoutSeconds => c.registration_timeout_seconds.to_string(),
             Self::MinimumPasswordLength => c.minimum_password_length.to_string(),
             Self::MaximumPasswordLength => c.maximum_password_length.to_string(),
             Self::PostLoginJourney => if c.post_login_journey == PostLoginJourney::Stock {
@@ -340,6 +353,9 @@ impl ConfigurationField {
             Self::NewCallerSecurity => number!(c.new_caller_security),
             Self::SysopSecurity => number!(c.sysop_security),
             Self::LoginAttempts => number!(c.maximum_login_attempts),
+            Self::AllowNewUsers => number!(c.allow_new_users),
+            Self::LoginTimeoutSeconds => number!(c.login_timeout_seconds),
+            Self::RegistrationTimeoutSeconds => number!(c.registration_timeout_seconds),
             Self::MinimumPasswordLength => number!(c.minimum_password_length),
             Self::MaximumPasswordLength => number!(c.maximum_password_length),
             Self::PostLoginJourney => {

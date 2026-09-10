@@ -1,6 +1,6 @@
 # CircuitNET catalog authority
 
-Catalog storage introduced through schema 35 (current board schema 36) and
+Catalog storage introduced through schema 35 (current board schema 37) and
 CIRCUITNET-NG 1.4 implement signed network conference metadata,
 local mapping choices and explicit signing-authority recovery. Native SPITFIRE
 messages remain canonical; no local conference number is sent on the wire.

@@ -477,8 +477,22 @@ fn populate_board(board: &Path) -> Vec<u8> {
 }
 
 fn new_evidence(board: &Path, key: &[u8]) {
-    let (_, paths) = worker::paths(&board.join(crate::BOARD_CONFIG_FILE)).unwrap();
+    let (config, paths) = worker::paths(&board.join(crate::BOARD_CONFIG_FILE)).unwrap();
     let mut db = RuntimeDatabase::open(paths.database()).unwrap();
+    let caller = db.caller_by_name(b"D1 Caller").unwrap().unwrap();
+    let mut preferences = caller.preferences;
+    preferences.hot_keys = !preferences.hot_keys;
+    let caller = db
+        .update_caller_preferences(caller.id, caller.state_version, preferences)
+        .unwrap();
+    db.begin_caller_session_observed(
+        &caller,
+        &config.caller,
+        200,
+        chrono_tz::UTC,
+        Some((1, 901, "telnet")),
+    )
+    .unwrap();
     let network = sf_core::circuitnet::NetworkId::new("D1TEST").unwrap();
     let signed = db.circuitnet_catalog_current(&network).unwrap().unwrap();
     let mut body = signed.body.clone();
@@ -795,7 +809,7 @@ fn corrupt_unauthenticated_incompatible_and_missing_release_artifacts_fail_close
             }
             5 => fs::remove_file(package.join(release::binary_name())).unwrap(),
             6 => {
-                manifest.runtime.target_schema = 37;
+                manifest.runtime.target_schema = sf_core::SCHEMA_VERSION + 1;
                 fixture.sign_manifest(&package, &manifest);
             }
             _ => fs::write(package.join("release.sig"), "0".repeat(128)).unwrap(),
@@ -1019,8 +1033,10 @@ fn staged_schema_migration_is_forward_restart_safe_and_preserves_existing_tables
         db.execute_batch(&format!("DROP {} IF EXISTS \"{}\"", kind, name))
             .unwrap();
     }
-    db.execute("DELETE FROM schema_migrations WHERE version=36", [])
-        .unwrap();
+    db.execute_batch(
+        "DROP TABLE caller_sessions; DELETE FROM schema_migrations WHERE version>=36;",
+    )
+    .unwrap();
     drop(db);
     let before = worker::database_fingerprints(paths.database()).unwrap();
     let request = WorkerRequest {
@@ -1030,7 +1046,7 @@ fn staged_schema_migration_is_forward_restart_safe_and_preserves_existing_tables
         payload_root: board,
     };
     let after = worker::execute(&request).unwrap();
-    assert_eq!(after.schema, 36);
+    assert_eq!(after.schema, sf_core::SCHEMA_VERSION);
     for (table, hash) in before.1 {
         assert_eq!(after.identities.get(&table), Some(&hash), "{table}");
     }

@@ -205,6 +205,16 @@ pub trait Terminal: Send {
     /// Configures the maximum interval without caller keyboard input. Network
     /// and serial adapters enforce it at their byte source; line-disciplined
     /// local shells may retain host-controlled blocking behavior.
+    /// Absolute monotonic phase deadline. A call deadline also observes the
+    /// existing authorized time adjustments and operator-chat pause policy.
+    fn set_input_deadline(
+        &mut self,
+        _deadline: Option<std::time::Instant>,
+        _call: bool,
+    ) -> Result<(), TerminalError> {
+        Ok(())
+    }
+
     fn set_idle_timeout(&mut self, _timeout: Duration) -> Result<(), TerminalError> {
         Ok(())
     }
@@ -454,6 +464,13 @@ impl Terminal for PagingTerminal<'_> {
         self.inner.read_line(maximum_bytes)
     }
 
+    fn set_input_deadline(
+        &mut self,
+        deadline: Option<std::time::Instant>,
+        call: bool,
+    ) -> Result<(), TerminalError> {
+        self.inner.set_input_deadline(deadline, call)
+    }
     fn set_idle_timeout(&mut self, timeout: Duration) -> Result<(), TerminalError> {
         self.inner.set_idle_timeout(timeout)
     }
@@ -708,12 +725,16 @@ pub enum TerminalError {
     Io(#[from] io::Error),
     #[error("terminal input is {actual} bytes; maximum is {maximum}")]
     InputTooLong { actual: usize, maximum: usize },
+    #[error("terminal line contains invalid control input")]
+    InvalidInput,
     #[error("terminal protocol data is malformed: {0}")]
     MalformedProtocol(&'static str),
     #[error("terminal binary mode is unsupported by this adapter")]
     BinaryUnsupported,
     #[error("terminal operation timed out")]
     TimedOut,
+    #[error("caller phase time limit expired")]
+    DeadlineExceeded,
     #[error("terminal disconnected")]
     Disconnected,
 }

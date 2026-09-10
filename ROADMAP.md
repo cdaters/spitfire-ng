@@ -1,6 +1,42 @@
 # SPITFIRE NG Roadmap
 
-## D1 deployment foundation
+## D2 caller/session completeness
+
+D2 provides a complete caller journey through greeting, Login, returning-user
+or new-user validation, Main, caller status and Goodbye. Admission atomically
+checks current account eligibility, reserves eligible time, claims one active
+session per account and records the successful call. Stale profile/preference
+writes are refused safely. Interrupted claims recover before listeners start.
+
+[Caller guide](docs/caller-guide/README.md),
+[login and session policy](docs/operator/caller-management.md),
+[admission and recovery contract](docs/technical/caller-sessions.md).
+
+Schema **37**, configuration format **2**, local operator protocol **1.19** and
+en-US **1.36.0**. CIRCUITNET-NG remains **1.4**; FTN/QWK identity and deployment
+semantics are unchanged. D1 backup/update/compatible rollback protects D2 state.
+This is current source; no new prebuilt binary archive or production deployment
+is implied.
+
+**D2 COMPLETE / ACCEPTED.** Public workspace: **815 passed / 0 failed / 8
+ignored**, all 26 result groups and six empty doctest groups. Native D2 Telnet:
+**4 passed**. D1 deployment **11 passed**, backup/restore **21 passed**, separate
+native D1 CLI preservation journey **1 passed**. FTN, QWK and CircuitNET regression
+suites pass. Fmt, strict workspace/all-target/all-feature Clippy, diff, **181
+source headers** and **182 Markdown documents / 1297 local path links / 0 missing
+targets** pass. Link checks exclude remote URLs and fragment anchors.
+Real Apple Silicon Telnet and multi-node acceptance runs use disposable local
+boards. Real Intel macOS, Linux, Windows and BSD acceptance remains deferred.
+Blocking local stdio is checked at input boundaries; uncommitted crash-time
+duration is not reconstructed. Cargo-audit is unavailable.
+
+Next milestone: **D3 — Menus, conferences, message reading and posting completeness**.
+Exact next action: **review D2 publication**. Stop before starting D3.
+D3 has not begun.
+
+Earlier sections below describe historical checkpoints.
+
+## Previous accepted D1 deployment foundation
 
 **D1 COMPLETE / ACCEPTED.**
 

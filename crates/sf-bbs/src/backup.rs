@@ -1601,7 +1601,10 @@ mod tests {
     }
 
     fn downgrade_schema_20_to_19(connection: &rusqlite::Connection) {
-        // Remove modern analytics before constructing a genuinely old native schema.
+        // Remove D2 custody and modern analytics from this synthetic old schema.
+        connection
+            .execute_batch("DROP TABLE IF EXISTS caller_sessions;")
+            .unwrap();
         let health:Vec<(String,String)>=connection.prepare("SELECT type,name FROM sqlite_schema WHERE name LIKE 'conference_health_%' AND type IN ('table','trigger','index') ORDER BY type DESC").unwrap().query_map([],|r|Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<Result<_,_>>().unwrap();
         connection.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
         for (kind, name) in health {
@@ -2351,6 +2354,29 @@ CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,l
                 .observe_public_resource(kind, &digest, 1_777_000_106)
                 .unwrap();
         }
+        let admission_caller = access_database
+            .caller_by_id(access_caller.id)
+            .unwrap()
+            .unwrap();
+        let mut admission_preferences = admission_caller.preferences;
+        admission_preferences.hot_keys = !admission_preferences.hot_keys;
+        let admission_caller = access_database
+            .update_caller_preferences(
+                admission_caller.id,
+                admission_caller.state_version,
+                admission_preferences,
+            )
+            .unwrap();
+        access_database.bind_session_generation("d2-backup-interrupted-owner");
+        access_database
+            .begin_caller_session_observed(
+                &admission_caller,
+                &validated.caller,
+                1_777_000_107,
+                validated.timezone,
+                Some((1, 902, "telnet")),
+            )
+            .unwrap();
         drop(access_database);
         let original_config = fs::read(&config_path).unwrap();
         fs::write(source.join("work/runtime-status.toml"), b"transient").unwrap();
@@ -2476,6 +2502,13 @@ CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,l
         );
         assert!(!restored_caller.purge_protected);
         assert!(restored_caller.state_version >= 3);
+        assert_eq!(restored_caller.preferences, admission_preferences);
+        let claim: (String,i64,i64) = rusqlite::Connection::open(database.path()).unwrap().query_row(
+            "SELECT runtime_generation,session_id,reserved_seconds FROM caller_sessions WHERE caller_id=?1",
+            [restored_caller.id.get()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        assert_eq!(claim.0, "d2-backup-interrupted-owner");
+        assert_eq!(claim.1, 902);
+        assert!(claim.2 > 0);
         assert_eq!(
             database.message_mutation_storage_stats().unwrap(),
             expected_message_storage
@@ -2502,7 +2535,7 @@ CREATE INDEX messages_conference_scan ON messages(conference_id,message_number,l
         let runtime = BoardRuntime::load(&restore.config_path).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Backup Caller".to_vec(),
+            b"backup-auth".to_vec(),
             b"test-only caller password".to_vec(),
             b"N".to_vec(),
             b"G".to_vec(),

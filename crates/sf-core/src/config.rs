@@ -317,6 +317,12 @@ pub struct StorageConfig {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CallerConfig {
+    #[serde(default = "default_allow_new_users")]
+    pub allow_new_users: bool,
+    #[serde(default = "default_login_timeout_seconds")]
+    pub login_timeout_seconds: u64,
+    #[serde(default = "default_registration_timeout_seconds")]
+    pub registration_timeout_seconds: u64,
     /// Default posting policy; conferences may override this local default.
     #[serde(default)]
     pub posting_identity: crate::PostingIdentityPolicy,
@@ -362,6 +368,9 @@ pub struct CallerConfig {
 impl Default for CallerConfig {
     fn default() -> Self {
         Self {
+            allow_new_users: true,
+            login_timeout_seconds: default_login_timeout_seconds(),
+            registration_timeout_seconds: default_registration_timeout_seconds(),
             posting_identity: crate::PostingIdentityPolicy::HandleAllowed,
             qwk_board_id: None,
             sysop_caller_name: default_sysop_caller_name(),
@@ -865,6 +874,16 @@ fn default_locale() -> String {
     crate::EMBEDDED_LOCALE.to_owned()
 }
 
+const fn default_allow_new_users() -> bool {
+    true
+}
+const fn default_login_timeout_seconds() -> u64 {
+    120
+}
+const fn default_registration_timeout_seconds() -> u64 {
+    600
+}
+
 const fn default_new_caller_security() -> u16 {
     10
 }
@@ -1088,6 +1107,14 @@ fn validate_transports(transports: &[TransportConfig]) -> Result<(), ConfigError
 }
 
 fn validate_caller(caller: &CallerConfig) -> Result<(), ConfigError> {
+    if !(10..=900).contains(&caller.login_timeout_seconds)
+        || !(30..=3600).contains(&caller.registration_timeout_seconds)
+    {
+        return Err(ConfigError::InvalidAdmissionTimeout);
+    }
+    if caller.allow_new_users && caller.new_caller_security >= caller.sysop_security {
+        return Err(ConfigError::PrivilegedNewCaller);
+    }
     if caller
         .qwk_board_id
         .as_ref()
@@ -1250,6 +1277,10 @@ fn validate_ssh_host_key(path: &Path) -> Result<(), ConfigError> {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("login timeout must be 10–900 seconds and registration timeout 30–3600 seconds")]
+    InvalidAdmissionTimeout,
+    #[error("new-caller security must be below Sysop security when registration is enabled")]
+    PrivilegedNewCaller,
     #[error("invalid FTN configuration")]
     InvalidFtnConfiguration,
     #[error("QWK board ID must be 1..8 uppercase ASCII letters/digits and a safe DOS basename")]

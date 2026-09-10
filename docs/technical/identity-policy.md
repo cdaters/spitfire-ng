@@ -8,12 +8,12 @@ network imports continue to preserve an external assertion.
 ## Account authority
 
 `caller_id` is stable ownership. `login_identifier` is the existing unique,
-normalized SSH login; `display_name` is the public **Handle**, with its existing
+normalized authentication Login; `display_name` is the public **Handle**, with its existing
 unique case-insensitive lookup. Handle admission remains 1–30 printable ASCII
 bytes, collapsed ASCII whitespace, and the existing reserved-name/JOKER rules.
 The typed operator rename changes login/handle only when explicitly requested.
-A profile name edit cannot change either. Traditional login uses the handle;
-SSH uses the login identifier.
+A profile name edit cannot change either. D2 uses Login for authentication on interactive caller transports and SSH.
+Handle remains public presentation identity, never an implicit login fallback.
 
 `CallerProfile.identity: PrivateIdentity` owns nullable `first_name` and
 `last_name`. Each is at most 60 UTF-8 bytes. Unicode space separators normalize

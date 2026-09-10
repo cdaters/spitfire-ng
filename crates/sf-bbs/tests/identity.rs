@@ -148,7 +148,7 @@ fn disposable_daemon_identity_post_profile_history_queue_restart_and_restore() {
     .unwrap();
     drop(db);
     let daemon = start(&config_path, &temp.path().join("first.log"));
-    let output=caller(address,b"Y\r\nPixelWizard\r\nsynthetic caller password\r\nsynthetic caller password\r\nR\r\nCraig\r\nDaters\r\nM\r\nE\r\n\r\nHandle post\r\nSynthetic local body\r\n/S\r\nY\r\nC\r\n2\r\nE\r\n\r\nReal post\r\nSynthetic real-name body\r\n/S\r\nY\r\nC\r\n3\r\nE\r\n\r\nFTN post\r\nSynthetic isolated FTN body\r\n/S\r\nY\r\nG\r\n");
+    let output=caller(address,b"Y\r\npixelwizard\r\nPixelWizard\r\nsynthetic caller password\r\nsynthetic caller password\r\nR\r\nCraig\r\nDaters\r\nM\r\nE\r\n\r\nHandle post\r\nSynthetic local body\r\n/S\r\nY\r\nC\r\n2\r\nE\r\n\r\nReal post\r\nSynthetic real-name body\r\n/S\r\nY\r\nC\r\n3\r\nE\r\n\r\nFTN post\r\nSynthetic isolated FTN body\r\n/S\r\nY\r\nG\r\n");
     assert!(output.contains("Posting as: PixelWizard"), "{output}");
     assert_eq!(
         output.matches("Posting as: Craig Daters").count(),
@@ -175,7 +175,7 @@ fn disposable_daemon_identity_post_profile_history_queue_restart_and_restore() {
     let daemon = start(&config_path, &temp.path().join("profile.log"));
     let edited = caller(
         address,
-        b"N\r\nPixelWizard\r\nsynthetic caller password\r\nR\r\nCraig\r\nD.\r\nG\r\n",
+        b"N\r\npixelwizard\r\nsynthetic caller password\r\nR\r\nCraig\r\nD.\r\nG\r\n",
     );
     assert!(edited.contains("profile"));
     drop(daemon);
@@ -215,7 +215,7 @@ fn disposable_daemon_identity_post_profile_history_queue_restart_and_restore() {
     );
     drop(db);
     let daemon = start(&config_path, &temp.path().join("history.log"));
-    let history=caller(address,b"N\r\nDarkmage\r\nsynthetic caller password\r\nM\r\nB\r\nC\r\n2\r\nB\r\nC\r\n3\r\nB\r\nG\r\n");
+    let history=caller(address,b"N\r\npixelwizard\r\nsynthetic caller password\r\nM\r\nB\r\nC\r\n2\r\nB\r\nC\r\n3\r\nB\r\nG\r\n");
     assert!(history.contains("PixelWizard"), "{history}");
     assert!(history.contains("Craig Daters"), "{history}");
     assert!(!history.contains("Craig D."), "{history}");

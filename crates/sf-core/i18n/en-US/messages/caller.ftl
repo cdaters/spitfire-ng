@@ -11,7 +11,7 @@ caller-inactivity-goodbye = No activity time limit exceeded. Goodbye.
 caller-operator-disconnected = The Sysop has disconnected this session.
 caller-operator-chat-invalid-line = Chat lines must be valid terminal text and at most 512 UTF-8 bytes. Shorten this line before sending.
 caller-auth-new-question = Are you a New Caller? (Y/N): { " " }
-caller-auth-name-prompt = Caller Name: { " " }
+caller-auth-name-prompt = Login: { " " }
 caller-auth-password-prompt = Password: { " " }
 caller-login-failed = Invalid caller name or password.
 caller-login-attempts-exceeded = Maximum login attempts exceeded.
@@ -366,3 +366,20 @@ caller-profile-real-name = Real Name (derived, private): { $name }
 
 # CircuitNET conference visibility; no caller private-mail or E2EE feature.
 circuitnet-conference-visibility = CircuitNET transport is encrypted. After delivery, conference messages are readable by users allowed into that conference. A destination node chooses the route; it does not make the message private.
+
+caller-already-online = This account is already logged in.
+caller-account-unavailable = This account is not currently available for login.
+caller-setting-conflict = That setting changed during this session. Please try again.
+
+caller-login-timeout = Login time expired. Please call again.
+caller-registration-timeout = Registration time expired. No incomplete account has been saved.
+caller-call-timeout = Your available call time has expired. Goodbye.
+
+caller-registration-login-prompt = Choose Login (1-32 letters/digits, dot, underscore or hyphen; /Q cancels): { " " }
+caller-registration-login-invalid = Choose a non-reserved Login starting with a letter or digit. Spaces and non-ASCII characters are not allowed.
+caller-registration-duplicate = That Login or Handle is already registered. Please choose another.
+caller-registration-login-created = Your Login is { $login }. Use it when you call again.
+
+caller-profile-input-invalid = That input is not valid for your terminal. Please try again.
+
+caller-auth-choice-invalid = Please enter Y for a new account or N to log in.

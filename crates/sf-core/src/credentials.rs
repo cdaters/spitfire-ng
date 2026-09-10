@@ -22,6 +22,7 @@ pub const CREDENTIAL_SCHEME: &str = "argon2id-phc-v1";
 #[derive(Clone, Debug)]
 pub struct CredentialHasher {
     params: Params,
+    dummy: String,
 }
 
 impl CredentialHasher {
@@ -33,7 +34,12 @@ impl CredentialHasher {
             None,
         )
         .map_err(CredentialError::InvalidParameters)?;
-        Ok(Self { params })
+        let mut hasher = Self {
+            params,
+            dummy: String::new(),
+        };
+        hasher.dummy = hasher.hash(&rand::random::<[u8; 32]>())?;
+        Ok(hasher)
     }
 
     pub fn hash(&self, password: &[u8]) -> Result<String, CredentialError> {
@@ -42,6 +48,10 @@ impl CredentialHasher {
             .hash_password(password, &salt)
             .map(|hash| hash.to_string())
             .map_err(CredentialError::Hash)
+    }
+
+    pub fn verify_unknown(&self, password: &[u8]) {
+        let _ = self.verify(password, &self.dummy);
     }
 
     pub fn verify(&self, password: &[u8], encoded: &str) -> Result<bool, CredentialError> {

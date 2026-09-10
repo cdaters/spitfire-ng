@@ -64,6 +64,7 @@ pub fn durable_features() -> BTreeMap<String, u32> {
         "files-identity",
         "trust-enrollment",
         "events-history",
+        "caller-session-custody",
     ]
     .into_iter()
     .map(|name| (name.to_owned(), 1))

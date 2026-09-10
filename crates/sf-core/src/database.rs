@@ -30,7 +30,7 @@ use crate::{
 };
 use crate::{BoardIdentity, BoardIdentityError};
 
-pub const SCHEMA_VERSION: u32 = 36;
+pub const SCHEMA_VERSION: u32 = 37;
 
 const CALLER_SELECT: &str = r#"
 SELECT c.caller_id, c.login_identifier, c.display_name, c.normalized_name, c.real_name,
@@ -57,7 +57,7 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: [Migration; 36] = [
+const MIGRATIONS: [Migration; 37] = [
     Migration {
         version: 1,
         name: "board_identity",
@@ -1572,6 +1572,20 @@ const MIGRATIONS: [Migration; 36] = [
         name: "native_conference_health",
         sql: include_str!("conference_health.sql"),
     },
+    Migration {
+        version: 37,
+        name: "caller_session_custody",
+        sql: "CREATE TABLE caller_sessions (
+            caller_id INTEGER PRIMARY KEY REFERENCES callers(caller_id),
+            runtime_generation TEXT NOT NULL CHECK(length(runtime_generation) BETWEEN 1 AND 128),
+            node_id INTEGER NOT NULL CHECK(node_id >= 0),
+            session_id INTEGER NOT NULL CHECK(session_id >= 0),
+            acquired_at INTEGER NOT NULL,
+            usage_day INTEGER NOT NULL,
+            reserved_seconds INTEGER NOT NULL CHECK(reserved_seconds > 0),
+            UNIQUE(runtime_generation,node_id,session_id)
+        );",
+    },
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1582,6 +1596,7 @@ pub struct MigrationReport {
 }
 
 pub struct RuntimeDatabase {
+    pub(crate) session_generation: String,
     pub(crate) identity_context: crate::identity::IdentityContext,
     pub(crate) connection: Connection,
     path: PathBuf,
@@ -1612,6 +1627,7 @@ impl RuntimeDatabase {
             connection,
             path: path.to_path_buf(),
             identity_context: crate::identity::IdentityContext::default(),
+            session_generation: format!("{:032x}", rand::random::<u128>()),
         })
     }
 
@@ -1641,6 +1657,7 @@ impl RuntimeDatabase {
             connection,
             path: path.to_path_buf(),
             identity_context: crate::identity::IdentityContext::default(),
+            session_generation: format!("{:032x}", rand::random::<u128>()),
         })
     }
 
@@ -1769,6 +1786,14 @@ impl RuntimeDatabase {
             self.validate_files_authority().map_err(|_| {
                 DatabaseError::IntegrityCheck("native Files authority is inconsistent".into())
             })?;
+        }
+        if required >= 37 {
+            let invalid: bool = self.connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM caller_sessions WHERE length(runtime_generation) NOT BETWEEN 1 AND 128
+                OR node_id < 0 OR session_id < 0 OR reserved_seconds <= 0)", [], |r| r.get(0)).map_err(DatabaseError::Sqlite)?;
+            if invalid {
+                return Err(DatabaseError::SessionOwnershipMismatch);
+            }
         }
         if required >= 36 {
             self.validate_conference_health().map_err(|_| {
@@ -1959,6 +1984,37 @@ impl RuntimeDatabase {
         profile: CallerProfile,
         policy: &CallerProfilePolicy,
     ) -> Result<Caller, DatabaseError> {
+        self.create_caller_with_login_profile(
+            None,
+            caller_name,
+            password_hash,
+            security_level,
+            state,
+            is_new_caller,
+            now,
+            profile,
+            policy,
+        )
+    }
+
+    /// The existing account-creation transaction with an explicit Login for
+    /// caller registration. None preserves local setup/migration derivation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_caller_with_login_profile(
+        &mut self,
+        login: Option<&[u8]>,
+        caller_name: &[u8],
+        password_hash: &str,
+        security_level: SecurityLevel,
+        state: CallerState,
+        is_new_caller: bool,
+        now: i64,
+        profile: CallerProfile,
+        policy: &CallerProfilePolicy,
+    ) -> Result<Caller, DatabaseError> {
+        let transaction =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)
+                .map_err(DatabaseError::Sqlite)?;
         let profile = profile
             .validate_for_policy(policy)
             .map_err(DatabaseError::InvalidStoredCaller)?;
@@ -1966,12 +2022,20 @@ impl RuntimeDatabase {
         if self.caller_by_normalized_name(&normalized_name)?.is_some() {
             return Err(DatabaseError::DuplicateCaller(display_name));
         }
-        let login_identifier = self.available_login_identifier(&normalized_name)?;
+        let login_identifier = match login {
+            Some(login) => {
+                let identifier = canonicalize_login_identifier(login)?;
+                if self
+                    .caller_by_login_identifier(identifier.as_bytes())?
+                    .is_some()
+                {
+                    return Err(DatabaseError::DuplicateCaller(display_name));
+                }
+                identifier
+            }
+            None => self.available_login_identifier(&normalized_name)?,
+        };
         let real_name: Option<String> = None;
-        let transaction = self
-            .connection
-            .transaction()
-            .map_err(DatabaseError::Sqlite)?;
         transaction
             .execute(
                 r#"
@@ -2321,31 +2385,10 @@ impl RuntimeDatabase {
     ) -> Result<AuthenticationResult, DatabaseError> {
         let (_, normalized_name) = canonicalize_caller_name(caller_name)?;
         let Some(caller) = self.caller_by_normalized_name(&normalized_name)? else {
+            hasher.verify_unknown(password);
             return Ok(AuthenticationResult::Invalid);
         };
-        if caller.state != CallerState::Active {
-            return Ok(AuthenticationResult::Unavailable(caller));
-        }
-        let stored: Option<(String, String)> = self
-            .connection
-            .query_row(
-                "SELECT scheme, password_hash FROM caller_credentials WHERE caller_id = ?1",
-                params![caller.id.get()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(DatabaseError::Sqlite)?;
-        let Some((scheme, password_hash)) = stored else {
-            return Err(DatabaseError::MissingCredential(caller.id.get()));
-        };
-        if scheme != CREDENTIAL_SCHEME {
-            return Err(DatabaseError::UnsupportedCredentialScheme(scheme));
-        }
-        if hasher.verify(password, &password_hash)? {
-            Ok(AuthenticationResult::Valid(caller))
-        } else {
-            Ok(AuthenticationResult::Invalid)
-        }
+        self.authenticate_caller_password(caller, password, hasher)
     }
 
     pub fn authenticate_login_identifier(
@@ -2355,6 +2398,7 @@ impl RuntimeDatabase {
         hasher: &CredentialHasher,
     ) -> Result<AuthenticationResult, DatabaseError> {
         let Some(caller) = self.caller_by_login_identifier(login_identifier)? else {
+            hasher.verify_unknown(password);
             return Ok(AuthenticationResult::Invalid);
         };
         self.authenticate_caller_password(caller, password, hasher)
@@ -2366,9 +2410,6 @@ impl RuntimeDatabase {
         password: &[u8],
         hasher: &CredentialHasher,
     ) -> Result<AuthenticationResult, DatabaseError> {
-        if caller.state != CallerState::Active {
-            return Ok(AuthenticationResult::Unavailable(caller));
-        }
         let stored: Option<(String, String)> = self
             .connection
             .query_row(
@@ -2385,7 +2426,11 @@ impl RuntimeDatabase {
             return Err(DatabaseError::UnsupportedCredentialScheme(scheme));
         }
         if hasher.verify(password, &password_hash)? {
-            Ok(AuthenticationResult::Valid(caller))
+            if caller.state == CallerState::Active {
+                Ok(AuthenticationResult::Valid(caller))
+            } else {
+                Ok(AuthenticationResult::Unavailable(caller))
+            }
         } else {
             Ok(AuthenticationResult::Invalid)
         }
@@ -2464,14 +2509,58 @@ impl RuntimeDatabase {
         timezone: chrono_tz::Tz,
         observation: Option<(u32, u64, &str)>,
     ) -> Result<AuthenticatedCaller, DatabaseError> {
-        if caller.state != CallerState::Active {
-            return Err(DatabaseError::CallerUnavailable);
-        }
+        self.admit_caller_session(caller, config, now, timezone, observation, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn admit_caller_session(
+        &mut self,
+        candidate: &Caller,
+        config: &CallerConfig,
+        now: i64,
+        timezone: chrono_tz::Tz,
+        observation: Option<(u32, u64, &str)>,
+        minimum_security: Option<SecurityLevel>,
+    ) -> Result<AuthenticatedCaller, DatabaseError> {
         let day = i64::from(board_local_day(now, timezone)?);
-        let transaction = self
-            .connection
-            .transaction()
+        let transaction =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)
+                .map_err(DatabaseError::Sqlite)?;
+        let caller = self
+            .caller_by_id(candidate.id)?
+            .ok_or(DatabaseError::MissingCaller(candidate.id.get()))?;
+        let (node, session, _) = observation.unwrap_or((0, 0, "internal"));
+        if caller.state != CallerState::Active
+            || minimum_security.is_some_and(|minimum| caller.security_level < minimum)
+        {
+            return crate::session_custody::refuse(
+                transaction,
+                caller.id,
+                now,
+                node,
+                session,
+                "session.lifecycle-refused",
+                DatabaseError::CallerUnavailable,
+            );
+        }
+        let occupied: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM caller_sessions WHERE caller_id=?1)",
+                [caller.id.get()],
+                |r| r.get(0),
+            )
             .map_err(DatabaseError::Sqlite)?;
+        if occupied {
+            return crate::session_custody::refuse(
+                transaction,
+                caller.id,
+                now,
+                node,
+                session,
+                "session.duplicate-refused",
+                DatabaseError::CallerAlreadyOnline,
+            );
+        }
         let (stored_day, stored_time, stored_calls): (Option<i64>, i64, i64) = transaction
             .query_row(
                 "SELECT daily_usage_day, daily_time_seconds, daily_call_count FROM callers WHERE caller_id = ?1",
@@ -2489,15 +2578,37 @@ impl RuntimeDatabase {
         };
         let policy = TimePolicy::for_security(config, caller.security_level);
         if calls_today >= policy.maximum_daily_calls {
-            return Err(DatabaseError::DailyCallLimitReached);
+            return crate::session_custody::refuse(
+                transaction,
+                caller.id,
+                now,
+                node,
+                session,
+                "session.allowance-refused",
+                DatabaseError::DailyCallLimitReached,
+            );
         }
         let first_day = (i64::from(board_local_day(caller.first_call_at, timezone)?) == day)
             .then_some(config.new_caller_first_day_minutes);
         let daily_limit_seconds = policy.daily_limit_seconds(first_day);
         let allowance = policy.allowance(used_seconds, first_day);
         if allowance.limit_seconds() == 0 {
-            return Err(DatabaseError::DailyTimeLimitReached);
+            return crate::session_custody::refuse(
+                transaction,
+                caller.id,
+                now,
+                node,
+                session,
+                "session.allowance-refused",
+                DatabaseError::DailyTimeLimitReached,
+            );
         }
+        transaction.execute(
+            "INSERT INTO caller_sessions(caller_id,runtime_generation,node_id,session_id,acquired_at,usage_day,reserved_seconds)
+            VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![caller.id.get(), self.session_generation, node, sqlite_i64(session)?, now, day,
+                sqlite_i64(allowance.limit_seconds())?],
+        ).map_err(DatabaseError::Sqlite)?;
         transaction
             .execute(
                 r#"
@@ -2613,8 +2724,16 @@ impl RuntimeDatabase {
     ) -> Result<(), DatabaseError> {
         let transaction = self
             .connection
-            .transaction()
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DatabaseError::Sqlite)?;
+        let (node, session, _, _) = observation.unwrap_or((0, 0, "internal", "goodbye"));
+        let owned = transaction.execute(
+            "DELETE FROM caller_sessions WHERE caller_id=?1 AND runtime_generation=?2 AND node_id=?3 AND session_id=?4",
+            params![caller_id.get(), self.session_generation, node, sqlite_i64(session)?],
+        ).map_err(DatabaseError::Sqlite)?;
+        if owned != 1 {
+            return Err(DatabaseError::SessionOwnershipMismatch);
+        }
         let changed = transaction
             .execute(
                 r#"
@@ -2696,11 +2815,40 @@ impl RuntimeDatabase {
     pub fn update_caller_preferences(
         &self,
         caller_id: CallerId,
+        expected: u64,
         preferences: CallerPreferences,
     ) -> Result<Caller, DatabaseError> {
         let preferences = preferences
             .validate()
             .map_err(DatabaseError::InvalidStoredCaller)?;
+        let tx =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)
+                .map_err(DatabaseError::Sqlite)?;
+        let current = self
+            .caller_by_id(caller_id)?
+            .ok_or(DatabaseError::MissingCaller(caller_id.get()))?;
+        if current.state_version != expected {
+            crate::session_custody::write_event(
+                &tx,
+                caller_id,
+                chrono::Utc::now().timestamp(),
+                0,
+                0,
+                "caller.write-conflict",
+            )?;
+            tx.commit().map_err(DatabaseError::Sqlite)?;
+            return Err(DatabaseError::CallerStateConflict {
+                expected,
+                actual: current.state_version,
+            });
+        }
+        if current.state != CallerState::Active {
+            return Err(DatabaseError::CallerUnavailable);
+        }
+        let version = current
+            .state_version
+            .checked_add(1)
+            .ok_or(DatabaseError::CounterOverflow(current.state_version))?;
         let changed = self
             .connection
             .execute(
@@ -2708,7 +2856,7 @@ impl RuntimeDatabase {
                 UPDATE callers
                 SET graphics_preference = ?2, screen_width = ?3,
                     page_length = ?4, more_prompt = ?5, scroll_prompt = ?6,
-                    hot_keys = ?7, transfer_protocol = ?8,
+                    hot_keys = ?7, transfer_protocol = ?8, state_version = ?9,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE caller_id = ?1
                 "#,
@@ -2720,17 +2868,20 @@ impl RuntimeDatabase {
                     preferences.more_prompt,
                     preferences.scroll_prompt,
                     preferences.hot_keys,
-                    preferences.transfer_protocol.as_database_value()
+                    preferences.transfer_protocol.as_database_value(),
+                    sqlite_i64(version)?
                 ],
             )
             .map_err(DatabaseError::Sqlite)?;
         if changed != 1 {
             return Err(DatabaseError::MissingCaller(caller_id.get()));
         }
+        tx.commit().map_err(DatabaseError::Sqlite)?;
         self.caller_by_id(caller_id)?
             .ok_or(DatabaseError::MissingCaller(caller_id.get()))
     }
 
+    #[cfg(test)]
     pub fn update_caller_profile(
         &self,
         caller_id: CallerId,
@@ -2767,17 +2918,31 @@ impl RuntimeDatabase {
             .caller_by_id(caller_id)?
             .ok_or(DatabaseError::MissingCaller(caller_id.get()))?;
         if existing.state_version != expected {
+            crate::session_custody::write_event(
+                &tx,
+                caller_id,
+                now,
+                0,
+                0,
+                "caller.write-conflict",
+            )?;
+            tx.commit().map_err(DatabaseError::Sqlite)?;
             return Err(DatabaseError::CallerStateConflict {
                 expected,
                 actual: existing.state_version,
             });
+        }
+        if matches!(actor, crate::identity::IdentityEditActor::Caller)
+            && existing.state != CallerState::Active
+        {
+            return Err(DatabaseError::CallerUnavailable);
         }
         let profile = profile
             .validate_update_for_policy(&existing.profile, policy)
             .map_err(DatabaseError::InvalidStoredCaller)?;
         let changed_identity = profile.identity != existing.profile.identity;
         let version = expected
-            .checked_add(u64::from(changed_identity))
+            .checked_add(u64::from(profile != existing.profile))
             .ok_or(DatabaseError::CounterOverflow(expected))?;
         tx.execute(
             "UPDATE callers SET address_line_1=?2,address_line_2=?3,city=?4,region=?5,
@@ -4021,6 +4186,10 @@ pub enum DatabaseError {
     UnsupportedCredentialScheme(String),
     #[error("caller account is unavailable")]
     CallerUnavailable,
+    #[error("this account is already logged in")]
+    CallerAlreadyOnline,
+    #[error("session does not own this caller admission")]
+    SessionOwnershipMismatch,
     #[error("maximum daily caller access count has been reached")]
     DailyCallLimitReached,
     #[error("daily caller time allowance has been exhausted")]
@@ -5297,6 +5466,7 @@ mod tests {
         let updated = database
             .update_caller_preferences(
                 caller.id,
+                caller.state_version,
                 CallerPreferences {
                     graphics: GraphicsPreference::Text,
                     screen_width: Some(132),
@@ -5868,6 +6038,9 @@ mod tests {
             .acknowledge_caller_access_denial(caller.id, denial.generation())
             .unwrap();
         let stored = database.caller_by_id(caller.id).unwrap().unwrap();
+        database
+            .finish_caller_session(caller.id, 0, 0, 19_700_101)
+            .unwrap();
         let next = database
             .begin_caller_session(&stored, &CallerConfig::default(), 500, chrono_tz::UTC)
             .unwrap();
@@ -5920,6 +6093,9 @@ mod tests {
         assert_eq!(second.caller.call_count, 2);
         assert_eq!(second.caller.total_time_seconds, 90);
 
+        database
+            .finish_caller_session(caller.id, 0, 0, 19_700_101)
+            .unwrap();
         let restricted = CallerConfig {
             maximum_daily_calls: 2,
             ..CallerConfig::default()
@@ -6318,6 +6494,7 @@ mod qwk_migration_tests {
             apply_migration(&mut c, m).unwrap();
         }
         let mut db = RuntimeDatabase {
+            session_generation: "migration-test".into(),
             identity_context: Default::default(),
             connection: c,
             path: PathBuf::from("synthetic.db"),
@@ -6826,5 +7003,40 @@ mod health_migration_tests {
             .next()
             .unwrap()
             .is_none());
+    }
+}
+
+#[cfg(test)]
+mod caller_session_migration_tests {
+    use super::*;
+    #[test]
+    fn d2_schema_36_to_37_is_atomic_and_preserves_account_authority() {
+        let mut c = Connection::open_in_memory().unwrap();
+        c.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        for migration in &MIGRATIONS[..36] {
+            apply_migration(&mut c, migration).unwrap();
+        }
+        c.execute("INSERT INTO callers(caller_id,login_identifier,display_name,normalized_name,security_level,account_state,is_new_caller,first_call_at,state_version) VALUES(1,'preserved','Preserved','preserved',10,'active',0,100,7)",[]).unwrap();
+        let broken = Migration { version:37, name:"caller_session_custody", sql:"CREATE TABLE caller_sessions(caller_id INTEGER); CREATE TABLE callers(collision TEXT);" };
+        assert!(apply_migration(&mut c, &broken).is_err());
+        assert_eq!(schema_version_from(&c).unwrap(), 36);
+        assert!(c.prepare("SELECT * FROM caller_sessions").is_err());
+        apply_migration(&mut c, &MIGRATIONS[36]).unwrap();
+        assert_eq!(schema_version_from(&c).unwrap(), 37);
+        assert_eq!(
+            c.query_row(
+                "SELECT state_version FROM callers WHERE caller_id=1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            7
+        );
+        assert_eq!(
+            c.query_row("SELECT count(*) FROM caller_sessions", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
     }
 }

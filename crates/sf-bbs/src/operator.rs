@@ -339,10 +339,13 @@ impl OperatorService {
 
     pub fn set_caller_profile(
         &self,
-        name: &str,
+        caller_id: sf_core::CallerId,
+        expected_version: u64,
         profile: sf_core::CallerProfile,
     ) -> Result<Caller, ApplicationError> {
-        let caller = self.runtime.set_caller_profile(name.as_bytes(), profile)?;
+        let caller = self
+            .runtime
+            .set_caller_profile(caller_id, expected_version, profile)?;
         info!(
             caller_id = caller.id.get(),
             "operator changed caller profile"
@@ -493,7 +496,7 @@ pub fn run_operator_console(
                         .map_err(|_| {
                             ApplicationError::InvalidSetupValue("invalid first/last name")
                         })?;
-                service.set_caller_profile(name, caller.profile)?;
+                service.set_caller_profile(caller.id, caller.state_version, caller.profile)?;
             }
             "IDENTITY" => {
                 write_caller_mutation(
@@ -1086,7 +1089,7 @@ fn update_caller_profile(
             ))
         }
     }
-    service.set_caller_profile(name.trim(), caller.profile)?;
+    service.set_caller_profile(caller.id, caller.state_version, caller.profile)?;
     Ok(())
 }
 

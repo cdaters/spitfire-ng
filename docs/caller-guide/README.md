@@ -57,11 +57,23 @@ An SSH call asks for your login identifier and password before the BBS screen
 appears. After successful authentication, SPITFIRE NG does not ask for the same
 password again.
 
-On other caller transports, the BBS asks whether you are a new caller. A
-returning caller answers No and enters the requested caller name and password.
-If the board permits registration, a new caller answers Yes, chooses an
-available caller name and password, and supplies only the profile information
-required by that board.
+On a board that permits registration, answer No to the new-caller question
+and enter your **Login** and password. A board with registration disabled goes
+directly to Login. Use the same Login on every transport; your public Handle
+and private real name are separate fields.
+
+To register, answer Yes, read the board's new-user information, choose a unique
+Login and public Handle, and enter your password twice. Login uses 1–32 ASCII
+letters/digits, dots, underscores or hyphens, beginning with a letter or digit;
+case does not matter and spaces are not allowed. Supply the profile fields the
+board requests. Ordinary mistakes can be corrected at the prompt. `/Q` at Login
+or Handle cancels the application. An unfinished application creates no account.
+
+Incorrect credentials allow a bounded number of retries before disconnection.
+Only one call can use an account at a time. If it is already logged in, finish
+the first call or ask the Sysop to inspect it. After admission, the board shows
+your caller information and available call time before the Main menu. Use Goodbye
+to end normally; idle, login and registration limits also close abandoned calls.
 
 Passwords do not appear as you type them. If a normal terminal displays your
 password, disconnect and ask the Sysop whether the client and transport are

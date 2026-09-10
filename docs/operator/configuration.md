@@ -98,8 +98,8 @@ and service conflicts have been handled deliberately.
 
 ## Caller login, Handle and private names
 
-The login identifier is used by SSH. Handle is ordinary BBS identity and the
-traditional login label. First Name and Last Name are private profile components;
+The Login identifier authenticates callers on all supported caller transports.
+Handle is caller-facing presentation identity. First Name and Last Name are private profile components;
 editing them does not change credentials or old messages.
 
 ```text
@@ -252,3 +252,7 @@ names every installed presentation
 package and separately asks for active/base profile, generated/display-override
 menus, post-login journey, new-caller security, Sysop threshold, and initial
 Sysop caller security.
+
+D2 login/registration policy is documented in [caller management](caller-management.md).
+Use matching D2 sfconfig/runtime versions for the extended policy. Older clients
+retain their existing settings view; their field-scoped edits preserve new values.

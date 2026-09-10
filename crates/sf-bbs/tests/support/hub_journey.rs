@@ -288,33 +288,46 @@ async fn secret(c: &mut OperatorClient, link: &str, area: bool) {
     )
     .await;
 }
-async fn exchange(c: &mut OperatorClient, link: &str, success: bool) {
-    let expected = c.binkp_status().await.unwrap().policy;
-    action(
-        c,
-        binkp::Action::Poll {
-            link: link.into(),
-            expected,
-        },
-    )
-    .await;
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let s = c.binkp_status().await.unwrap();
-        let h = s
-            .links
-            .iter()
-            .find(|l| l.link == link)
-            .and_then(|l| l.health.as_ref())
-            .unwrap();
-        if !h.active {
-            assert_eq!(h.last_error.is_none(), success, "{h:?}");
-            return;
+#[track_caller]
+fn exchange<'a>(
+    c: &'a mut OperatorClient,
+    link: &'a str,
+    success: bool,
+) -> impl std::future::Future<Output = ()> + 'a {
+    let source = std::panic::Location::caller();
+    async move {
+        let expected = c.binkp_status().await.unwrap().policy;
+        action(
+            c,
+            binkp::Action::Poll {
+                link: link.into(),
+                expected,
+            },
+        )
+        .await;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let s = c.binkp_status().await.unwrap();
+            let h = s
+                .links
+                .iter()
+                .find(|l| l.link == link)
+                .and_then(|l| l.health.as_ref())
+                .unwrap();
+            if !h.active {
+                assert_eq!(
+                    h.last_error.is_none(),
+                    success,
+                    "exchange requested at {source}: {h:?}"
+                );
+                return;
+            }
+            assert!(Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(30)).await;
         }
-        assert!(Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(30)).await;
     }
 }
+
 async fn subscribe(c: &mut OperatorClient, link: &str, area: &str, state: bool, expected: i64) {
     ftn_action(
         c,

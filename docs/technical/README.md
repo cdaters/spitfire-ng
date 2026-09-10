@@ -1,5 +1,7 @@
 # SPITFIRE NG Technical Reference
 
+[Caller sessions](caller-sessions.md) specifies atomic admission, exclusive account ownership, safe profile writes and interrupted-session recovery.
+
 [D1 deployment](deployment.md) specifies authenticated releases, installation transactions, backup capacity and runtime rollback compatibility.
 
 [Conference Health specification](conference-health.md) describes native readership/activity and the optional caller bulletin.
@@ -11,7 +13,7 @@ Current source implements N1–N6 networking and [N7 FTN file networking](ftn-fi
 
 <!-- help-topic: technical.reference -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 36)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 37)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >

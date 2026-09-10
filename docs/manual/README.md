@@ -7,7 +7,7 @@ Current source implements N1–N6 networking and [N7 FTN file networking](ftn-fi
 
 <!-- help-topic: sysop.manual -->
 
-> **Applies to:** Current SPITFIRE NG source (`main`, schema 36)
+> **Applies to:** Current SPITFIRE NG source (`main`, schema 37)
 >
 > **Latest downloadable release:** SPITFIRE NG 0.1.0 Development Preview
 >

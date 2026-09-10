@@ -35,7 +35,6 @@ use crate::{
 
 const MAX_MENU_COMMAND_BYTES: usize = 8;
 const INVALID_MENU_COMMAND: u8 = 0;
-const MAX_CALLER_NAME_INPUT: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SessionId(NonZeroU64);
@@ -74,6 +73,8 @@ pub enum SessionCloseReason {
     EndOfInput,
     TransportLost,
     AuthenticationFailed,
+    LoginTimeout,
+    RegistrationTimeout,
     AccountUnavailable,
     TimeLimit,
     Inactivity,
@@ -88,6 +89,8 @@ impl SessionCloseReason {
             Self::EndOfInput => "end-of-input",
             Self::TransportLost => "transport-lost",
             Self::AuthenticationFailed => "authentication-failed",
+            Self::LoginTimeout => "login-timeout",
+            Self::RegistrationTimeout => "registration-timeout",
             Self::AccountUnavailable => "account-unavailable",
             Self::TimeLimit => "time-limit",
             Self::Inactivity => "inactivity",
@@ -283,6 +286,10 @@ pub fn run_stock_session(
     terminal.set_idle_timeout(Duration::from_secs(
         u64::from(caller_config.inactivity_minutes).saturating_mul(60),
     ))?;
+    terminal.set_input_deadline(
+        Some(Instant::now() + Duration::from_secs(caller_config.login_timeout_seconds)),
+        false,
+    )?;
     let result = run_stock_session_inner(session, terminal, database, caller_config, hasher, stock);
     if result.is_err() && stock.interaction.disconnect_pending(session.id())? {
         terminal.end_binary_mode()?;
@@ -310,6 +317,34 @@ pub fn run_stock_session(
             AuthenticationState::Authenticated(id) => database
                 .caller_by_id(id)?
                 .map(|caller| (caller.id, caller.display_name)),
+            _ => None,
+        };
+        return session_outcome(session, 0, identity);
+    }
+    if matches!(
+        result,
+        Err(SessionError::Terminal(TerminalError::DeadlineExceeded))
+    ) {
+        terminal.set_input_deadline(None, false)?;
+        let (reason, message) = match session.authentication_state() {
+            AuthenticationState::Authenticated(_) => {
+                (SessionCloseReason::TimeLimit, "caller-call-timeout")
+            }
+            AuthenticationState::NewCallerRegistration => (
+                SessionCloseReason::RegistrationTimeout,
+                "caller-registration-timeout",
+            ),
+            _ => (SessionCloseReason::LoginTimeout, "caller-login-timeout"),
+        };
+        if session.state() == SessionState::Active {
+            session.close(reason)?;
+        }
+        let _ = write_key_line(terminal, message, &crate::LocalizationArgs::new());
+        terminal.disconnect()?;
+        let identity = match session.authentication_state() {
+            AuthenticationState::Authenticated(id) => {
+                database.caller_by_id(id)?.map(|c| (c.id, c.display_name))
+            }
             _ => None,
         };
         return session_outcome(session, 0, identity);
@@ -418,6 +453,12 @@ fn run_stock_session_inner(
     else {
         return session_outcome(session, 0, None);
     };
+    terminal.set_input_deadline(
+        session.authenticated_at.map(|started| {
+            started + Duration::from_secs(authenticated.base_allowance.limit_seconds())
+        }),
+        true,
+    )?;
     let caller_id = authenticated.caller.id;
     let caller_name = authenticated.caller.display_name.clone();
     stock.status.caller_authenticated(caller_id, &caller_name)?;
@@ -467,6 +508,12 @@ fn run_stock_session_inner(
         )? {
             break;
         }
+        terminal.set_input_deadline(
+            session.authenticated_at.map(|started| {
+                started + Duration::from_secs(authenticated.base_allowance.limit_seconds())
+            }),
+            true,
+        )?;
         let elapsed = session
             .authenticated_at
             .map_or(Duration::ZERO, |started| started.elapsed())
@@ -980,7 +1027,7 @@ fn authenticate_session(
         }
         info!(
             caller_id = caller.id.get(),
-            "caller login succeeded through SSH authentication"
+            "caller credentials verified through SSH authentication"
         );
         return begin_or_close(session, terminal, database, config, caller, stock, context);
     }
@@ -990,7 +1037,11 @@ fn authenticate_session(
             session,
             terminal,
             database,
-            credentials.username(),
+            known_caller
+                .as_ref()
+                .map_or(credentials.username(), |caller| {
+                    caller.display_name.as_bytes()
+                }),
             known_caller.as_ref().map(|caller| caller.id),
             stock,
             context,
@@ -998,7 +1049,11 @@ fn authenticate_session(
             return Ok(None);
         }
         let result = if credentials.password().len() <= config.maximum_password_length {
-            database.authenticate(credentials.username(), credentials.password(), hasher)
+            database.authenticate_login_identifier(
+                credentials.username(),
+                credentials.password(),
+                hasher,
+            )
         } else {
             Ok(AuthenticationResult::Invalid)
         };
@@ -1006,7 +1061,7 @@ fn authenticate_session(
             Ok(AuthenticationResult::Valid(caller)) => {
                 info!(
                     caller_id = caller.id.get(),
-                    "caller login succeeded through configured RLogin auto-login"
+                    "caller credentials verified through configured RLogin auto-login"
                 );
                 return begin_or_close(session, terminal, database, config, caller, stock, context);
             }
@@ -1057,30 +1112,51 @@ fn authenticate_session(
         }
     }
 
-    if stock.board_access.is_private() {
+    if stock.board_access.is_private() || !config.allow_new_users {
         session.set_authentication(AuthenticationState::ExistingCallerLogin)?;
         return login_existing_caller(session, terminal, database, config, hasher, stock, context);
     }
-    write_key(
-        terminal,
-        "caller-auth-new-question",
-        &crate::LocalizationArgs::new(),
-    )?;
-    let Some(answer) = terminal.read_line(8)? else {
-        session.close(SessionCloseReason::EndOfInput)?;
-        return Ok(None);
-    };
-    if answer
-        .iter()
-        .copied()
-        .find(|byte| !byte.is_ascii_whitespace())
-        .is_some_and(|byte| byte.eq_ignore_ascii_case(&b'Y'))
-    {
-        session.set_authentication(AuthenticationState::NewCallerRegistration)?;
-        register_new_caller(session, terminal, database, config, hasher, stock, context)
-    } else {
-        session.set_authentication(AuthenticationState::ExistingCallerLogin)?;
-        login_existing_caller(session, terminal, database, config, hasher, stock, context)
+    loop {
+        write_key(
+            terminal,
+            "caller-auth-new-question",
+            &crate::LocalizationArgs::new(),
+        )?;
+        let answer = match terminal.read_line(8) {
+            Ok(Some(answer)) => answer,
+            Ok(None) => {
+                session.close(SessionCloseReason::EndOfInput)?;
+                return Ok(None);
+            }
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
+                write_key_line(
+                    terminal,
+                    "caller-auth-choice-invalid",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        match answer.as_slice() {
+            b"Y" | b"y" => {
+                session.set_authentication(AuthenticationState::NewCallerRegistration)?;
+                return register_new_caller(
+                    session, terminal, database, config, hasher, stock, context,
+                );
+            }
+            b"N" | b"n" | b"" => {
+                session.set_authentication(AuthenticationState::ExistingCallerLogin)?;
+                return login_existing_caller(
+                    session, terminal, database, config, hasher, stock, context,
+                );
+            }
+            _ => write_key_line(
+                terminal,
+                "caller-auth-choice-invalid",
+                &crate::LocalizationArgs::new(),
+            )?,
+        }
     }
 }
 
@@ -1093,13 +1169,19 @@ fn login_existing_caller(
     stock: &StockSessionContext<'_>,
     context: &DisplayContext<'_>,
 ) -> Result<Option<AuthenticatedCaller>, SessionError> {
-    for _ in 0..config.maximum_login_attempts {
+    for attempt in 0..config.maximum_login_attempts {
         write_key(
             terminal,
             "caller-auth-name-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(name) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+        let input = match terminal.read_line(32) {
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
+                Some(Vec::new())
+            }
+            other => other?,
+        };
+        let Some(name) = input else {
             session.close(SessionCloseReason::EndOfInput)?;
             return Ok(None);
         };
@@ -1108,7 +1190,9 @@ fn login_existing_caller(
             session,
             terminal,
             database,
-            &name,
+            known_caller
+                .as_ref()
+                .map_or(name.as_slice(), |caller| caller.display_name.as_bytes()),
             known_caller.as_ref().map(|caller| caller.id),
             stock,
             context,
@@ -1120,16 +1204,22 @@ fn login_existing_caller(
             "caller-auth-password-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(mut password) = terminal.read_secret_line(config.maximum_password_length)? else {
+        let input = match terminal.read_secret_line(config.maximum_password_length) {
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
+                Some(Vec::new())
+            }
+            other => other?,
+        };
+        let Some(mut password) = input else {
             session.close(SessionCloseReason::EndOfInput)?;
             return Ok(None);
         };
         terminal.write_all(b"\r\n")?;
-        let result = database.authenticate(&name, &password, hasher);
+        let result = database.authenticate_login_identifier(&name, &password, hasher);
         password.fill(0);
         match result {
             Ok(AuthenticationResult::Valid(caller)) => {
-                info!(caller_id = caller.id.get(), "caller login succeeded");
+                info!(caller_id = caller.id.get(), "caller credentials verified");
                 return begin_or_close(session, terminal, database, config, caller, stock, context);
             }
             Ok(AuthenticationResult::Unavailable(caller)) => {
@@ -1170,6 +1260,7 @@ fn login_existing_caller(
                     )?;
                 }
                 warn!("caller login failed");
+                std::thread::sleep(Duration::from_millis(250 * u64::from(attempt + 1)));
                 if stock.resources.display("SFONFAIL").is_some() {
                     render_named_display(terminal, stock.resources, "SFONFAIL", context)?;
                 } else {
@@ -1207,7 +1298,7 @@ fn known_caller_for_login(
     database: &RuntimeDatabase,
     name: &[u8],
 ) -> Result<Option<Caller>, SessionError> {
-    match database.caller_by_name(name) {
+    match database.caller_by_login_identifier(name) {
         Ok(caller) => Ok(caller),
         Err(DatabaseError::InvalidCaller(_)) => Ok(None),
         Err(error) => Err(error.into()),
@@ -1244,28 +1335,73 @@ fn reject_joker_name(
     Ok(true)
 }
 
-fn register_new_caller(
-    session: &mut Session,
+type RegistrationIdentity = (Vec<u8>, Vec<u8>);
+
+fn collect_registration_identity(
     terminal: &mut dyn Terminal,
-    database: &mut RuntimeDatabase,
+    database: &RuntimeDatabase,
     config: &CallerConfig,
-    hasher: &CredentialHasher,
     stock: &StockSessionContext<'_>,
-    context: &DisplayContext<'_>,
-) -> Result<Option<AuthenticatedCaller>, SessionError> {
-    let name = loop {
+) -> Result<Option<RegistrationIdentity>, SessionError> {
+    let login = loop {
+        write_key(
+            terminal,
+            "caller-registration-login-prompt",
+            &crate::LocalizationArgs::new(),
+        )?;
+        let value = match terminal.read_line(32) {
+            Ok(Some(value)) => value,
+            Ok(None) => return Ok(None),
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
+                write_key_line(
+                    terminal,
+                    "caller-registration-login-invalid",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if value == b"/Q" || value == b"/q" {
+            return Ok(None);
+        }
+        match crate::canonicalize_login_identifier(&value) {
+            Ok(login)
+                if !matches!(login.as_str(), "sysop" | "system")
+                    && login
+                        != crate::derive_login_identifier_base(
+                            &config.sysop_caller_name.to_ascii_lowercase(),
+                        ) =>
+            {
+                if database
+                    .caller_by_login_identifier(login.as_bytes())?
+                    .is_none()
+                {
+                    break login.into_bytes();
+                }
+                write_key_line(
+                    terminal,
+                    "caller-registration-duplicate",
+                    &crate::LocalizationArgs::new(),
+                )?;
+            }
+            _ => write_key_line(
+                terminal,
+                "caller-registration-login-invalid",
+                &crate::LocalizationArgs::new(),
+            )?,
+        }
+    };
+    let handle = loop {
         write_key(
             terminal,
             "caller-registration-name-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let name = match terminal.read_line(MAX_CALLER_NAME_INPUT) {
-            Ok(Some(name)) => name,
-            Ok(None) => {
-                session.close(SessionCloseReason::EndOfInput)?;
-                return Ok(None);
-            }
-            Err(TerminalError::InputTooLong { .. }) => {
+        let value = match terminal.read_line(30) {
+            Ok(Some(value)) => value,
+            Ok(None) => return Ok(None),
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
                 write_key_line(
                     terminal,
                     "caller-registration-name-too-long",
@@ -1275,30 +1411,58 @@ fn register_new_caller(
             }
             Err(error) => return Err(error.into()),
         };
-        if reject_joker_name(session, terminal, database, &name, None, stock, context)? {
+        if value == b"/Q" || value == b"/q" {
             return Ok(None);
         }
-        match database.caller_by_name(&name) {
-            Ok(Some(_)) => {
-                write_line(
-                    terminal,
-                    "That caller name is already registered. Continuing with returning-caller login.",
-                )?;
-                session.set_authentication(AuthenticationState::ExistingCallerLogin)?;
-                return login_existing_caller(
-                    session, terminal, database, config, hasher, stock, context,
-                );
-            }
-            Ok(None) => break name,
-            Err(DatabaseError::InvalidCaller(_)) => {
+        match crate::canonicalize_caller_name(&value) {
+            Ok((_, normalized))
+                if normalized
+                    != crate::canonicalize_caller_name(config.sysop_caller_name.as_bytes())?.1
+                    && stock
+                        .joker_policy
+                        .denial_for(&value)
+                        .ok()
+                        .flatten()
+                        .is_none() =>
+            {
+                if database.caller_by_name(&value)?.is_none() {
+                    break value;
+                }
                 write_key_line(
                     terminal,
-                    "caller-registration-name-invalid",
+                    "caller-registration-duplicate",
                     &crate::LocalizationArgs::new(),
                 )?;
             }
-            Err(error) => return Err(error.into()),
+            _ => write_key_line(
+                terminal,
+                "caller-registration-name-invalid",
+                &crate::LocalizationArgs::new(),
+            )?,
         }
+    };
+    Ok(Some((login, handle)))
+}
+
+fn register_new_caller(
+    session: &mut Session,
+    terminal: &mut dyn Terminal,
+    database: &mut RuntimeDatabase,
+    config: &CallerConfig,
+    hasher: &CredentialHasher,
+    stock: &StockSessionContext<'_>,
+    context: &DisplayContext<'_>,
+) -> Result<Option<AuthenticatedCaller>, SessionError> {
+    terminal.set_input_deadline(
+        Some(Instant::now() + Duration::from_secs(config.registration_timeout_seconds)),
+        false,
+    )?;
+    render_named_display(terminal, stock.resources, "NEWUSER", context)?;
+    let Some((mut login, mut name)) =
+        collect_registration_identity(terminal, database, config, stock)?
+    else {
+        session.close(SessionCloseReason::EndOfInput)?;
+        return Ok(None);
     };
     let password_hash = loop {
         write_key(
@@ -1312,7 +1476,7 @@ fn register_new_caller(
                 session.close(SessionCloseReason::EndOfInput)?;
                 return Ok(None);
             }
-            Err(TerminalError::InputTooLong { .. }) => {
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
                 write_line(
                     terminal,
                     "Password is longer than the configured maximum. Please try again.",
@@ -1334,7 +1498,7 @@ fn register_new_caller(
                 session.close(SessionCloseReason::EndOfInput)?;
                 return Ok(None);
             }
-            Err(TerminalError::InputTooLong { .. }) => {
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
                 password.fill(0);
                 write_line(
                     terminal,
@@ -1371,7 +1535,6 @@ fn register_new_caller(
         password.fill(0);
         break hash_result?;
     };
-    let now = unix_seconds()?;
     let mut profile = CallerProfile::default();
     let caller = loop {
         let Some(collected) = collect_caller_profile(terminal, &config.profile, profile, false)?
@@ -1381,31 +1544,40 @@ fn register_new_caller(
                 "New caller registration canceled. Returning to caller login.",
             )?;
             session.set_authentication(AuthenticationState::ExistingCallerLogin)?;
+            terminal.set_input_deadline(
+                Some(Instant::now() + Duration::from_secs(config.login_timeout_seconds)),
+                false,
+            )?;
             return login_existing_caller(
                 session, terminal, database, config, hasher, stock, context,
             );
         };
         profile = collected;
-        match database.create_caller_with_profile(
+        match database.create_caller_with_login_profile(
+            Some(&login),
             &name,
             &password_hash,
             SecurityLevel::new(config.new_caller_security)?,
             CallerState::Active,
             true,
-            now,
+            unix_seconds()?,
             profile.clone(),
             &config.profile,
         ) {
             Ok(caller) => break caller,
             Err(DatabaseError::DuplicateCaller(_)) => {
-                write_line(
+                write_key_line(
                     terminal,
-                    "That caller name was registered by another session. Continuing with returning-caller login.",
+                    "caller-registration-duplicate",
+                    &crate::LocalizationArgs::new(),
                 )?;
-                session.set_authentication(AuthenticationState::ExistingCallerLogin)?;
-                return login_existing_caller(
-                    session, terminal, database, config, hasher, stock, context,
-                );
+                let Some(identity) =
+                    collect_registration_identity(terminal, database, config, stock)?
+                else {
+                    session.close(SessionCloseReason::EndOfInput)?;
+                    return Ok(None);
+                };
+                (login, name) = identity;
             }
             Err(DatabaseError::InvalidStoredCaller(error)) => {
                 if profile_validation_is_recoverable(terminal, &error)? {
@@ -1417,6 +1589,11 @@ fn register_new_caller(
         }
     };
     info!(caller_id = caller.id.get(), "new caller created");
+    write_key_line(
+        terminal,
+        "caller-registration-login-created",
+        &crate::LocalizationArgs::new().with("login", caller.login_identifier.clone()),
+    )?;
     write_key_line(
         terminal,
         "caller-registration-complete",
@@ -1476,7 +1653,7 @@ fn begin_or_close(
         terminal.disconnect()?;
         return Ok(None);
     }
-    match database.begin_caller_session_observed(
+    match database.admit_caller_session(
         &caller,
         config,
         now,
@@ -1486,10 +1663,34 @@ fn begin_or_close(
             session.id().get(),
             terminal.info().transport.as_str(),
         )),
+        stock
+            .board_access
+            .is_private()
+            .then_some(stock.private_security_level),
     ) {
         Ok(authenticated) => {
             session.mark_authenticated(caller.id, now)?;
             Ok(Some(authenticated))
+        }
+        Err(DatabaseError::CallerAlreadyOnline) => {
+            write_key_line(
+                terminal,
+                "caller-already-online",
+                &crate::LocalizationArgs::new(),
+            )?;
+            session.close(SessionCloseReason::AccountUnavailable)?;
+            terminal.disconnect()?;
+            Ok(None)
+        }
+        Err(DatabaseError::CallerUnavailable) => {
+            write_key_line(
+                terminal,
+                "caller-account-unavailable",
+                &crate::LocalizationArgs::new(),
+            )?;
+            session.close(SessionCloseReason::AccountUnavailable)?;
+            terminal.disconnect()?;
+            Ok(None)
         }
         Err(DatabaseError::DailyCallLimitReached) => {
             database.record_caller_access_denial(
@@ -1658,7 +1859,7 @@ fn collect_profile_field(
                 let input = match terminal.read_line(60) {
                     Ok(Some(input)) => input,
                     Ok(None) => return Ok(false),
-                    Err(TerminalError::InputTooLong { .. }) => {
+                    Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
                         write_key_line(
                             terminal,
                             "caller-name-invalid",
@@ -1917,7 +2118,7 @@ fn prompt_profile_text(
         let input = match terminal.read_line(maximum) {
             Ok(Some(input)) => input,
             Ok(None) => return Ok(None),
-            Err(TerminalError::InputTooLong { .. }) => {
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
                 write_line(
                     terminal,
                     &format!("That value is too long; enter at most {maximum} bytes."),
@@ -1926,7 +2127,22 @@ fn prompt_profile_text(
             }
             Err(error) => return Err(error.into()),
         };
-        let value = String::from_utf8_lossy(&input).trim().to_owned();
+        let charset = if terminal.info().capabilities.cp437 {
+            sf_net::ftn::Charset::Cp437
+        } else {
+            sf_net::ftn::Charset::Utf8
+        };
+        let value = match charset.decode(&input) {
+            Ok(value) => value.trim().to_owned(),
+            Err(_) => {
+                write_key_line(
+                    terminal,
+                    "caller-profile-input-invalid",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                continue;
+            }
+        };
         if value.eq_ignore_ascii_case("/Q") {
             return Ok(None);
         }
@@ -2016,14 +2232,26 @@ fn edit_caller_profile(
         )?;
         return Ok(());
     };
-    authenticated.caller = database.update_caller_profile_versioned(
+    let result = database.update_caller_profile_versioned(
         authenticated.caller.id,
         authenticated.caller.state_version,
         profile,
         &config.profile,
         crate::identity::IdentityEditActor::Caller,
         unix_seconds()?,
-    )?;
+    );
+    authenticated.caller = match result {
+        Ok(caller) => caller,
+        Err(DatabaseError::CallerStateConflict { .. }) => {
+            write_key_line(
+                terminal,
+                "caller-setting-conflict",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
     show_profile_identity(terminal, &authenticated.caller)?;
     info!(
         caller_id = authenticated.caller.id.get(),
@@ -2567,7 +2795,7 @@ fn read_utf8_input(
 ) -> Result<Option<String>, SessionError> {
     let bytes = match terminal.read_line(maximum) {
         Ok(value) => value,
-        Err(TerminalError::InputTooLong { .. }) => {
+        Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
             write_key_line(
                 terminal,
                 "caller-public-information-input-invalid",
@@ -2637,7 +2865,7 @@ fn show_about(
         &crate::LocalizationArgs::new(),
     )?;
     match terminal.read_line(8) {
-        Ok(_) | Err(TerminalError::InputTooLong { .. }) => {
+        Ok(_) | Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
             terminal.write_all(b"\r\n")?;
             Ok(())
         }
@@ -2827,9 +3055,6 @@ fn render_post_login_resources(
     context: &DisplayContext<'_>,
     authenticated: &AuthenticatedCaller,
 ) -> Result<(), SessionError> {
-    if authenticated.first_session {
-        render_named_display(terminal, resources, "NEWUSER", context)?;
-    }
     for number in 2..=9 {
         render_named_display(terminal, resources, &format!("WELCOME{number}"), context)?;
     }
@@ -2892,7 +3117,9 @@ fn read_menu_command_inner(
     let input = match terminal.read_line(MAX_MENU_COMMAND_BYTES) {
         Ok(Some(input)) => input,
         Ok(None) => return Ok(None),
-        Err(TerminalError::InputTooLong { .. }) => return Ok(Some(INVALID_MENU_COMMAND)),
+        Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {
+            return Ok(Some(INVALID_MENU_COMMAND))
+        }
         Err(error) => return Err(error),
     };
     let command = input
@@ -3122,7 +3349,22 @@ fn edit_terminal_preferences(
         }
         _ => return Ok(()),
     }
-    let caller = database.update_caller_preferences(authenticated.caller.id, preferences)?;
+    let caller = match database.update_caller_preferences(
+        authenticated.caller.id,
+        authenticated.caller.state_version,
+        preferences,
+    ) {
+        Ok(caller) => caller,
+        Err(DatabaseError::CallerStateConflict { .. }) => {
+            write_key_line(
+                terminal,
+                "caller-setting-conflict",
+                &crate::LocalizationArgs::new(),
+            )?;
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
     authenticated.caller = caller;
     terminal.set_preferences(preferences);
     write_key_line(

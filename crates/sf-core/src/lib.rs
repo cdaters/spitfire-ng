@@ -115,8 +115,9 @@ pub use resources::{
     MenuItem, MenuSection, ResourceError, StockResources,
 };
 pub use session::{
-    run_stock_session, Session, SessionCloseReason, SessionError, SessionId, SessionOutcome,
-    SessionState, SessionStatusObserver, SessionTimeController, StockSessionContext,
+    run_stock_session, AuthenticationState, Session, SessionCloseReason, SessionError, SessionId,
+    SessionOutcome, SessionState, SessionStatusObserver, SessionTimeController,
+    StockSessionContext,
 };
 pub use session_control_terminal::{
     run_attached_caller_chat, SessionControlTerminal, CHAT_INVITATION_TIMEOUT,
@@ -149,3 +150,5 @@ pub mod circuitnet;
 pub mod events;
 
 pub mod conference_health;
+
+mod session_custody;

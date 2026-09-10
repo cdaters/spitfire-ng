@@ -1,5 +1,9 @@
 # SPITFIRE NG Documentation
 
+[Caller login and session policy](operator/caller-management.md), the
+[caller guide](caller-guide/README.md), and the [session contract](technical/caller-sessions.md)
+cover atomic admission, new users, exclusive account ownership and recovery.
+
 [Updating SPITFIRE NG](operator/upgrades.md), [deployment storage](operator/deployment-storage.md)
 and the [deployment contract](technical/deployment.md) describe authenticated
 updates, pre-commit recovery and runtime rollback preserving current durable

@@ -383,12 +383,13 @@ fn run_cli_inner(arguments: Vec<OsString>) -> Result<String, ApplicationError> {
             let mut login = if runtime.caller_exists(b"Increment Two Demo")? {
                 vec![
                     b"N".to_vec(),
-                    b"Increment Two Demo".to_vec(),
+                    b"increment-two-demo".to_vec(),
                     b"test-only-demo-password".to_vec(),
                 ]
             } else {
                 vec![
                     b"Y".to_vec(),
+                    b"increment-two-demo".to_vec(),
                     b"Increment Two Demo".to_vec(),
                     b"test-only-demo-password".to_vec(),
                     b"test-only-demo-password".to_vec(),

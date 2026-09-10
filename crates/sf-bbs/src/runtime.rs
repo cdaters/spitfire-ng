@@ -349,6 +349,7 @@ impl BoardRuntime {
         info!("opening and migrating the operational SQLite database");
         let mut database = RuntimeDatabase::open(paths.database())?;
         let migration = database.migrate()?;
+        database.recover_caller_sessions(current_unix_seconds()?)?;
         let identity = database.ensure_board_identity(&validated.identity)?;
         let file_storage = FileStorage::new(&paths)?;
         let network_artifacts =
@@ -939,17 +940,15 @@ impl BoardRuntime {
 
     pub fn set_caller_profile(
         &self,
-        name: &[u8],
+        caller_id: sf_core::CallerId,
+        expected_version: u64,
         profile: sf_core::CallerProfile,
     ) -> Result<Caller, ApplicationError> {
         let database = RuntimeDatabase::open(self.paths.database())?;
-        let caller = database
-            .caller_by_name(name)?
-            .ok_or(ApplicationError::InvalidSetupValue("unknown caller"))?;
         database
             .update_caller_profile_versioned(
-                caller.id,
-                caller.state_version,
+                caller_id,
+                expected_version,
                 profile,
                 &self.caller_config.profile,
                 sf_core::identity::IdentityEditActor::LocalOperator,
@@ -1146,6 +1145,7 @@ impl BoardRuntime {
         // operational database failure cannot strand that node as busy.
         let mut database = RuntimeDatabase::open(self.paths.database())?;
         database.bind_posting_identity_configuration(&session_config);
+        database.bind_session_generation(&self.daemon_generation);
 
         let connected_at = terminal_info
             .connected_at
@@ -1181,6 +1181,11 @@ impl BoardRuntime {
             Err(error) => return Err(error.into()),
         };
         let mut session = lease.start_session();
+        let _cleanup = CallerConnectionCleanup {
+            runtime: self,
+            node: session.node_id().get(),
+            session: session.id(),
+        };
         self.session_transports
             .lock()
             .map_err(|_| ApplicationError::Coordination("session transport lock poisoned"))?
@@ -1206,7 +1211,8 @@ impl BoardRuntime {
                 &self.interaction,
                 &lease,
                 session.id(),
-            );
+            )
+            .with_time_controller(self.session_time_adjustments.as_ref());
             let presentation_profile = self
                 .presentation
                 .status()
@@ -1252,6 +1258,27 @@ impl BoardRuntime {
         }
         if outcome.is_err() && session.state() == SessionState::Active {
             let _ = session.close(SessionCloseReason::TransportLost);
+        }
+        if !matches!(
+            session.authentication_state(),
+            sf_core::AuthenticationState::Authenticated(_)
+        ) {
+            let mut event = NewOperationalEvent::new(
+                current_unix_seconds().unwrap_or(connected_at),
+                EventCategory::Session,
+                EventSeverity::Info,
+                "session.prelogin-ended",
+                sf_core::EventOutcome::Observed,
+            );
+            event.node_id = Some(session.node_id().get());
+            event.session_id = Some(session.id().get());
+            event.attributes = sf_core::EventAttributes::Session {
+                public_handle: None,
+                transport: Some(terminal_info.transport.as_str().into()),
+                duration_seconds: None,
+                close_reason: session.close_reason().map(|r| r.as_str().into()),
+            };
+            database.record_operational_event(&event)?;
         }
         let accounting_result = session.accounting(self.timezone)?.map_or(
             Ok(()),
@@ -1311,6 +1338,32 @@ impl BoardRuntime {
             caller_name: outcome.caller_name,
             node_idle_at_shutdown,
         }))
+    }
+}
+
+struct CallerConnectionCleanup<'a> {
+    runtime: &'a BoardRuntime,
+    node: u32,
+    session: SessionId,
+}
+impl Drop for CallerConnectionCleanup<'_> {
+    fn drop(&mut self) {
+        let result = RuntimeDatabase::open(self.runtime.paths.database()).and_then(|mut db| {
+            db.bind_session_generation(&self.runtime.daemon_generation);
+            db.abandon_caller_session(
+                self.node,
+                self.session.get(),
+                chrono::Utc::now().timestamp(),
+            )
+        });
+        if let Err(error) = result {
+            warn!(session=self.session.get(), error=%error, "caller claim cleanup deferred to board restart");
+        }
+        let _ = self.runtime.interaction.session_ended(self.session);
+        self.runtime.clear_session_time_adjustment(self.session);
+        if let Ok(mut entries) = self.runtime.session_transports.lock() {
+            entries.remove(&self.session);
+        }
     }
 }
 
@@ -1861,6 +1914,7 @@ mod tests {
         let config = root.join(FIXTURE_CONFIG_FILE);
         let mut terminal = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"runtime-test-caller".to_vec(),
             b"Runtime Test Caller".to_vec(),
             b"test-only-runtime-password".to_vec(),
             b"test-only-runtime-password".to_vec(),
@@ -2185,7 +2239,7 @@ mod tests {
 
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Classic Caller".to_vec(),
+            b"classic-caller".to_vec(),
             b"test-only classic password".to_vec(),
             b"N".to_vec(),
             b"G".to_vec(),
@@ -2228,7 +2282,7 @@ mod tests {
 
         let mut failed_lines = Vec::new();
         for _ in 0..config.caller.maximum_login_attempts {
-            failed_lines.push(b"Context Caller".to_vec());
+            failed_lines.push(b"context-caller".to_vec());
             failed_lines.push(b"wrong test-only password".to_vec());
         }
         failed_lines.insert(0, b"N".to_vec());
@@ -2241,7 +2295,7 @@ mod tests {
 
         let mut successful = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Context Caller".to_vec(),
+            b"context-caller".to_vec(),
             password.to_vec(),
             b"G".to_vec(),
         ]);
@@ -2260,7 +2314,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Context Caller".to_vec(),
+            b"context-caller".to_vec(),
             password.to_vec(),
             b"G".to_vec(),
         ]);
@@ -2339,7 +2393,7 @@ mod tests {
 
         let mut exact_100 = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Exact One Hundred".to_vec(),
+            b"exact-one-hundred".to_vec(),
             b"test-only exact 100".to_vec(),
             b"@".to_vec(),
             b"G".to_vec(),
@@ -2354,7 +2408,7 @@ mod tests {
 
         let mut arbitrary = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Arbitrary Seven Seven Seven".to_vec(),
+            b"arbitrary-seven-seven-seven".to_vec(),
             b"test-only arbitrary 777".to_vec(),
             b"@".to_vec(),
             b"Q".to_vec(),
@@ -2367,7 +2421,7 @@ mod tests {
 
         let mut exact_999 = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Exact Nine Nine Nine".to_vec(),
+            b"exact-nine-nine-nine".to_vec(),
             b"test-only exact 999".to_vec(),
             b"@".to_vec(),
             b"Q".to_vec(),
@@ -2429,7 +2483,10 @@ mod tests {
             let mut terminal = InMemoryTerminal::with_info(
                 [
                     b"N".to_vec(),
-                    name.to_vec(),
+                    sf_core::derive_login_identifier_base(
+                        &String::from_utf8_lossy(name).to_ascii_lowercase(),
+                    )
+                    .into_bytes(),
                     password.to_vec(),
                     b"G".to_vec(),
                 ],
@@ -2503,7 +2560,7 @@ mod tests {
 
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Classic Files Caller".to_vec(),
+            b"classic-files-caller".to_vec(),
             b"test-only classic files password".to_vec(),
             b"Y".to_vec(),
             b"".to_vec(),
@@ -2539,7 +2596,7 @@ mod tests {
         fs::write(&menu_path, menu).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Mapped Caller".to_vec(),
+            b"mapped-caller".to_vec(),
             b"test-only mapped password".to_vec(),
             b"?".to_vec(),
             b"Z".to_vec(),
@@ -2573,7 +2630,7 @@ mod tests {
         let caller = thread::spawn(move || {
             let mut terminal = InMemoryTerminal::with_lines([
                 b"N".to_vec(),
-                b"Interaction Caller".to_vec(),
+                b"interaction-caller".to_vec(),
                 b"test-only interaction password".to_vec(),
                 b"P".to_vec(),
                 b"Hello from caller".to_vec(),
@@ -2664,7 +2721,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Interaction Caller".to_vec(),
+            b"interaction-caller".to_vec(),
             b"test-only interaction password".to_vec(),
             b"Y".to_vec(),
             b"G".to_vec(),
@@ -2695,7 +2752,7 @@ mod tests {
         let caller = thread::spawn(move || {
             let mut terminal = InMemoryTerminal::with_lines([
                 b"N".to_vec(),
-                b"Active Lifecycle Caller".to_vec(),
+                b"active-lifecycle-caller".to_vec(),
                 b"test-only active lifecycle password".to_vec(),
                 b"P".to_vec(),
                 b"Lifecycle test".to_vec(),
@@ -2759,7 +2816,7 @@ mod tests {
 
         let mut sysop = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Sysop".to_vec(),
+            b"sysop".to_vec(),
             b"test-only clean sysop password".to_vec(),
             b"M".to_vec(),
             b"E".to_vec(),
@@ -2780,6 +2837,7 @@ mod tests {
             let password = b"test-only clean caller password";
             let mut terminal = InMemoryTerminal::with_lines([
                 b"Y".to_vec(),
+                b"clean-caller".to_vec(),
                 b"Clean Caller".to_vec(),
                 password.to_vec(),
                 password.to_vec(),
@@ -2853,7 +2911,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Clean Caller".to_vec(),
+            b"clean-caller".to_vec(),
             b"test-only clean caller password".to_vec(),
             b"M".to_vec(),
             b"B".to_vec(),
@@ -2907,6 +2965,7 @@ mod tests {
         let password = b"test-only minimal caller password";
         let mut terminal = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"minimal-caller".to_vec(),
             b"Minimal Caller".to_vec(),
             password.to_vec(),
             password.to_vec(),
@@ -3001,6 +3060,7 @@ mod tests {
         let password = b"test-only classic caller password";
         let mut terminal = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"classic-acceptance-caller".to_vec(),
             b"Classic Acceptance Caller".to_vec(),
             password.to_vec(),
             password.to_vec(),
@@ -3101,6 +3161,7 @@ mod tests {
         let password = b"test-only profile caller password";
         let mut registration = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"profile-caller".to_vec(),
             b"Profile Caller".to_vec(),
             password.to_vec(),
             password.to_vec(),
@@ -3160,7 +3221,7 @@ mod tests {
         let mut changed = service.caller("Profile Caller").unwrap().profile;
         changed.phone = Some("+1 480 555 0101".to_owned());
         let changed = service
-            .set_caller_profile("Profile Caller", changed)
+            .set_caller_profile(stored.id, stored.state_version, changed)
             .unwrap();
         assert_eq!(changed.profile.phone.as_deref(), Some("+1 480 555 0101"));
 
@@ -3176,7 +3237,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Profile Caller".to_vec(),
+            b"profile-caller".to_vec(),
             password.to_vec(),
             b"R".to_vec(),
             b"".to_vec(),
@@ -3219,6 +3280,7 @@ mod tests {
         let password = b"test-only registration caller password";
         let mut registration = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"registration-caller".to_vec(),
             b"Registration Caller".to_vec(),
             password.to_vec(),
             password.to_vec(),
@@ -3414,6 +3476,7 @@ mod tests {
         let new_password = b"test-only canceled caller password";
         let mut terminal = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"canceled-caller".to_vec(),
             b"Canceled Caller".to_vec(),
             new_password.to_vec(),
             new_password.to_vec(),
@@ -3506,7 +3569,7 @@ mod tests {
         while db.conference_health_rollup(now).unwrap().pending {}
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Health Caller".to_vec(),
+            b"health-caller".to_vec(),
             b"synthetic health password".to_vec(),
             b"B".to_vec(),
             b"H".to_vec(),
@@ -3543,7 +3606,7 @@ mod tests {
         let mut terminal = InMemoryTerminal::with_info(
             [
                 b"N".to_vec(),
-                b"About Caller".to_vec(),
+                b"about-caller".to_vec(),
                 b"test-only about password".to_vec(),
                 b"V".to_vec(),
                 b"".to_vec(),
@@ -3608,7 +3671,7 @@ mod tests {
         let mut terminal = InMemoryTerminal::with_info(
             [
                 b"N".to_vec(),
-                b"Sysop".to_vec(),
+                b"sysop".to_vec(),
                 b"test-only minimal paging password".to_vec(),
                 b"".to_vec(),
                 b"V".to_vec(),
@@ -3666,7 +3729,7 @@ mod tests {
         let mut terminal = InMemoryTerminal::with_info(
             [
                 b"N".to_vec(),
-                b"Sysop".to_vec(),
+                b"sysop".to_vec(),
                 b"test-only classic paging password".to_vec(),
                 b"V".to_vec(),
                 b"N".to_vec(),
@@ -3735,7 +3798,7 @@ mod tests {
             let mut preferences = caller.preferences;
             preferences.more_prompt = false;
             database
-                .update_caller_preferences(caller.id, preferences)
+                .update_caller_preferences(caller.id, caller.state_version, preferences)
                 .unwrap();
             drop(database);
 
@@ -3745,7 +3808,7 @@ mod tests {
             let mut terminal = InMemoryTerminal::with_info(
                 [
                     b"N".to_vec(),
-                    b"Classic Size Caller".to_vec(),
+                    b"classic-size-caller".to_vec(),
                     b"test-only classic size password".to_vec(),
                     b"N".to_vec(),
                     b"G".to_vec(),
@@ -3781,7 +3844,7 @@ mod tests {
         );
         let runtime = BoardRuntime::load(&root.join(crate::BOARD_CONFIG_FILE)).unwrap();
         let mut denied = InMemoryTerminal::with_lines([
-            b"Low Security Caller".to_vec(),
+            b"low-security-caller".to_vec(),
             b"test-only low security password".to_vec(),
         ]);
         let ConnectionReport::Completed(denied_report) =
@@ -3827,7 +3890,7 @@ mod tests {
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"File Input Caller".to_vec(),
+            b"file-input-caller".to_vec(),
             b"test-only file input password".to_vec(),
             b"F".to_vec(),
             Vec::new(),
@@ -3869,7 +3932,7 @@ mod tests {
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut first = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"File Caller".to_vec(),
+            b"file-caller".to_vec(),
             b"test-only file password".to_vec(),
             b"F".to_vec(),
             b"R".to_vec(),
@@ -3910,7 +3973,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"File Caller".to_vec(),
+            b"file-caller".to_vec(),
             b"test-only file password".to_vec(),
             b"F".to_vec(),
             b"F".to_vec(),
@@ -4009,7 +4072,7 @@ mod tests {
         let runtime = BoardRuntime::load(&config_path).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Request Caller".to_vec(),
+            b"request-caller".to_vec(),
             b"test-only request password".to_vec(),
             b"F".to_vec(),
             b"D".to_vec(),
@@ -4084,7 +4147,7 @@ mod tests {
         let runtime = BoardRuntime::load(&config_path).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Preview Journey Caller".to_vec(),
+            b"preview-journey-caller".to_vec(),
             b"test-only preview journey password".to_vec(),
             b"F".to_vec(),
             b"C".to_vec(),
@@ -4194,7 +4257,7 @@ mod tests {
             let runtime = BoardRuntime::load(&config_path).unwrap();
             let mut terminal = InMemoryTerminal::with_lines([
                 b"N".to_vec(),
-                b"Profile Inspection Caller".to_vec(),
+                b"profile-inspection-caller".to_vec(),
                 b"test-only profile inspection password".to_vec(),
                 b"F".to_vec(),
                 b"C".to_vec(),
@@ -4269,10 +4332,10 @@ mod tests {
         let mut first = connect_retry(address);
         let mut second = connect_retry(address);
         first
-            .write_all(b"N\rDownload One\rtest-only download one\rF\rD\rWELCOME.TXT\rG\r")
+            .write_all(b"N\rdownload-one\rtest-only download one\rF\rD\rWELCOME.TXT\rG\r")
             .unwrap();
         second
-            .write_all(b"N\rDownload Two\rtest-only download two\rF\rD\rWELCOME.TXT\rG\r")
+            .write_all(b"N\rdownload-two\rtest-only download two\rF\rD\rWELCOME.TXT\rG\r")
             .unwrap();
         let _ = first.shutdown(Shutdown::Write);
         let _ = second.shutdown(Shutdown::Write);
@@ -4541,7 +4604,7 @@ mod tests {
             .unwrap();
         stream
             .write_all(
-                b"N\rTelnet File Caller\rtest-only telnet file password\rF\rL\r\rF\rWELCOME\r\rD\rWELCOME.TXT\rU\rNETFILE.TXT\rNetwork acceptance upload\rnetwork upload body\r/S\rF\rNETFILE\r\rD\rNETFILE.TXT\rQ\rY\rG\r",
+                b"N\rtelnet-file-caller\rtest-only telnet file password\rF\rL\r\rF\rWELCOME\r\rD\rWELCOME.TXT\rU\rNETFILE.TXT\rNetwork acceptance upload\rnetwork upload body\r/S\rF\rNETFILE\r\rD\rNETFILE.TXT\rQ\rY\rG\r",
             )
             .unwrap();
         let _ = stream.shutdown(Shutdown::Write);
@@ -4595,6 +4658,7 @@ mod tests {
         let password = b"test-only reconnect password";
         let mut registration = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"persistent-caller".to_vec(),
             b"Persistent Caller".to_vec(),
             password.to_vec(),
             password.to_vec(),
@@ -4605,7 +4669,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"PERSISTENT CALLER".to_vec(),
+            b"persistent-caller".to_vec(),
             password.to_vec(),
             b"Y".to_vec(),
             b"G".to_vec(),
@@ -4628,7 +4692,7 @@ mod tests {
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Unknown Caller".to_vec(),
+            b"unknown-caller".to_vec(),
             b"wrong-one".to_vec(),
             b"Unknown Caller".to_vec(),
             b"wrong-two".to_vec(),
@@ -4662,7 +4726,7 @@ mod tests {
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Disabled Caller".to_vec(),
+            b"disabled-caller".to_vec(),
             b"test-only disabled password".to_vec(),
         ]);
         let report = runtime.run_connection(&mut terminal).unwrap();
@@ -4693,7 +4757,7 @@ mod tests {
         .unwrap();
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut returning =
-            InMemoryTerminal::with_lines([b"N".to_vec(), b"blocked caller".to_vec()]);
+            InMemoryTerminal::with_lines([b"N".to_vec(), b"blocked-caller".to_vec()]);
         let ConnectionReport::Completed(report) = runtime.run_connection(&mut returning).unwrap()
         else {
             panic!("all nodes unexpectedly busy");
@@ -4706,13 +4770,17 @@ mod tests {
         assert!(!contains(returning.output(), b"Blocked Caller"));
         assert!(!contains(returning.output(), b"fragment"));
 
-        let mut new_caller =
-            InMemoryTerminal::with_lines([b"Y".to_vec(), b"Synthetic Fragment Name".to_vec()]);
+        let mut new_caller = InMemoryTerminal::with_lines([
+            b"Y".to_vec(),
+            b"new-login".to_vec(),
+            b"Synthetic Fragment Name".to_vec(),
+        ]);
         let ConnectionReport::Completed(report) = runtime.run_connection(&mut new_caller).unwrap()
         else {
             panic!("all nodes unexpectedly busy");
         };
-        assert_eq!(report.close_reason, SessionCloseReason::AccountUnavailable);
+        assert_eq!(report.close_reason, SessionCloseReason::EndOfInput);
+        assert!(contains(new_caller.output(), b"Choose"));
         assert!(!runtime.caller_exists(b"Synthetic Fragment Name").unwrap());
     }
 
@@ -4761,7 +4829,7 @@ mod tests {
         let runtime = BoardRuntime::load(&config_path).unwrap();
         let mut warning = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Subscription Caller".to_vec(),
+            b"subscription-caller".to_vec(),
             b"test-only subscription password".to_vec(),
             b"G".to_vec(),
         ]);
@@ -4789,7 +4857,7 @@ mod tests {
         let runtime = Arc::new(BoardRuntime::load(&config_path).unwrap());
         let mut expired = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Subscription Caller".to_vec(),
+            b"subscription-caller".to_vec(),
             b"test-only subscription password".to_vec(),
             b"G".to_vec(),
         ]);
@@ -4807,7 +4875,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_new_caller_name_returns_to_the_normal_login_path() {
+    fn duplicate_new_caller_identifiers_reprompt_without_changing_existing_account() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("fixture-board");
         initialize_fixture_board(&root).unwrap();
@@ -4819,20 +4887,21 @@ mod tests {
             CallerState::Active,
         );
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
+        let new_password = format!("{:032x}", rand::random::<u128>());
         let mut terminal = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
-            b"existing caller".to_vec(),
+            b"existing-caller".to_vec(),
+            b"new-login".to_vec(),
             b"Existing Caller".to_vec(),
-            b"test-only existing password".to_vec(),
+            b"New Handle".to_vec(),
+            new_password.as_bytes().to_vec(),
+            new_password.as_bytes().to_vec(),
             b"G".to_vec(),
         ]);
         let report = runtime.run_connection(&mut terminal).unwrap();
         assert!(matches!(report, ConnectionReport::Completed(_)));
-        assert!(contains(
-            terminal.output(),
-            b"Continuing with returning-caller login"
-        ));
-        assert!(contains(terminal.output(), b"Welcome, Existing Caller"));
+        assert!(contains(terminal.output(), b"already registered"));
+        assert!(contains(terminal.output(), b"Welcome, New Handle"));
         assert!(!contains(terminal.output(), b"test-only existing password"));
     }
 
@@ -5581,7 +5650,7 @@ mod tests {
             sf_core::PrivateIdentity::new(Some("Sensitive".into()), Some("Real Name".into()))
                 .unwrap();
         runtime
-            .set_caller_profile(b"PublicHandle", profile)
+            .set_caller_profile(identity.id, identity.state_version, profile)
             .unwrap();
         drop(runtime);
         let config = RuntimeConfig::load(&config_path)
@@ -5617,7 +5686,7 @@ mod tests {
         let runtime = BoardRuntime::load(&config_path).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"PublicHandle".to_vec(),
+            b"private-login-id".to_vec(),
             b"test-only public information password".to_vec(),
             b"#".to_vec(),
             b"N".to_vec(),
@@ -5673,7 +5742,7 @@ mod tests {
         let runtime = BoardRuntime::load(&config_path).unwrap();
         let mut first = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Newsletter Caller".to_vec(),
+            b"newsletter-caller".to_vec(),
             b"test-only newsletter password".to_vec(),
             b"G".to_vec(),
         ]);
@@ -5688,7 +5757,7 @@ mod tests {
         let runtime = BoardRuntime::load(&config_path).unwrap();
         let mut second = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Newsletter Caller".to_vec(),
+            b"newsletter-caller".to_vec(),
             b"test-only newsletter password".to_vec(),
             b"N".to_vec(),
             b"G".to_vec(),
@@ -5719,7 +5788,7 @@ mod tests {
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut terminal = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Missing Resource Caller".to_vec(),
+            b"missing-resource-caller".to_vec(),
             b"test-only missing resource password".to_vec(),
             b"B".to_vec(),
             b"N".to_vec(),
@@ -5838,7 +5907,7 @@ mod tests {
             let mut terminal = InMemoryTerminal::with_info(
                 [
                     b"N".to_vec(),
-                    b"Adapter Caller".to_vec(),
+                    b"adapter-caller".to_vec(),
                     b"test-only adapter password".to_vec(),
                     b"M".to_vec(),
                     b"B".to_vec(),
@@ -5904,7 +5973,7 @@ mod tests {
                 master.write_all(b"CONNECT 14400\r").unwrap();
             }
             master
-                .write_all(b"N\rSerial Caller\rtest-only serial password\rM\rB\rQ\rG\r")
+                .write_all(b"N\rserial-caller\rtest-only serial password\rM\rB\rQ\rG\r")
                 .unwrap();
             master.flush().unwrap();
             let transcript = read_until(&mut master, b"Goodbye!");
@@ -5931,7 +6000,7 @@ mod tests {
         let runtime = BoardRuntime::load(&root.join(FIXTURE_CONFIG_FILE)).unwrap();
         let mut valid = InMemoryTerminal::with_lines([b"G".to_vec()]);
         valid.set_supplied_credentials(sf_core::SuppliedCredentials::new(
-            b"RLogin Caller".to_vec(),
+            b"rlogin-caller".to_vec(),
             b"test-only rlogin password".to_vec(),
         ));
         let valid_report = runtime.run_connection(&mut valid).unwrap();
@@ -5940,12 +6009,12 @@ mod tests {
 
         let mut invalid = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"RLogin Caller".to_vec(),
+            b"rlogin-caller".to_vec(),
             b"test-only rlogin password".to_vec(),
             b"G".to_vec(),
         ]);
         invalid.set_supplied_credentials(sf_core::SuppliedCredentials::new(
-            b"RLogin Caller".to_vec(),
+            b"rlogin-caller".to_vec(),
             b"incorrect supplied secret".to_vec(),
         ));
         let captured_logs = Arc::new(Mutex::new(Vec::new()));
@@ -5968,12 +6037,12 @@ mod tests {
 
         let mut overlong = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"RLogin Caller".to_vec(),
+            b"rlogin-caller".to_vec(),
             b"test-only rlogin password".to_vec(),
             b"G".to_vec(),
         ]);
         overlong.set_supplied_credentials(sf_core::SuppliedCredentials::new(
-            b"RLogin Caller".to_vec(),
+            b"rlogin-caller".to_vec(),
             vec![b'x'; 129],
         ));
         let overlong_report = runtime.run_connection(&mut overlong).unwrap();
@@ -6016,6 +6085,7 @@ mod tests {
         let password = b"test-only message password";
         let mut posting = InMemoryTerminal::with_lines([
             b"Y".to_vec(),
+            b"message-caller".to_vec(),
             b"Message Caller".to_vec(),
             password.to_vec(),
             password.to_vec(),
@@ -6074,7 +6144,7 @@ mod tests {
 
         let mut reconnect = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"MESSAGE CALLER".to_vec(),
+            b"message-caller".to_vec(),
             password.to_vec(),
             b"M".to_vec(),
             b"B".to_vec(),
@@ -6090,7 +6160,7 @@ mod tests {
 
         let mut recipient = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Recipient Caller".to_vec(),
+            b"recipient-caller".to_vec(),
             b"test-only recipient password".to_vec(),
             b"M".to_vec(),
             b"C".to_vec(),
@@ -6104,7 +6174,7 @@ mod tests {
 
         let mut unrelated = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Unrelated Caller".to_vec(),
+            b"unrelated-caller".to_vec(),
             b"test-only unrelated password".to_vec(),
             b"M".to_vec(),
             b"C".to_vec(),
@@ -6202,7 +6272,7 @@ mod tests {
         for lines in [
             vec![
                 b"N".to_vec(),
-                b"Composer Caller".to_vec(),
+                b"composer-caller".to_vec(),
                 b"test-only composer password".to_vec(),
                 b"M".to_vec(),
                 b"E".to_vec(),
@@ -6212,7 +6282,7 @@ mod tests {
             ],
             vec![
                 b"N".to_vec(),
-                b"Composer Caller".to_vec(),
+                b"composer-caller".to_vec(),
                 b"test-only composer password".to_vec(),
                 b"M".to_vec(),
                 b"E".to_vec(),
@@ -6231,7 +6301,7 @@ mod tests {
 
         let mut interrupted = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Composer Caller".to_vec(),
+            b"composer-caller".to_vec(),
             b"test-only composer password".to_vec(),
             b"M".to_vec(),
             b"E".to_vec(),
@@ -6298,7 +6368,7 @@ mod tests {
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         stream
-            .write_all(b"\0test-only syncterm password\0SyncTERM Caller\0ansi/38400\0M\rB\rQ\rG\r")
+            .write_all(b"\0test-only syncterm password\0syncterm-caller\0ansi/38400\0M\rB\rQ\rG\r")
             .unwrap();
         let _ = stream.shutdown(Shutdown::Write);
         let mut transcript = Vec::new();
@@ -6512,7 +6582,7 @@ mod tests {
             0, 25, 255, 240,
         ];
         script.extend_from_slice(
-            b"N\rClosure Caller\rtest-only closure caller password\rM\rC\r2\rR\rT\rR\rN\r\r\r",
+            b"N\rclosure-caller\rtest-only closure caller password\rM\rC\r2\rR\rT\rR\rN\r\r\r",
         );
         script.extend_from_slice(&[0x11, b'\r']);
         script.extend_from_slice(
@@ -6543,7 +6613,7 @@ mod tests {
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
         reconnect
-            .write_all(b"N\rClosure Caller\rtest-only closure caller password\rM\rY\rQ\rQ\rG\r")
+            .write_all(b"N\rclosure-caller\rtest-only closure caller password\rM\rY\rQ\rQ\rG\r")
             .unwrap();
         let _ = reconnect.shutdown(Shutdown::Write);
         let mut reconnect_transcript = Vec::new();
@@ -6572,7 +6642,7 @@ mod tests {
         let mut raw = connect_retry(raw_address);
         raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         raw.write_all(
-            b"N\rClosure Caller\rtest-only closure caller password\rM\rY\rS\r2/2\r\rQ\rQ\rG\r",
+            b"N\rclosure-caller\rtest-only closure caller password\rM\rY\rS\r2/2\r\rQ\rQ\rG\r",
         )
         .unwrap();
         let _ = raw.shutdown(Shutdown::Write);
@@ -6661,7 +6731,7 @@ mod tests {
             0, 25, 255, 240,
         ];
         script.extend_from_slice(
-            b"N\rPresentation Caller\rtest-only presentation caller password\rF\rL\r\rN\r\r08-21-26\r\rQ\rG\r",
+            b"N\rpresentation-caller\rtest-only presentation caller password\rF\rL\r\rN\r\r08-21-26\r\rQ\rG\r",
         );
         telnet.write_all(&script).unwrap();
         let _ = telnet.shutdown(Shutdown::Write);
@@ -6688,7 +6758,7 @@ mod tests {
             .unwrap();
         reconnect
             .write_all(
-                b"N\rPresentation Caller\rtest-only presentation caller password\rF\rN\r\rL\r\rQ\rG\r",
+                b"N\rpresentation-caller\rtest-only presentation caller password\rF\rN\r\rL\r\rQ\rG\r",
             )
             .unwrap();
         let _ = reconnect.shutdown(Shutdown::Write);
@@ -6729,7 +6799,7 @@ mod tests {
         let mut raw = connect_retry(raw_address);
         raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         raw.write_all(
-            b"N\rPresentation Caller\rtest-only presentation caller password\rF\rL\r\rN\rC\r08-21-2026\r\rQ\rG\r",
+            b"N\rpresentation-caller\rtest-only presentation caller password\rF\rL\r\rN\rC\r08-21-2026\r\rQ\rG\r",
         )
         .unwrap();
         let _ = raw.shutdown(Shutdown::Write);
@@ -6801,7 +6871,7 @@ mod tests {
             .unwrap();
         telnet
             .write_all(
-                b"N\rSysop\rtest-only navigation sysop password\r?\r@\r@\rV\rQ\rM\r@\rQ\rF\r@\rX\rQ\rG\r",
+                b"N\rsysop\rtest-only navigation sysop password\r?\r@\r@\rV\rQ\rM\r@\rQ\rF\r@\rX\rQ\rG\r",
             )
             .unwrap();
         let _ = telnet.shutdown(Shutdown::Write);
@@ -6815,7 +6885,7 @@ mod tests {
         ));
         assert!(contains(
             &telnet_transcript,
-            b"View Log Files is not available in this SPITFIRE NG capability set."
+            b"View Log Files is not available on this board."
         ));
         assert!(contains(&telnet_transcript, b"Xpert command mode is ON."));
         assert!(contains(&telnet_transcript, b"Thank you for calling"));
@@ -6839,7 +6909,7 @@ mod tests {
             thread::spawn(move || serve_with_shutdown(&thread_config, Some(1), shutdown).unwrap());
         let mut raw = connect_retry(raw_address);
         raw.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        raw.write_all(b"N\rSysop\rtest-only navigation sysop password\r@\rQ\rG\r")
+        raw.write_all(b"N\rsysop\rtest-only navigation sysop password\r@\rQ\rG\r")
             .unwrap();
         let _ = raw.shutdown(Shutdown::Write);
         let mut raw_transcript = Vec::new();
@@ -6885,7 +6955,7 @@ mod tests {
 
         let mut sysop = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Sysop".to_vec(),
+            b"sysop".to_vec(),
             b"test-only navigation sysop password".to_vec(),
             b"@".to_vec(),
             b"X".to_vec(),
@@ -6901,7 +6971,7 @@ mod tests {
 
         let mut caller = InMemoryTerminal::with_lines([
             b"N".to_vec(),
-            b"Ordinary Caller".to_vec(),
+            b"ordinary-caller".to_vec(),
             b"test-only ordinary password".to_vec(),
             b"@".to_vec(),
             b"G".to_vec(),
@@ -7029,9 +7099,9 @@ mod tests {
             _ => {}
         }
         let input = if stock_post_login {
-            b"N\rLoopback Caller\rtest-only-loopback-password\rN\r#\rY\rY\rL\rloop\rY\rO\rA\rB\r1\rN\rT\rM\rB\rF\rQ\rG\r".as_slice()
+            b"N\rloopback-caller\rtest-only-loopback-password\rN\r#\rY\rY\rL\rloop\rY\rO\rA\rB\r1\rN\rT\rM\rB\rF\rQ\rG\r".as_slice()
         } else {
-            b"N\rLoopback Caller\rtest-only-loopback-password\r#\rY\rY\rL\rloop\rY\rO\rA\rB\r1\rN\rT\rM\rB\rF\rQ\rG\r".as_slice()
+            b"N\rloopback-caller\rtest-only-loopback-password\r#\rY\rY\rL\rloop\rY\rO\rA\rB\r1\rN\rT\rM\rB\rF\rQ\rG\r".as_slice()
         };
         stream.write_all(input).unwrap();
         let _ = stream.shutdown(Shutdown::Write);
@@ -7522,9 +7592,11 @@ mod tests {
             .unwrap();
         let mut preferences = caller.preferences;
         preferences.transfer_protocol = sf_core::TransferPreference::Ascii;
-        database
-            .update_caller_preferences(caller.id, preferences)
-            .unwrap();
+        if state == CallerState::Active {
+            database
+                .update_caller_preferences(caller.id, caller.state_version, preferences)
+                .unwrap();
+        }
     }
 
     fn run_registration_policy_case<const N: usize>(
@@ -7546,6 +7618,10 @@ mod tests {
         let password = b"test-only policy caller password";
         let mut lines = vec![
             b"Y".to_vec(),
+            sf_core::derive_login_identifier_base(
+                &String::from_utf8_lossy(name).to_ascii_lowercase(),
+            )
+            .into_bytes(),
             name.to_vec(),
             password.to_vec(),
             password.to_vec(),

@@ -39,7 +39,8 @@ use crate::runtime::{ObservabilityCapabilities, OperatorObservabilityContext};
 use crate::OperatorService;
 
 pub const OPERATOR_PROTOCOL_MAJOR: u16 = 1;
-pub const OPERATOR_PROTOCOL_MINOR: u16 = 18;
+pub const OPERATOR_PROTOCOL_MINOR: u16 = 19;
+const CALLER_SESSION_CONFIGURATION_MINOR: u16 = 19;
 const CONTROL_DISCOVERY_MINOR: u16 = 2;
 pub const MAX_OPERATOR_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_OPERATOR_FEATURES: usize = 32;
@@ -627,6 +628,39 @@ enum ServerMessage {
         request_id: Option<u64>,
         code: ErrorCode,
     },
+}
+
+/// Older configuration clients reject unknown CallerConfig fields. Preserve
+/// their existing field-scoped edits and the authoritative opaque version token,
+/// while omitting only policy fields introduced after their negotiated minor.
+fn configuration_response_for_minor(
+    message: &ServerMessage,
+    minor: u16,
+) -> Result<serde_json::Value, OperatorControlError> {
+    let mut value =
+        serde_json::to_value(message).map_err(|_| OperatorControlError::MalformedFrame)?;
+    if minor < CALLER_SESSION_CONFIGURATION_MINOR
+        && matches!(
+            message,
+            ServerMessage::Response {
+                result: ReadResult::ConfigurationSnapshot(_),
+                ..
+            }
+        )
+    {
+        let caller = value
+            .pointer_mut("/result/value/config/caller")
+            .and_then(serde_json::Value::as_object_mut)
+            .ok_or(OperatorControlError::MalformedFrame)?;
+        for field in [
+            "allow_new_users",
+            "login_timeout_seconds",
+            "registration_timeout_seconds",
+        ] {
+            caller.remove(field);
+        }
+    }
+    Ok(value)
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -1222,7 +1256,7 @@ impl OperatorClient {
     pub async fn configuration_snapshot(
         &mut self,
     ) -> Result<crate::ConfigurationSnapshot, OperatorControlError> {
-        if self.negotiated_minor < crate::configuration::CONFIGURATION_MINOR {
+        if self.negotiated_minor < CALLER_SESSION_CONFIGURATION_MINOR {
             return Err(OperatorControlError::UnsupportedFeature);
         }
         self.describe_operator_controls().await?;
@@ -2409,6 +2443,7 @@ mod server {
                     code: ErrorCode::Timeout,
                 },
             };
+            let message = configuration_response_for_minor(&message, negotiated_minor)?;
             write_frame(&mut stream, &message).await?;
         }
     }
@@ -5027,5 +5062,55 @@ mod conference_health_permission_tests {
             crate::conference_health::Command::Schedule.capability(),
             LocalOperatorCapability::ChangeSensitiveConfiguration
         );
+    }
+}
+
+#[cfg(test)]
+mod d2_configuration_compatibility_tests {
+    use super::*;
+    #[test]
+    fn older_configuration_snapshot_preserves_version_and_existing_fields() {
+        let mut config =
+            crate::SetupPlan::stock_defaults("Configuration fixture", "Operator", "Sysop", 2)
+                .config;
+        config.caller.allow_new_users = false;
+        config.caller.login_timeout_seconds = 45;
+        let message = ServerMessage::Response {
+            request_id: 9,
+            result: ReadResult::ConfigurationSnapshot(Box::new(crate::ConfigurationSnapshot {
+                version: sf_core::configuration::ConfigurationVersion {
+                    revision: 7,
+                    digest: "opaque-current-authority".into(),
+                },
+                config,
+                restart_required: false,
+                ssh_keys: vec![],
+                capabilities: vec![],
+                domains: vec![],
+            })),
+        };
+        let current = configuration_response_for_minor(&message, 19).unwrap();
+        let mut older = configuration_response_for_minor(&message, 18).unwrap();
+        let caller = older
+            .pointer_mut("/result/value/config/caller")
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        assert!(!caller.contains_key("allow_new_users"));
+        assert!(!caller.contains_key("login_timeout_seconds"));
+        assert!(!caller.contains_key("registration_timeout_seconds"));
+        // Reintroducing only the omitted values must reproduce every other
+        // snapshot byte, including the actual server revision/digest.
+        for field in [
+            "allow_new_users",
+            "login_timeout_seconds",
+            "registration_timeout_seconds",
+        ] {
+            caller.insert(
+                field.into(),
+                current["result"]["value"]["config"]["caller"][field].clone(),
+            );
+        }
+        assert_eq!(older, current);
     }
 }

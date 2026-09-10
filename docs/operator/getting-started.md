@@ -258,8 +258,9 @@ The same 80×25 and local-echo-off recommendations apply. Read
 
 ### Log in as the Sysop caller
 
-At `Are you a new caller?`, answer `N`, then enter the Sysop caller name and
-password created by setup. Confirm these paths:
+At `Are you a new caller?`, answer `N`, then enter the Sysop Login and
+password created by setup. The default Login is `sysop`; a custom setup Handle
+is assigned its normalized, hyphenated Login, visible in caller management. Confirm these paths:
 
 1. Main `M` enters Messages; Message `Q` returns to Main.
 2. Main `F` enters Files; File `Q` returns to Main.
@@ -273,7 +274,7 @@ security. Host-shell access alone does not create a caller session.
 
 Reconnect and answer `Y` at the new-caller question. Enter:
 
-1. a unique caller name;
+1. a unique Login and a separate public Handle;
 2. a password and matching confirmation; and
 3. only the profile fields enabled by the board policy.
 

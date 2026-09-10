@@ -29,6 +29,9 @@ pub struct SessionControlTerminal<'a> {
     status: &'a dyn SessionStatusObserver,
     session: SessionId,
     idle: Duration,
+    deadline: Option<Instant>,
+    call_deadline: bool,
+    time_controller: Option<&'a dyn crate::SessionTimeController>,
     invitation_context: bool,
     skip_lf: bool,
     skip_decision_cr: bool,
@@ -49,12 +52,23 @@ impl<'a> SessionControlTerminal<'a> {
             status,
             session,
             idle: Duration::from_secs(300),
+            deadline: None,
+            call_deadline: false,
+            time_controller: None,
             invitation_context: false,
             skip_lf: false,
             skip_decision_cr: false,
             binary: false,
             cancel_sent: false,
         }
+    }
+
+    pub fn with_time_controller(
+        mut self,
+        controller: &'a dyn crate::SessionTimeController,
+    ) -> Self {
+        self.time_controller = Some(controller);
+        self
     }
 
     fn cancelled(&mut self) -> Result<(), TerminalError> {
@@ -70,6 +84,30 @@ impl<'a> SessionControlTerminal<'a> {
                 self.inner.write_binary(&[0x18; 8])?;
             }
             return Err(TerminalError::OperatorCancelled);
+        }
+        if let Some(mut deadline) = self.deadline {
+            if self.call_deadline {
+                let minutes = self
+                    .time_controller
+                    .map_or(0, |c| c.adjustment_minutes(self.session));
+                let adjustment = Duration::from_secs(u64::from(minutes.unsigned_abs()) * 60);
+                deadline = if minutes < 0 {
+                    deadline.checked_sub(adjustment)
+                } else {
+                    deadline.checked_add(adjustment)
+                }
+                .unwrap_or(deadline);
+                deadline = deadline
+                    .checked_add(
+                        self.hub
+                            .paused_allowance(self.session)
+                            .map_err(interaction_error)?,
+                    )
+                    .unwrap_or(deadline);
+            }
+            if Instant::now() >= deadline {
+                return Err(TerminalError::DeadlineExceeded);
+            }
         }
         Ok(())
     }
@@ -153,6 +191,7 @@ impl<'a> SessionControlTerminal<'a> {
         let mut line = Vec::new();
         let mut actual = 0usize;
         let mut overlong = false;
+        let mut invalid = false;
         let mut last_input = Instant::now();
         loop {
             self.cancelled()?;
@@ -164,7 +203,10 @@ impl<'a> SessionControlTerminal<'a> {
             }
             let byte = match self.inner.read_input_byte(CONTROL_POLL) {
                 Ok(Some(byte)) => byte,
-                Ok(None) => return Ok((!line.is_empty()).then_some(line)),
+                Ok(None) => {
+                    line.fill(0);
+                    return Ok(None);
+                }
                 Err(TerminalError::InputPollingUnsupported) => {
                     return if secret {
                         self.inner.read_secret_line(maximum)
@@ -191,7 +233,9 @@ impl<'a> SessionControlTerminal<'a> {
                     if self.inner.echoes_input() {
                         self.inner.write_all(b"\r\n")?;
                     }
-                    return if overlong {
+                    return if invalid {
+                        Err(TerminalError::InvalidInput)
+                    } else if overlong {
                         Err(TerminalError::InputTooLong { actual, maximum })
                     } else {
                         Ok(Some(line))
@@ -201,6 +245,20 @@ impl<'a> SessionControlTerminal<'a> {
                     if line.pop().is_some() && !secret && self.inner.echoes_input() {
                         self.inner.write_all(b"\x08 \x08")?;
                     }
+                }
+                byte @ (0x11 | 0x1b) if !secret => {
+                    // Existing stock editor Ctrl-Q and profile Escape commands
+                    // remain input tokens; never echo a terminal control byte.
+                    actual = actual.saturating_add(1);
+                    if line.len() >= maximum {
+                        overlong = true;
+                    }
+                    if !overlong {
+                        line.push(byte);
+                    }
+                }
+                byte if !secret && byte.is_ascii_control() => {
+                    invalid = true;
                 }
                 _ => {
                     actual = actual.saturating_add(1);
@@ -237,6 +295,15 @@ impl Terminal for SessionControlTerminal<'_> {
     }
     fn read_secret_line(&mut self, maximum: usize) -> Result<Option<Vec<u8>>, TerminalError> {
         self.line(maximum, true)
+    }
+    fn set_input_deadline(
+        &mut self,
+        deadline: Option<Instant>,
+        call: bool,
+    ) -> Result<(), TerminalError> {
+        self.deadline = deadline;
+        self.call_deadline = call;
+        Ok(())
     }
     fn set_idle_timeout(&mut self, timeout: Duration) -> Result<(), TerminalError> {
         self.idle = timeout;

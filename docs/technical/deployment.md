@@ -2,7 +2,8 @@
 
 This interface contract separates update failure recovery from data-preserving
 runtime rollback. Implementation and acceptance results are recorded separately.
-It does not change board schema 36 or any networking protocol.
+D1 introduced no board-schema or networking-protocol change. D2 adds schema 37
+caller-session custody under this unchanged compatibility contract.
 
 ## Three distinct operations
 
@@ -63,7 +64,7 @@ target schema, supported config formats and supported durable feature
 generations. The release adds minimum upgrade version and artifact integrity.
 The board report includes current schema/config and required feature generations;
 requirements never decrease during update or runtime rollback. Current runtimes
-conservatively advertise read/write schema 36 only. An older version number is
+conservatively advertise read/write schema 37 only. An older version number is
 not evidence of compatibility. Future releases must update capabilities honestly.
 
 ## Protected state classification
@@ -149,10 +150,10 @@ The executable reports its actual compiled descriptor with
     "platform": "macos",
     "architecture": "aarch64",
     "manager_protocol": 1,
-    "read_schema": { "minimum": 36, "maximum": 36 },
-    "write_schema": { "minimum": 36, "maximum": 36 },
+    "read_schema": { "minimum": 37, "maximum": 37 },
+    "write_schema": { "minimum": 37, "maximum": 37 },
     "migration_source": { "minimum": 10, "maximum": 36 },
-    "target_schema": 36,
+    "target_schema": 37,
     "config_formats": [1, 2],
     "durable_features": {
       "circuitnet-catalog-history": 1,
