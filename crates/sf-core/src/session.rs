@@ -494,6 +494,7 @@ fn run_stock_session_inner(
     let mut section = MenuSection::Main;
     let mut expert = false;
     let mut first_message_entry = true;
+    let mut current_message_conference = None;
     let mut first_file_entry = true;
     let mut commands_processed = 0;
     loop {
@@ -537,6 +538,62 @@ fn run_stock_session_inner(
                 "caller session time limit expired"
             );
             break;
+        }
+
+        if section == MenuSection::Message {
+            let resources = active_resources(terminal, stock.resources, stock.text_resources);
+            if first_message_entry {
+                render_named_display(terminal, resources, "SF1STM", &context)?;
+                first_message_entry = false;
+            }
+            publish_presentation_context(
+                &stock,
+                &terminal.negotiated_info(),
+                &terminal.info(),
+                Some(resources.menu(MenuSection::Message)?),
+                Some(authenticated.caller.security_level),
+                Some(selected_menu_renderer(
+                    resources,
+                    MenuSection::Message,
+                    authenticated.caller.security_level,
+                    expert,
+                )),
+                caller_config,
+            )?;
+            let message_result = run_message_menu(
+                resources,
+                &context,
+                terminal,
+                database,
+                session,
+                &stock,
+                &mut authenticated,
+                caller_config,
+                &mut expert,
+                &mut current_message_conference,
+            )?;
+            commands_processed += message_result.commands;
+            match message_result.exit {
+                MessageMenuExit::Main => section = MenuSection::Main,
+                MessageMenuExit::File => section = MenuSection::File,
+                MessageMenuExit::Sysop => section = MenuSection::Sysop,
+                MessageMenuExit::Goodbye => {
+                    render_display(terminal, &resources.goodbye, &context)?;
+                    ensure_line_ending(terminal, &resources.goodbye.bytes)?;
+                    session.close(SessionCloseReason::Goodbye)?;
+                    terminal.disconnect()?;
+                    break;
+                }
+                MessageMenuExit::EndOfInput => {
+                    // A D2 lifecycle/operator check inside the message menu may
+                    // already have finalized the session with its precise reason.
+                    if session.state == SessionState::Active {
+                        session.close(SessionCloseReason::EndOfInput)?;
+                    }
+                    break;
+                }
+            }
+            continue;
         }
 
         if section == MenuSection::File {
@@ -671,52 +728,7 @@ fn run_stock_session_inner(
 
         match (section, item.identifier) {
             (MenuSection::Main, b'E') | (MenuSection::File, b'E') => {
-                if first_message_entry {
-                    render_named_display(terminal, resources, "SF1STM", &context)?;
-                    first_message_entry = false;
-                }
-                publish_presentation_context(
-                    &stock,
-                    &terminal.negotiated_info(),
-                    &terminal.info(),
-                    Some(resources.menu(MenuSection::Message)?),
-                    Some(authenticated.caller.security_level),
-                    Some(selected_menu_renderer(
-                        resources,
-                        MenuSection::Message,
-                        authenticated.caller.security_level,
-                        expert,
-                    )),
-                    caller_config,
-                )?;
-                let message_result = run_message_menu(
-                    resources,
-                    &context,
-                    terminal,
-                    database,
-                    session,
-                    &stock,
-                    &mut authenticated,
-                    caller_config,
-                    &mut expert,
-                )?;
-                commands_processed += message_result.commands;
-                match message_result.exit {
-                    MessageMenuExit::Main => section = MenuSection::Main,
-                    MessageMenuExit::File => section = MenuSection::File,
-                    MessageMenuExit::Sysop => section = MenuSection::Sysop,
-                    MessageMenuExit::Goodbye => {
-                        render_display(terminal, &resources.goodbye, &context)?;
-                        ensure_line_ending(terminal, &resources.goodbye.bytes)?;
-                        session.close(SessionCloseReason::Goodbye)?;
-                        terminal.disconnect()?;
-                        break;
-                    }
-                    MessageMenuExit::EndOfInput => {
-                        session.close(SessionCloseReason::EndOfInput)?;
-                        break;
-                    }
-                }
+                section = MenuSection::Message;
             }
             (MenuSection::Main, b'Q') | (MenuSection::Message, b'D') => {
                 section = MenuSection::File;

@@ -1116,3 +1116,58 @@ fn privacy_help_describes_transport_and_conference_access_without_secrecy_claims
 
 #[path = "circuitnet/catalog_tests.rs"]
 mod catalog_tests;
+
+#[test]
+fn d3_local_post_retains_publication_intent_identity_and_parent_without_destination() {
+    let mut b = board("END1");
+    let before: i64 =
+        b.db.connection
+            .query_row("SELECT generation FROM network_preparation", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    let parent = post(&mut b, "D3 parent", None);
+    let reply = post(&mut b, "D3 changed subject", Some(parent.id));
+    let after: i64 =
+        b.db.connection
+            .query_row("SELECT generation FROM network_preparation", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+    assert_eq!(after, before + 2);
+    assert_eq!(
+        b.db.connection
+            .query_row("SELECT count(*) FROM circuitnet_destinations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        b.db.connection
+            .query_row("SELECT count(*) FROM circuitnet_messages", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    scan(&mut b);
+    let frozen: (String, String, Option<String>, Option<String>) = b.db.connection.query_row(
+        "SELECT codename,identity,reply,destination FROM circuitnet_messages WHERE message_id=?1",
+        [reply.id.get()], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).unwrap();
+    assert_eq!(frozen.0, "CNTEST");
+    assert!(frozen.2.is_some());
+    assert!(frozen.3.is_none());
+    let parent_identity: String =
+        b.db.connection
+            .query_row(
+                "SELECT identity FROM circuitnet_messages WHERE message_id=?1",
+                [parent.id.get()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(frozen.2.as_deref(), Some(parent_identity.as_str()));
+    let stored = b.db.message(b.actor, b.conference, reply.number).unwrap();
+    assert_eq!(stored.author_name, "Handle");
+    assert_eq!(stored.subject, b"D3 changed subject");
+    assert_eq!(stored.body, b"Synthetic body\r\n");
+    assert_eq!(stored.parent_message_id, Some(parent.id));
+}

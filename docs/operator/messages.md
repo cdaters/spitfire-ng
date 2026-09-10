@@ -16,7 +16,7 @@ Enter Main `M`:
 | Command | Current behavior |
 |---|---|
 | `C` | List accessible conferences and unread counts; change conference. |
-| `R` | Read This, All, or Only Queued conferences. |
+| `R` | Read This, All, or Only Queued conferences; select `N` for new messages across permitted conferences. |
 | `B` | Browse visible message headers. |
 | `E` | Enter a public or private local message. |
 | `Y` | Show received/sent/available counts and open received/sent lists. |
@@ -32,7 +32,7 @@ Commands are filtered by caller security and the supplied `SFMSG.MNU`.
 ## Post a message
 
 1. Select `E`.
-2. Enter a known local caller name, or press Enter for All Callers.
+2. Enter a known local Handle, or press Enter for All Callers. Login is used for authentication, not recipient selection.
 3. For a named recipient, optionally enter up to nine distinct carbon-copy
    callers; press Enter at the next `Carbon copy #N:` prompt to finish.
 4. Choose public or non-public/private when the conference permits it.
@@ -64,8 +64,7 @@ in caller.
 - Only Queued Conferences scans Conference 1 plus the caller's selected
   optional conferences.
 
-The reader supports next, previous, direct message number, reply, stock same-
-subject thread traversal, and quit. An eligible ordinary caller also sees `D`
+The reader supports next, previous, direct message number, reply, linked-reply thread traversal, and quit. An eligible ordinary caller also sees `D`
 for a delivery they sent or directly/CC received when conference policy allows
 caller deletion. Threshold Sysop status sees `D`, `P`, and `C` on active
 deliveries; a deleted delivery instead exposes contextual `U`. A reply may
@@ -73,7 +72,7 @@ retain or change the subject.
 CTRL-Q in reply composition reviews the original and imports a bounded line
 range with sender-initial prefixes; imported quote lines are immutable.
 
-Normal reading advances that caller's last-read pointer and records a direct
+Only fully displayed, non-aborted reading advances that caller's last-read pointer and records a direct
 receipt idempotently. Reconnects and rescans do not double-count it.
 
 `P` changes public/private state in place. Private→public asks whether to
@@ -107,8 +106,9 @@ workflow. The configured Sysop caller account must exist.
 Local conferences, queues, privacy, receipts, replies, threads, discovery,
 Your Messages, CC delivery, tombstone/undelete, audience toggle, and
 source-retaining Copy/Forward are implemented and verified. Physical
-packing/retention, QWK/LAKOTA, network mail, and broader maintenance/audit
-viewing are later scopes. See [Native SPITFIRE NG Message
+packing/retention and broader maintenance/audit viewing remain later scopes.
+Native QWK, FTN and CircuitNET adapters are accepted separately; local posting
+uses their existing publication boundary. See [Native SPITFIRE NG Message
 System](../sfng-message-system.md).
 
 ## N3 FTN integration
@@ -135,3 +135,41 @@ author; newly stricter rules hold unsuitable queued work rather than rewriting i
 
 See [caller names](caller-management.md) and the
 [technical policy contract](../technical/identity-policy.md).
+
+## D3 navigation, new messages and changing access
+
+Conferences appear in local-number order. Message numbers are local to each
+conference; reading and linked threads proceed oldest to newest. Browse shows
+20 headers at a time with date, unread and reply indicators. Enter requests the
+next page; Q returns. Normal terminal paging and time limits still apply.
+
+Read → N scans only messages above your saved position in permitted conferences,
+skipping areas with nothing new. Enter/N advances and Q stops. When none remain,
+you return to the Message Menu. This/All/Queued retain sequential reading and
+allow older messages by number. Reading a higher number makes earlier numbers
+old; going backward never lowers your saved position. Other callers' positions
+are independent. Your current conference survives a visit to Main during a call.
+
+Follows use the stored reply relationship, including replies with a changed
+subject. Unrelated messages with the same subject remain separate. Thread
+navigation shows at most 1000 connected messages and excludes content you cannot
+read. Deleted or unresolved parents do not authorize hidden content.
+
+Read and post security are separate. A caller may browse an announcement area
+without being allowed to post. The current stored account and conference policy
+are checked again when saving; revocation or conference withdrawal cancels the
+action safely. A rejected save creates neither a partial message nor outbound
+publication work. Invalid/overlong input can be corrected; /A cancels composition.
+
+Handle/real-name policy is shown before writing and checked again at save. A
+changed identity policy requires starting a new composition so the caller can
+review the new posting name. To remains a local addressee or All Callers, never
+a network destination. Public All Callers posts create the existing durable
+network-preparation obligation; configured adapters handle publication later.
+No message command requires a live network peer.
+
+If a conference disappears, select another permitted area; if posting is refused,
+check the conference's read and post security separately, its active status, and
+the caller's current access. Knowing a restricted area's number or network
+codename does not grant access. Configure restricted areas with local read/post
+policy; network catalog labels do not confer local operator privileges.

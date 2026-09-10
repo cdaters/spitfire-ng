@@ -311,6 +311,7 @@ pub struct Message {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MessageSummary {
+    pub parent_message_id: Option<MessageId>,
     pub origin: MessageOrigin,
     pub encoding: MessageEncoding,
     pub id: MessageId,
@@ -332,6 +333,7 @@ pub struct MessageSummary {
 impl From<&Message> for MessageSummary {
     fn from(message: &Message) -> Self {
         Self {
+            parent_message_id: message.parent_message_id,
             origin: message.origin,
             encoding: message.encoding,
             id: message.id,
@@ -483,6 +485,29 @@ pub trait MessageBackend {
         &self,
         actor: MessageActor,
         conference: ConferenceId,
+    ) -> Result<Vec<MessageSummary>, MessageError>;
+    fn new_message_count(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+    ) -> Result<u64, MessageError>;
+    /// A bounded keyset window; reverse windows return descending local numbers.
+    /// Authorization and content are read from one short database snapshot.
+    fn message_window(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        boundary: u64,
+        reverse: bool,
+        limit: usize,
+    ) -> Result<Vec<MessageSummary>, MessageError>;
+    /// Visible members connected through native parent identity, never subject text.
+    /// Bounded to 1000 graph vertices, with cycle suppression.
+    fn message_thread(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+        number: u64,
     ) -> Result<Vec<MessageSummary>, MessageError>;
     fn message(
         &self,
@@ -1008,7 +1033,12 @@ impl MessageBackend for RuntimeDatabase {
     fn recipient(&self, caller_name: &[u8]) -> Result<MessageRecipient, MessageError> {
         let caller = self
             .caller_by_name(caller_name)
-            .map_err(MessageError::Database)?
+            .map_err(|error| match error {
+                crate::DatabaseError::InvalidCaller(
+                    CallerError::CallerNameEncoding | CallerError::CallerNameLength(_),
+                ) => MessageError::RecipientNotFound,
+                error => MessageError::Database(error),
+            })?
             .ok_or(MessageError::RecipientNotFound)?;
         if caller.state != CallerState::Active {
             return Err(MessageError::RecipientNotFound);
@@ -1124,6 +1154,16 @@ impl MessageBackend for RuntimeDatabase {
         actor: MessageActor,
         conference_id: ConferenceId,
     ) -> Result<Vec<MessageSummary>, MessageError> {
+        let _snapshot = if self.connection.is_autocommit() {
+            Some(
+                self.connection
+                    .unchecked_transaction()
+                    .map_err(MessageError::Sqlite)?,
+            )
+        } else {
+            // Offline export already owns a consistent read snapshot.
+            None
+        };
         let (caller, _) = self.authorized_conference(actor, conference_id, false)?;
         let lifecycle_filter = if caller.security_level.is_sysop(actor.sysop_security) {
             ""
@@ -1149,12 +1189,161 @@ impl MessageBackend for RuntimeDatabase {
         Ok(result)
     }
 
+    fn new_message_count(
+        &self,
+        actor: MessageActor,
+        conference: ConferenceId,
+    ) -> Result<u64, MessageError> {
+        let _snapshot = if self.connection.is_autocommit() {
+            Some(
+                self.connection
+                    .unchecked_transaction()
+                    .map_err(MessageError::Sqlite)?,
+            )
+        } else {
+            // Offline export already owns a consistent read snapshot.
+            None
+        };
+        let (caller, _) = self.authorized_conference(actor, conference, false)?;
+        self.connection.query_row("SELECT count(*) FROM messages m
+            LEFT JOIN message_delivery_recipients r USING(message_id)
+            WHERE m.conference_id=?1 AND m.lifecycle_state='active'
+            AND m.message_number > COALESCE((SELECT last_message_number FROM caller_last_read WHERE caller_id=?2 AND conference_id=?1),0)
+            AND (?3 OR m.visibility='public' OR m.author_caller_id=?2 OR r.caller_id=?2)",
+            params![conference.get(), actor.caller_id.get(), caller.security_level.is_sysop(actor.sysop_security)],
+            |row| row.get::<_, i64>(0)).map_err(MessageError::Sqlite).and_then(sqlite_u64)
+    }
+
+    fn message_window(
+        &self,
+        actor: MessageActor,
+        conference_id: ConferenceId,
+        boundary: u64,
+        reverse: bool,
+        limit: usize,
+    ) -> Result<Vec<MessageSummary>, MessageError> {
+        if limit == 0 || limit > 50 {
+            return Err(MessageError::InvalidDiscoveryQuery);
+        }
+        let _snapshot = if self.connection.is_autocommit() {
+            Some(
+                self.connection
+                    .unchecked_transaction()
+                    .map_err(MessageError::Sqlite)?,
+            )
+        } else {
+            // Offline export already owns a consistent read snapshot.
+            None
+        };
+        let (caller, _) = self.authorized_conference(actor, conference_id, false)?;
+        let (comparison, order) = if reverse { ("<", "DESC") } else { (">", "ASC") };
+        let sql = format!(
+            "{MESSAGE_SELECT} WHERE m.conference_id=?1 AND m.container_kind='conference'
+            AND m.message_number {comparison} ?2
+            AND (?3 OR m.lifecycle_state='active')
+            AND (?3 OR m.visibility='public' OR m.author_caller_id=?4 OR r.caller_id=?4)
+            ORDER BY m.message_number {order} LIMIT ?5"
+        );
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(MessageError::Sqlite)?;
+        let rows = statement
+            .query_map(
+                params![
+                    conference_id.get(),
+                    sqlite_i64(boundary)?,
+                    caller.security_level.is_sysop(actor.sysop_security),
+                    actor.caller_id.get(),
+                    limit as i64
+                ],
+                message_from_row,
+            )
+            .map_err(MessageError::Sqlite)?;
+        rows.map(|row| {
+            row.map(|m| MessageSummary::from(&m))
+                .map_err(MessageError::Sqlite)
+        })
+        .collect()
+    }
+
+    fn message_thread(
+        &self,
+        actor: MessageActor,
+        conference_id: ConferenceId,
+        number: u64,
+    ) -> Result<Vec<MessageSummary>, MessageError> {
+        // Validate the starting delivery before traversing any graph edges.
+        let _snapshot = if self.connection.is_autocommit() {
+            Some(
+                self.connection
+                    .unchecked_transaction()
+                    .map_err(MessageError::Sqlite)?,
+            )
+        } else {
+            // Offline export already owns a consistent read snapshot.
+            None
+        };
+        let (caller, conference) = self.authorized_conference(actor, conference_id, false)?;
+        let original = load_message_by_number_connection(&self.connection, conference_id, number)?
+            .ok_or(MessageError::MessageNotFound {
+                conference: conference.number,
+                number,
+            })?;
+        if !message_visible(&original, &caller, actor.sysop_security)
+            || (original.lifecycle == MessageLifecycle::Deleted
+                && !caller.security_level.is_sysop(actor.sysop_security))
+        {
+            return Err(MessageError::MessageAccessDenied);
+        }
+        let sql = format!("WITH RECURSIVE thread(id,parent) AS (
+            SELECT message_id,parent_message_id FROM messages WHERE message_id=?2 AND conference_id=?1
+            UNION
+            SELECT m.message_id,m.parent_message_id FROM messages m JOIN thread t
+                ON m.message_id=t.parent OR m.parent_message_id=t.id
+                WHERE m.conference_id=?1 ORDER BY 1 LIMIT 1000
+            ) {MESSAGE_SELECT} WHERE m.message_id IN (SELECT id FROM thread)
+            AND (?3 OR m.lifecycle_state='active')
+            AND (?3 OR m.visibility='public' OR m.author_caller_id=?4 OR r.caller_id=?4)
+            ORDER BY m.message_number");
+        let mut statement = self
+            .connection
+            .prepare(&sql)
+            .map_err(MessageError::Sqlite)?;
+        let rows = statement
+            .query_map(
+                params![
+                    conference_id.get(),
+                    original.id.get(),
+                    caller.security_level.is_sysop(actor.sysop_security),
+                    actor.caller_id.get()
+                ],
+                message_from_row,
+            )
+            .map_err(MessageError::Sqlite)?;
+        rows.map(|row| {
+            row.map(|m| MessageSummary::from(&m))
+                .map_err(MessageError::Sqlite)
+        })
+        .collect()
+    }
+
     fn message(
         &self,
         actor: MessageActor,
         conference_id: ConferenceId,
         message_number: u64,
     ) -> Result<Message, MessageError> {
+        let _snapshot = if self.connection.is_autocommit() {
+            Some(
+                self.connection
+                    .unchecked_transaction()
+                    .map_err(MessageError::Sqlite)?,
+            )
+        } else {
+            // Offline export already owns a consistent read snapshot.
+            None
+        };
         let (caller, conference) = self.authorized_conference(actor, conference_id, false)?;
         let message = self
             .connection
@@ -4100,5 +4289,270 @@ mod tests {
             database.messages(alice, conference.id),
             Err(MessageError::Sqlite(_))
         ));
+    }
+    #[test]
+    fn d3_windows_threads_and_read_state_are_bounded_and_caller_specific() {
+        let (_temp, mut db, alice, bob, _) = database();
+        let conference = db.conference(alice, 1).unwrap();
+        let first = db.post(alice, public_message(conference.id)).unwrap();
+        // An unrelated equal subject is not part of the native thread.
+        let unrelated = db.post(alice, public_message(conference.id)).unwrap();
+        let mut reply = public_message(conference.id);
+        reply.subject = b"Changed subject".to_vec();
+        reply.parent_message_id = Some(first.id);
+        let reply = db.post(bob, reply).unwrap();
+        let thread = db
+            .message_thread(alice, conference.id, first.number)
+            .unwrap();
+        assert_eq!(
+            thread.iter().map(|m| m.id).collect::<Vec<_>>(),
+            vec![first.id, reply.id]
+        );
+        assert!(!thread.iter().any(|m| m.id == unrelated.id));
+        for _ in 0..55 {
+            db.post(alice, public_message(conference.id)).unwrap();
+        }
+        assert_eq!(
+            db.message_window(alice, conference.id, 0, false, 50)
+                .unwrap()
+                .len(),
+            50
+        );
+        assert!(db
+            .message_window(alice, conference.id, 0, false, 51)
+            .is_err());
+        let second = db
+            .message_window(alice, conference.id, 50, false, 50)
+            .unwrap();
+        assert_eq!(second.len(), 8);
+        assert_eq!(second[0].number, 51);
+        assert_eq!(
+            db.message_window(alice, conference.id, 3, true, 1).unwrap()[0].number,
+            2
+        );
+        db.mark_read(alice, conference.id, reply.number).unwrap();
+        db.mark_read(alice, conference.id, first.number).unwrap();
+        assert_eq!(db.last_read(alice, conference.id).unwrap(), reply.number);
+        assert_eq!(db.last_read(bob, conference.id).unwrap(), 0);
+        assert_eq!(db.new_message_count(alice, conference.id).unwrap(), 55);
+        db.delete_message(alice, conference.id, first.number, first.state_version)
+            .unwrap();
+        assert!(db.message(alice, conference.id, first.number).is_err());
+        assert_eq!(
+            db.message_thread(bob, conference.id, reply.number)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn d3_simultaneous_posts_and_reads_serialize_distinct_identity_and_accounting() {
+        let (temp, db, alice, bob, _) = database();
+        let conference = db.conference(alice, 1).unwrap();
+        let path = temp.path().join("runtime.sqlite3");
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let workers = [alice, bob]
+            .into_iter()
+            .map(|actor| {
+                let path = path.clone();
+                let gate = gate.clone();
+                std::thread::spawn(move || {
+                    let mut connection = RuntimeDatabase::open(&path).unwrap();
+                    gate.wait();
+                    let message = connection
+                        .post(actor, public_message(conference.id))
+                        .unwrap();
+                    connection
+                        .mark_read(actor, conference.id, message.number)
+                        .unwrap();
+                    message
+                })
+            })
+            .collect::<Vec<_>>();
+        let posted = workers
+            .into_iter()
+            .map(|w| w.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_ne!(posted[0].id, posted[1].id);
+        assert_ne!(posted[0].number, posted[1].number);
+        assert_eq!(
+            db.messages(alice, conference.id)
+                .unwrap()
+                .iter()
+                .map(|m| m.number)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(
+            db.last_read(alice, conference.id).unwrap(),
+            posted[0].number
+        );
+        assert_eq!(db.last_read(bob, conference.id).unwrap(), posted[1].number);
+        assert_eq!(
+            db.caller_by_id(alice.caller_id())
+                .unwrap()
+                .unwrap()
+                .messages_posted,
+            1
+        );
+        assert_eq!(
+            db.caller_by_id(bob.caller_id())
+                .unwrap()
+                .unwrap()
+                .messages_posted,
+            1
+        );
+        let parent = posted[0].id;
+        let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let workers = [alice, bob]
+            .into_iter()
+            .map(|actor| {
+                let path = path.clone();
+                let gate = gate.clone();
+                std::thread::spawn(move || {
+                    let mut connection = RuntimeDatabase::open(&path).unwrap();
+                    let mut draft = public_message(conference.id);
+                    if actor.caller_id() == bob.caller_id() {
+                        draft.parent_message_id = Some(parent);
+                        draft.subject = b"Concurrent reply".to_vec();
+                    }
+                    gate.wait();
+                    connection.post(actor, draft).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let second = workers
+            .into_iter()
+            .map(|w| w.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_ne!(second[0].id, second[1].id);
+        assert_eq!(second[1].parent_message_id, Some(parent));
+        assert_eq!(
+            db.messages(alice, conference.id)
+                .unwrap()
+                .iter()
+                .map(|m| m.number)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn d3_composition_revalidates_lifecycle_access_parent_and_conference_before_commit() {
+        let (temp, mut db, alice, bob, _) = database();
+        let mut operator = RuntimeDatabase::open(&temp.path().join("runtime.sqlite3")).unwrap();
+        let conference = db.conference(alice, 1).unwrap();
+        let parent = db.post(bob, public_message(conference.id)).unwrap();
+        let mut draft = public_message(conference.id);
+        draft.parent_message_id = Some(parent.id);
+        draft.identity_preview = Some(db.posting_identity_preview(alice, conference.id).unwrap());
+        let before: i64 = db
+            .connection
+            .query_row("SELECT generation FROM network_preparation", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        operator
+            .set_caller_state(alice.caller_id(), CallerState::Disabled)
+            .unwrap();
+        assert!(db.post(alice, draft.clone()).is_err());
+        operator
+            .set_caller_state(alice.caller_id(), CallerState::Active)
+            .unwrap();
+        operator
+            .connection
+            .execute(
+                "UPDATE message_conferences SET post_security=100 WHERE conference_id=?1",
+                [conference.id.get()],
+            )
+            .unwrap();
+        assert!(db.post(alice, draft.clone()).is_err());
+        operator
+            .connection
+            .execute(
+                "UPDATE message_conferences SET post_security=5 WHERE conference_id=?1",
+                [conference.id.get()],
+            )
+            .unwrap();
+        operator
+            .delete_message(bob, conference.id, parent.number, parent.state_version)
+            .unwrap();
+        assert!(db.post(alice, draft.clone()).is_err());
+        operator
+            .connection
+            .execute(
+                "UPDATE message_conferences SET active=0 WHERE conference_id=?1",
+                [conference.id.get()],
+            )
+            .unwrap();
+        assert!(db.post(alice, draft).is_err());
+        let after: i64 = db
+            .connection
+            .query_row("SELECT generation FROM network_preparation", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(before, after);
+        assert_eq!(
+            db.connection
+                .query_row("SELECT count(*) FROM messages", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.caller_by_id(alice.caller_id())
+                .unwrap()
+                .unwrap()
+                .messages_posted,
+            0
+        );
+    }
+    #[test]
+    fn d3_content_boundaries_and_missing_parent_never_commit() {
+        let (_temp, mut db, alice, _, _) = database();
+        let c = db.conference(alice, 1).unwrap();
+        for input in [
+            vec![b'x'; 31],
+            vec![b'x'; 64],
+            vec![0xfe],
+            b"No such caller".to_vec(),
+        ] {
+            assert!(matches!(
+                db.recipient(&input),
+                Err(MessageError::RecipientNotFound)
+            ));
+        }
+        let mut draft = public_message(c.id);
+        draft.subject = vec![b's'; MAX_MESSAGE_SUBJECT_BYTES];
+        db.post(alice, draft.clone()).unwrap();
+        for subject in [
+            vec![],
+            vec![b's'; MAX_MESSAGE_SUBJECT_BYTES + 1],
+            b"bad\x1bsubject".to_vec(),
+        ] {
+            let mut invalid = draft.clone();
+            invalid.subject = subject;
+            assert!(matches!(
+                db.post(alice, invalid),
+                Err(MessageError::InvalidSubject)
+            ));
+        }
+        for body in [
+            vec![],
+            vec![b'x'; MAX_MESSAGE_BODY_BYTES + 1],
+            b"bad\x00body".to_vec(),
+            b"line\n".repeat(100),
+        ] {
+            let mut invalid = draft.clone();
+            invalid.body = body;
+            assert!(db.post(alice, invalid).is_err());
+        }
+        draft.parent_message_id = Some(MessageId::new(999999).unwrap());
+        assert!(matches!(
+            db.post(alice, draft),
+            Err(MessageError::ParentMessageNotFound(_))
+        ));
+        assert_eq!(db.messages(alice, c.id).unwrap().len(), 1);
     }
 }

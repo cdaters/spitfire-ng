@@ -178,7 +178,8 @@ Foreign keys, uniqueness checks, range checks, normal scan indexes, and
 parameterized queries are used. Message subjects and bodies are SQLite BLOBs
 so CP437 bytes do not undergo an accidental UTF-8 conversion.
 
-Schema 11 `auditable_message_mutation` is current. It rebuilds legacy messages
+Schema 11 introduced `auditable_message_mutation`; its delivery model remains
+in board schema 37. That migration rebuilds legacy messages
 into immutable `message_payloads`, `message_fanouts`, separately mutable
 delivery `messages`, and named `message_delivery_recipients`; All Callers is an
 audience kind rather than a fake caller. `message_lineage` records Copy versus
@@ -190,8 +191,9 @@ payload/fan-out/delivery while preserving message IDs and numbers, author,
 subject/body BLOB bytes, reply parent, visibility, deletion, receipts, and
 last-read. Before commit, Rust validation compares counts, identities, numbers,
 byte lengths, recipient cardinality, state, and foreign keys. Failure leaves
-schema 10 unchanged. There is no downgrade; rollback uses the old executable
-and a pre-upgrade cold backup.
+schema 10 unchanged. There is no schema downgrade. Managed runtime rollback follows the
+[D1 compatibility contract](technical/deployment.md) and preserves current durable
+state when compatible; explicit disaster restore is a separate operation.
 
 ## Authorization and Privacy
 
@@ -254,7 +256,7 @@ The Message Menu supports:
 - `B` — browse visible To/From/Subject headers with unread/private indicators;
 - `R` — choose This, All, or Only Queued conferences; start at the first unread
   visible message; move next/previous or directly by number; reply; and enter
-  same-subject thread navigation;
+  native-parent thread navigation;
 - `E` — enter a public or non-public message;
 - `Y` — show new waiting, already received, sent, and total available counts;
   list received or sent messages with status; and directly read a listed
@@ -325,12 +327,15 @@ subsystem, and no full-screen editor was introduced.
 
 ## Replies and Last Read
 
-A reply stores a durable parent `MessageId`. SPITFIRE prompts whether the
-subject should change; declining preserves the original bytes exactly, which
-keeps the reply in the stock same-subject thread. Thread Start, Forward,
-Backward, and Exit operate on visible messages in conference/message order and
-return to the original read position. A changed-subject reply remains a reply
-in durable metadata but does not join the stock subject thread.
+A reply stores a durable parent `MessageId`. The historical subject-change
+prompt remains. D3 navigation follows connected native parent relationships,
+so changing the subject does not lose the reply and matching unrelated subjects
+does not invent a relationship. Start/Forward/Backward/Exit traverse visible
+messages in local-number order and return to the original read position.
+Traversal suppresses cycles and considers at most 1000 connected vertices in
+native identity order. Missing parents and tombstones cannot expose content to
+an unauthorized reader. Historical subject grouping remains evidence, not a
+second active threading mechanism.
 
 Reading a visible message normally advances `caller_last_read` monotonically
 for that caller/conference and creates an idempotent direct receipt when the
@@ -383,7 +388,7 @@ enforcement, replies, private visibility including direct reads, stale
 disabled sessions, last-read, unread counts, cancellation/interruption,
 invalid recipients, queue persistence/enforcement, idempotent receipt state,
 sent/received accounting, reconnects, per-caller isolation, all scan scopes,
-same-subject traversal, CP437 quote bytes, every bounded editor command,
+native-parent traversal (including changed subjects), CP437 quote bytes, every bounded editor command,
 named-Sysop preview, caller/text discovery scope and visibility, malformed and
 bounded terms, CP437 exact matching, deterministic result limits, concurrent
 post/search connections, no read-state mutation, Sysop routing, RLogin auto-
@@ -495,3 +500,28 @@ It neither rewrites final destinations nor stores an alternate mail base. Comple
 inbound custody invokes the accepted tosser; partial transfer never reaches native
 message mutation. Private NetMail and public EchoMail retain N3 permissions and
 provenance independently of transport acknowledgement.
+
+## D3 bounded caller navigation
+
+The existing MessageBackend adds keyset message windows (1–50 entries), an
+unread count, and bounded parent navigation. The caller index requests 20 entries
+per page. Sequential reading requests one neighboring message at a time rather
+than materializing a whole conference. Forward reading sees newly committed
+messages when it asks for the next number; it does not cache their bodies.
+Authorization and content for window/direct reads share one short database read
+snapshot. No database transaction spans remote output or composition.
+
+Read → N captures per-conference high-water positions and traverses only newer
+active messages in currently permitted areas, in conference-number/message-number
+order. It returns when exhausted instead of reopening old mail. Sequential
+This/All/Queued reading retains the historical first-new/oldest-fallback behavior.
+Read positions advance only after completed, non-aborted display and use the
+existing atomic maximum update; no new per-message read table is introduced.
+
+The outer session retains current ConferenceId across Main returns; dispatch
+refreshes it against current access. Expected unavailable/read/post/input failures
+return localized feedback and a usable menu. Caller lifecycle closure and all
+input deadlines continue through D2 authority. Schema remains 37 and config 2.
+Posting still uses the existing single immediate transaction; the native public
+All-Callers insertion trigger commits network preparation generation with the
+message, preserving the existing adapter publication boundary.

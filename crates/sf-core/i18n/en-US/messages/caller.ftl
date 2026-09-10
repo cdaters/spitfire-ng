@@ -194,7 +194,7 @@ message-subject-change-question = Change message subject? (Y/N): { " " }
 message-subject-new-prompt = New Subject: { " " }
 message-conference-message-unavailable = That message is unavailable in this conference.
 message-read-selection-invalid = Invalid read-message selection.
-message-thread-none = No other visible messages share this subject.
+message-thread-none = No other visible replies are linked to this message.
 message-thread-title = >>>> MESSAGE THREAD MENU <<<<
 message-thread-forward-back = <S> Start Of Thread  <F> Forward Read
 message-thread-back-exit = <B> Backward Read    <E> Exit Message Thread
@@ -383,3 +383,17 @@ caller-registration-login-created = Your Login is { $login }. Use it when you ca
 caller-profile-input-invalid = That input is not valid for your terminal. Please try again.
 
 caller-auth-choice-invalid = Please enter Y for a new account or N to log in.
+
+# D3 bounded message navigation and recoverable input.
+message-action-unavailable = That message or conference is no longer available for this action. Nothing was saved. Please select again.
+message-input-invalid = Invalid or overlong input. Please try again: { " " }
+message-scan-new = <N> New Messages In All Permitted Conferences
+message-no-new = No new messages in your permitted conferences.
+message-index-more = [Enter] More message headers, [Q] Quit: { " " }
+message-navigation-help = Read: Enter/N next, - previous, a message number to select, R reply, F linked thread, Q return. Scan N reads only new messages across permitted conferences.
+message-composition-help = To uses a local Handle; Enter means All Callers. /A at To, Subject or body entry cancels. Blank body line opens editor commands; /S requests save, then Y confirms. Main retains your conference.
+message-thread-bound = Linked replies are ordered by message number (up to 1000 linked messages).
+message-index-header = { $mark }{ $number }  To: { $recipient }  From: { $author }
+message-index-time = { "        " }{ $date }{ $reply }{ $privacy }
+message-index-reply = { "  " }Reply
+message-index-private = { "  " }PRIVATE

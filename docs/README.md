@@ -1,5 +1,11 @@
 # SPITFIRE NG Documentation
 
+[Caller message commands](caller-guide/README.md),
+[message/conference configuration](operator/messages.md), and the
+[native message contract](sfng-message-system.md) cover D3 bounded browsing,
+linked replies, new-message scans, confirmed posting and current access checks.
+D1 deployment and D2 caller/session foundations remain accepted.
+
 [Caller login and session policy](operator/caller-management.md), the
 [caller guide](caller-guide/README.md), and the [session contract](technical/caller-sessions.md)
 cover atomic admission, new users, exclusive account ownership and recovery.

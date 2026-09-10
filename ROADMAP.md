@@ -1,40 +1,44 @@
 # SPITFIRE NG Roadmap
 
-## D2 caller/session completeness
+## D3 menus and messages
 
-D2 provides a complete caller journey through greeting, Login, returning-user
-or new-user validation, Main, caller status and Goodbye. Admission atomically
-checks current account eligibility, reserves eligible time, claims one active
-session per account and records the successful call. Stale profile/preference
-writes are refused safely. Interrupted claims recover before listeners start.
+D3 completes the local caller message journey: Main → Messages, permitted
+conferences, paged indexes, sequential reads, linked replies, new-message scans,
+confirmed posts, menu return and Goodbye. Selection survives menu round-trips;
+read positions are caller-specific and durable. Current access is checked again
+when reading and saving. Cancellation or disconnection publishes no partial post.
 
 [Caller guide](docs/caller-guide/README.md),
-[login and session policy](docs/operator/caller-management.md),
-[admission and recovery contract](docs/technical/caller-sessions.md).
+[message and conference configuration](docs/operator/messages.md),
+[message contract](docs/sfng-message-system.md), and
+[login/session policy](docs/operator/caller-management.md).
 
-Schema **37**, configuration format **2**, local operator protocol **1.19** and
-en-US **1.36.0**. CIRCUITNET-NG remains **1.4**; FTN/QWK identity and deployment
-semantics are unchanged. D1 backup/update/compatible rollback protects D2 state.
-This is current source; no new prebuilt binary archive or production deployment
-is implied.
+D1 and D2 remain accepted. Schema **37**, configuration format **2**, local
+operator protocol **1.19** and CIRCUITNET-NG **1.4** are unchanged. Embedded en-US
+is **1.37.0**. Native identity, frozen author, immutable reply parent and existing
+network preparation remain authoritative. No adapter or deployment semantics
+changed. This is current source; no new prebuilt binary archive or production
+deployment is implied.
 
-**D2 COMPLETE / ACCEPTED.** Public workspace: **815 passed / 0 failed / 8
-ignored**, all 26 result groups and six empty doctest groups. Native D2 Telnet:
-**4 passed**. D1 deployment **11 passed**, backup/restore **21 passed**, separate
-native D1 CLI preservation journey **1 passed**. FTN, QWK and CircuitNET regression
-suites pass. Fmt, strict workspace/all-target/all-feature Clippy, diff, **181
-source headers** and **182 Markdown documents / 1297 local path links / 0 missing
-targets** pass. Link checks exclude remote URLs and fragment anchors.
-Real Apple Silicon Telnet and multi-node acceptance runs use disposable local
-boards. Real Intel macOS, Linux, Windows and BSD acceptance remains deferred.
-Blocking local stdio is checked at input boundaries; uncommitted crash-time
-duration is not reconstructed. Cargo-audit is unavailable.
+**D3 COMPLETE / ACCEPTED.** Independent public workspace: **824 passed / 0
+failed / 8 existing ignored**, all 27 result groups including six empty doctest
+groups. Real Apple Silicon native D3 Telnet **4 passed**, D2 **4 passed**, D1
+deployment **11 passed**, backup/restore **21 passed**, separate native D1 CLI
+preservation journey **1 passed**. FTN/BinkP, QWK and CircuitNET regressions pass.
+Fmt, strict workspace/all-target/all-feature Clippy, diff, **183 source headers**
+and **182 Markdown / 1304 inline local path links / 0 missing targets** pass.
+Link checks exclude remote URLs and fragment anchors. Intel macOS compilation
+passes; real acceptance uses disposable local boards on Apple Silicon macOS.
 
-Next milestone: **D3 — Menus, conferences, message reading and posting completeness**.
-Exact next action: **review D2 publication**. Stop before starting D3.
-D3 has not begun.
+The line editor remains the supported composition interface; durable drafts and
+a full-screen editor are outside D3. Read state is a per-conference high-water,
+so displaying a higher number makes earlier messages old. Linked navigation is
+bounded to 1000 connected messages. Real non-Apple-Silicon platform acceptance
+is deferred. Cargo-audit is unavailable on the acceptance host.
 
-Earlier sections below describe historical checkpoints.
+Exact next action after publication: **Work/DDEV website progress refresh, then
+review, followed by D4 only after authorization.** Neither website nor D4 is part
+of this milestone.
 
 ## Previous accepted D1 deployment foundation
 

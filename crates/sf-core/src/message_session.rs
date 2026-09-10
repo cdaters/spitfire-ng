@@ -62,6 +62,92 @@ pub(crate) fn run_message_menu(
     authenticated: &mut AuthenticatedCaller,
     caller_config: &CallerConfig,
     expert: &mut bool,
+    selected: &mut Option<crate::ConferenceId>,
+) -> Result<MessageMenuResult, SessionError> {
+    let mut command_count = 0;
+    loop {
+        match run_message_menu_inner(
+            resources,
+            context,
+            terminal,
+            backend,
+            session,
+            stock,
+            authenticated,
+            caller_config,
+            expert,
+            selected,
+            &mut command_count,
+        ) {
+            Ok(result) => return Ok(result),
+            Err(SessionError::Message(error)) if recoverable_message_error(&error) => {
+                write_key_line(
+                    terminal,
+                    "message-action-unavailable",
+                    &crate::LocalizationArgs::new(),
+                )?;
+            }
+            Err(SessionError::Message(MessageError::CallerUnavailable)) => {
+                crate::session::refresh_caller_access_for_dispatch(
+                    session,
+                    terminal,
+                    backend,
+                    authenticated,
+                    caller_config,
+                    stock,
+                    context,
+                )?;
+                return Ok(MessageMenuResult {
+                    exit: MessageMenuExit::EndOfInput,
+                    commands: command_count,
+                });
+            }
+            Err(SessionError::Terminal(
+                TerminalError::InputTooLong { .. } | TerminalError::InvalidInput,
+            )) => {
+                write_key_line(
+                    terminal,
+                    "message-input-invalid",
+                    &crate::LocalizationArgs::new(),
+                )?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn recoverable_message_error(error: &MessageError) -> bool {
+    matches!(
+        error,
+        MessageError::ConferenceNotFound(_)
+            | MessageError::ConferenceIdNotFound(_)
+            | MessageError::ConferenceAccessDenied(_)
+            | MessageError::MessageNotFound { .. }
+            | MessageError::MessageAccessDenied
+            | MessageError::ParentMessageNotFound(_)
+            | MessageError::RecipientNotFound
+            | MessageError::PrivateMessagesNotAllowed(_)
+            | MessageError::InvalidSubject
+            | MessageError::InvalidBody
+            | MessageError::TooManyLines { .. }
+            | MessageError::MutationDenied
+            | MessageError::MutationConflict
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_message_menu_inner(
+    resources: &StockResources,
+    context: &DisplayContext<'_>,
+    terminal: &mut dyn Terminal,
+    backend: &mut RuntimeDatabase,
+    session: &mut Session,
+    stock: &StockSessionContext<'_>,
+    authenticated: &mut AuthenticatedCaller,
+    caller_config: &CallerConfig,
+    expert: &mut bool,
+    selected: &mut Option<crate::ConferenceId>,
+    commands: &mut usize,
 ) -> Result<MessageMenuResult, SessionError> {
     let actor = message_actor(authenticated, caller_config)?;
     let named_sysop = authenticated
@@ -69,18 +155,23 @@ pub(crate) fn run_message_menu(
         .display_name
         .eq_ignore_ascii_case(&caller_config.sysop_caller_name);
     let conferences = backend.conferences(actor)?;
-    let Some(mut current) = conferences.first().cloned() else {
+    let Some(mut current) = conferences
+        .iter()
+        .find(|c| Some(c.id) == *selected)
+        .or_else(|| conferences.first())
+        .cloned()
+    else {
         write_line(
             terminal,
             "No message conferences are available at your security level.",
         )?;
         return Ok(MessageMenuResult {
             exit: MessageMenuExit::Main,
-            commands: 0,
+            commands: *commands,
         });
     };
+    *selected = Some(current.id);
     let menu = resources.menu(MenuSection::Message)?;
-    let mut commands = 0;
     loop {
         if !*expert {
             if let Some(display) = resources.menu_display(
@@ -120,10 +211,10 @@ pub(crate) fn run_message_menu(
         else {
             return Ok(MessageMenuResult {
                 exit: MessageMenuExit::EndOfInput,
-                commands,
+                commands: *commands,
             });
         };
-        commands += 1;
+        *commands += 1;
         if !crate::session::refresh_caller_access_for_dispatch(
             session,
             terminal,
@@ -135,10 +226,24 @@ pub(crate) fn run_message_menu(
         )? {
             return Ok(MessageMenuResult {
                 exit: MessageMenuExit::EndOfInput,
-                commands,
+                commands: *commands,
             });
         }
         let actor = message_actor(authenticated, caller_config)?;
+        let accessible = backend.conferences(actor)?;
+        let Some(refreshed) = accessible.iter().find(|c| c.id == current.id).cloned() else {
+            write_key_line(
+                terminal,
+                "message-conference-unavailable",
+                &crate::LocalizationArgs::new(),
+            )?;
+            *selected = None;
+            return Ok(MessageMenuResult {
+                exit: MessageMenuExit::Main,
+                commands: *commands,
+            });
+        };
+        current = refreshed;
         if command.eq_ignore_ascii_case(&b'L')
             && caller_config.qwk_board_id.is_some()
             && menu
@@ -173,8 +278,10 @@ pub(crate) fn run_message_menu(
                 caller_config,
             )?,
             b'Z' => {
-                if let Some(selected) = choose_conference(terminal, backend, actor)? {
-                    current = selected;
+                if let Some(chosen) = choose_conference(terminal, backend, actor)? {
+                    current = chosen;
+                    *selected = Some(current.id);
+                    // The outer session retains this stable identity across Main returns.
                     crate::session::render_named_display(
                         terminal,
                         resources,
@@ -190,7 +297,7 @@ pub(crate) fn run_message_menu(
                 {
                     return Ok(MessageMenuResult {
                         exit: MessageMenuExit::EndOfInput,
-                        commands,
+                        commands: *commands,
                     });
                 }
             }
@@ -210,7 +317,7 @@ pub(crate) fn run_message_menu(
                 {
                     return Ok(MessageMenuResult {
                         exit: MessageMenuExit::EndOfInput,
-                        commands,
+                        commands: *commands,
                     });
                 }
             }
@@ -220,7 +327,7 @@ pub(crate) fn run_message_menu(
                 {
                     return Ok(MessageMenuResult {
                         exit: MessageMenuExit::EndOfInput,
-                        commands,
+                        commands: *commands,
                     });
                 }
             }
@@ -240,13 +347,13 @@ pub(crate) fn run_message_menu(
             b'D' => {
                 return Ok(MessageMenuResult {
                     exit: MessageMenuExit::File,
-                    commands,
+                    commands: *commands,
                 });
             }
             b'C' => {
                 return Ok(MessageMenuResult {
                     exit: MessageMenuExit::Main,
-                    commands,
+                    commands: *commands,
                 });
             }
             b'R' => {
@@ -254,7 +361,7 @@ pub(crate) fn run_message_menu(
                 if authenticated.caller.security_level.is_sysop(threshold) {
                     return Ok(MessageMenuResult {
                         exit: MessageMenuExit::Sysop,
-                        commands,
+                        commands: *commands,
                     });
                 }
                 write_line(
@@ -265,7 +372,7 @@ pub(crate) fn run_message_menu(
             b'A' => {
                 return Ok(MessageMenuResult {
                     exit: MessageMenuExit::Goodbye,
-                    commands,
+                    commands: *commands,
                 });
             }
             b'B' => {
@@ -279,17 +386,33 @@ pub(crate) fn run_message_menu(
                     },
                 )?;
             }
-            b'?' => crate::session::show_help(
-                MenuSection::Message,
-                menu,
-                resources,
+            b'?' => {
+                crate::session::show_help(
+                    MenuSection::Message,
+                    menu,
+                    resources,
+                    terminal,
+                    authenticated.caller.security_level,
+                    authenticated.caller.preferences.hot_keys,
+                )?;
+                write_key_line(
+                    terminal,
+                    "message-navigation-help",
+                    &crate::LocalizationArgs::new(),
+                )?;
+                write_key_line(
+                    terminal,
+                    "message-composition-help",
+                    &crate::LocalizationArgs::new(),
+                )?;
+            }
+            _ => write_key_line(
                 terminal,
-                authenticated.caller.security_level,
-                authenticated.caller.preferences.hot_keys,
-            )?,
-            _ => write_line(
-                terminal,
-                "That message command is not available in this SPITFIRE NG capability set.",
+                "session-command-unavailable",
+                &crate::LocalizationArgs::new().with(
+                    "command",
+                    String::from_utf8_lossy(&item.description).into_owned(),
+                ),
             )?,
         }
     }
@@ -349,6 +472,60 @@ pub(crate) fn message_actor(
     ))
 }
 
+fn read_message_input(
+    terminal: &mut dyn Terminal,
+    maximum: usize,
+) -> Result<Option<Vec<u8>>, TerminalError> {
+    loop {
+        match terminal.read_line(maximum) {
+            Ok(Some(input)) if input != [0x11] && input.iter().any(|b| *b < 32 || *b == 127) => {}
+            Err(TerminalError::InputTooLong { .. } | TerminalError::InvalidInput) => {}
+            result => return result,
+        }
+        write_key(
+            terminal,
+            "message-input-invalid",
+            &crate::LocalizationArgs::new(),
+        )?;
+    }
+}
+
+fn reader_step(
+    backend: &dyn MessageBackend,
+    actor: MessageActor,
+    conferences: &[Conference],
+    mut index: usize,
+    mut boundary: u64,
+    reverse: bool,
+    floors: Option<&[u64]>,
+) -> Result<Option<(usize, crate::MessageSummary)>, MessageError> {
+    loop {
+        let next = backend.message_window(actor, conferences[index].id, boundary, reverse, 1)?;
+        if let Some(summary) = next.into_iter().next() {
+            if floors.is_some() && summary.lifecycle == MessageLifecycle::Deleted {
+                boundary = summary.number;
+                continue;
+            }
+            if floors.is_none_or(|f| summary.number > f[index]) {
+                return Ok(Some((index, summary)));
+            }
+        }
+        if reverse {
+            let Some(previous) = index.checked_sub(1) else {
+                return Ok(None);
+            };
+            index = previous;
+            boundary = i64::MAX as u64;
+        } else {
+            index += 1;
+            if index == conferences.len() {
+                return Ok(None);
+            }
+            boundary = floors.map_or(0, |f| f[index]);
+        }
+    }
+}
+
 fn choose_conference(
     terminal: &mut dyn Terminal,
     backend: &dyn MessageBackend,
@@ -361,12 +538,7 @@ fn choose_conference(
         &crate::LocalizationArgs::new(),
     )?;
     for conference in &conferences {
-        let last = backend.last_read(actor, conference.id)?;
-        let unread = backend
-            .messages(actor, conference.id)?
-            .iter()
-            .filter(|message| message.number > last)
-            .count();
+        let unread = backend.new_message_count(actor, conference.id)?;
         write_line(
             terminal,
             &format!(
@@ -380,7 +552,7 @@ fn choose_conference(
         "message-conference-number-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(None);
     };
     if input.iter().all(u8::is_ascii_whitespace) {
@@ -422,36 +594,78 @@ fn list_messages(
             conference.number, conference.name
         ),
     )?;
-    let messages = backend.messages(actor, conference.id)?;
-    if messages.is_empty() {
-        write_key_line(
+    let mut boundary = 0;
+    loop {
+        let messages = backend.message_window(actor, conference.id, boundary, false, 20)?;
+        if messages.is_empty() {
+            if boundary == 0 {
+                write_key_line(
+                    terminal,
+                    "message-none-available",
+                    &crate::LocalizationArgs::new(),
+                )?;
+            }
+            return Ok(());
+        }
+        let last_read = backend.last_read(actor, conference.id)?;
+        for message in &messages {
+            boundary = message.number;
+            let unread = if message.number > last_read { '*' } else { ' ' };
+            let recipient = display_identity(terminal, &message.recipient_name);
+            let author = display_identity(terminal, &message.author_name);
+            write_key_line(
+                terminal,
+                "message-index-header",
+                &crate::LocalizationArgs::new()
+                    .with("mark", unread.to_string())
+                    .with("number", format!("{:>5}", message.number))
+                    .with("recipient", recipient)
+                    .with("author", author),
+            )?;
+            terminal.write_all(b"        ")?;
+            write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
+            write_key_line(
+                terminal,
+                "message-index-time",
+                &crate::LocalizationArgs::new()
+                    .with("date", format_timestamp_utc(message.created_at))
+                    .with(
+                        "reply",
+                        if message.parent_message_id.is_some() {
+                            crate::text("message-index-reply", &crate::LocalizationArgs::new())
+                        } else {
+                            String::new()
+                        },
+                    )
+                    .with(
+                        "privacy",
+                        if message.visibility == MessageVisibility::Private {
+                            crate::text("message-index-private", &crate::LocalizationArgs::new())
+                        } else {
+                            String::new()
+                        },
+                    ),
+            )?;
+            if terminal.output_aborted() {
+                return Ok(());
+            }
+        }
+        if messages.len() < 20 {
+            return Ok(());
+        }
+        write_key(
             terminal,
-            "message-none-available",
+            "message-index-more",
             &crate::LocalizationArgs::new(),
         )?;
-        return Ok(());
-    }
-    let last_read = backend.last_read(actor, conference.id)?;
-    for message in messages {
-        let unread = if message.number > last_read { '*' } else { ' ' };
-        let private = if message.visibility == MessageVisibility::Private {
-            " PRIVATE"
-        } else {
-            ""
+        let Some(answer) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
+            return Ok(());
         };
-        write_dynamic(
-            terminal,
-            &format!(
-                "{unread}{:>5}  To: {:<20} From: {:<20}{private}\r\n        ",
-                message.number, message.recipient_name, message.author_name
-            ),
-        )?;
-        write_cp437_line(terminal, &message.encoding.display_cp437(&message.subject))?;
-        if terminal.output_aborted() {
-            break;
+        if first_command(&answer).is_some_and(|key| key != b'N') {
+            return Ok(());
         }
+        terminal.begin_output();
     }
-    Ok(())
 }
 
 fn select_and_read_messages(
@@ -464,6 +678,11 @@ fn select_and_read_messages(
     write_key_line(
         terminal,
         "message-scan-title",
+        &crate::LocalizationArgs::new(),
+    )?;
+    write_key_line(
+        terminal,
+        "message-scan-new",
         &crate::LocalizationArgs::new(),
     )?;
     write_key_line(
@@ -496,12 +715,12 @@ fn select_and_read_messages(
         "message-scan-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+    let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
         return Ok(ComposeOutcome::Disconnected);
     };
     let conferences = match first_command(&input) {
         Some(b'T') => vec![current.clone()],
-        Some(b'A') => backend.conferences(actor)?,
+        Some(b'A' | b'N') => backend.conferences(actor)?,
         Some(b'O') => backend.queued_conferences(actor)?,
         Some(b'C') => {
             alter_conference_queue(terminal, backend, actor)?;
@@ -523,14 +742,18 @@ fn select_and_read_messages(
             "message-preview-question",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         first_command(&input) != Some(b'Y')
     } else {
         true
     };
-    read_conferences(terminal, backend, actor, &conferences, mark_received)
+    if first_command(&input) == Some(b'N') {
+        read_conferences_mode(terminal, backend, actor, &conferences, mark_received, true)
+    } else {
+        read_conferences(terminal, backend, actor, &conferences, mark_received)
+    }
 }
 
 fn read_conferences(
@@ -540,28 +763,65 @@ fn read_conferences(
     conferences: &[Conference],
     mark_received: bool,
 ) -> Result<ComposeOutcome, SessionError> {
-    let mut scan = Vec::new();
-    for conference in conferences {
-        let last_read = backend.last_read(actor, conference.id)?;
-        for summary in backend.messages(actor, conference.id)? {
-            scan.push((conference.clone(), summary, last_read));
+    read_conferences_mode(terminal, backend, actor, conferences, mark_received, false)
+}
+
+fn read_conferences_mode(
+    terminal: &mut dyn Terminal,
+    backend: &mut dyn MessageBackend,
+    actor: MessageActor,
+    conferences: &[Conference],
+    mark_received: bool,
+    new_only: bool,
+) -> Result<ComposeOutcome, SessionError> {
+    let floors = conferences
+        .iter()
+        .map(|c| backend.last_read(actor, c.id))
+        .collect::<Result<Vec<_>, _>>()?;
+    let find_start = |floors: &[u64]| -> Result<_, MessageError> {
+        for (index, conference) in conferences.iter().enumerate() {
+            if let Some(summary) = backend
+                .message_window(actor, conference.id, floors[index], false, 1)?
+                .into_iter()
+                .next()
+            {
+                return Ok(Some((index, summary)));
+            }
         }
-    }
-    if scan.is_empty() {
+        Ok(None)
+    };
+    let first = if new_only && !conferences.is_empty() {
+        reader_step(
+            backend,
+            actor,
+            conferences,
+            0,
+            floors[0],
+            false,
+            Some(&floors),
+        )?
+    } else {
+        find_start(&floors)?
+    };
+    let first = if first.is_none() && !new_only {
+        find_start(&vec![0; conferences.len()])?
+    } else {
+        first
+    };
+    let Some((mut conference_index, mut summary)) = first else {
         write_key_line(
             terminal,
-            "message-scan-empty",
+            if new_only {
+                "message-no-new"
+            } else {
+                "message-scan-empty"
+            },
             &crate::LocalizationArgs::new(),
         )?;
         return Ok(ComposeOutcome::Cancelled);
-    }
-    let mut index = scan
-        .iter()
-        .position(|(_, message, last_read)| message.number > *last_read)
-        .unwrap_or(0);
-
+    };
     loop {
-        let (conference, summary, _) = &scan[index];
+        let conference = &conferences[conference_index];
         let number = summary.number;
         let message = match backend.message(actor, conference.id, number) {
             Ok(message) => message,
@@ -593,7 +853,7 @@ fn read_conferences(
             "message-read-prompt"
         };
         write_key(terminal, prompt_key, &crate::LocalizationArgs::new())?;
-        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         let command = first_command(&input);
@@ -635,8 +895,17 @@ fn read_conferences(
                     .unwrap_or(false)
                 {
                     // The loop reopens and redisplays the contextual deleted message.
-                } else if index + 1 < scan.len() {
-                    index += 1;
+                } else if let Some((next_conference, next)) = reader_step(
+                    backend,
+                    actor,
+                    conferences,
+                    conference_index,
+                    number,
+                    false,
+                    if new_only { Some(&floors) } else { None },
+                )? {
+                    conference_index = next_conference;
+                    summary = next;
                 } else {
                     return Ok(ComposeOutcome::Cancelled);
                 }
@@ -676,7 +945,7 @@ fn read_conferences(
                         "message-public-all-callers-prompt",
                         &crate::LocalizationArgs::new().with("number", number),
                     )?;
-                    let Some(answer) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+                    let Some(answer) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
                         return Ok(ComposeOutcome::Disconnected);
                     };
                     first_command(&answer) != Some(b'N')
@@ -726,18 +995,33 @@ fn read_conferences(
                     return Ok(ComposeOutcome::Disconnected);
                 }
             }
-            b'N' if index + 1 < scan.len() => index += 1,
-            b'N' => write_key_line(
-                terminal,
-                "message-no-later",
-                &crate::LocalizationArgs::new(),
-            )?,
-            b'P' | b'-' if index > 0 => index -= 1,
-            b'P' | b'-' => write_key_line(
-                terminal,
-                "message-no-earlier",
-                &crate::LocalizationArgs::new(),
-            )?,
+            b'N' | b'P' | b'-' => {
+                let reverse = command.is_some_and(|c| c == b'P' || c == b'-');
+                if let Some((next_conference, next)) = reader_step(
+                    backend,
+                    actor,
+                    conferences,
+                    conference_index,
+                    number,
+                    reverse,
+                    if new_only { Some(&floors) } else { None },
+                )? {
+                    conference_index = next_conference;
+                    summary = next;
+                } else if new_only && !reverse {
+                    return Ok(ComposeOutcome::Cancelled);
+                } else {
+                    write_key_line(
+                        terminal,
+                        if reverse {
+                            "message-no-earlier"
+                        } else {
+                            "message-no-later"
+                        },
+                        &crate::LocalizationArgs::new(),
+                    )?;
+                }
+            }
             b'R' => {
                 let recipient = message.author_caller_id.map(|caller_id| MessageRecipient {
                     caller_id,
@@ -748,7 +1032,7 @@ fn read_conferences(
                     "message-subject-change-question",
                     &crate::LocalizationArgs::new(),
                 )?;
-                let Some(change) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+                let Some(change) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
                     return Ok(ComposeOutcome::Disconnected);
                 };
                 let reply_subject = if first_command(&change) == Some(b'Y') {
@@ -757,7 +1041,8 @@ fn read_conferences(
                         "message-subject-new-prompt",
                         &crate::LocalizationArgs::new(),
                     )?;
-                    let Some(subject) = terminal.read_line(MAX_MESSAGE_SUBJECT_BYTES)? else {
+                    let Some(subject) = read_message_input(terminal, MAX_MESSAGE_SUBJECT_BYTES)?
+                    else {
                         return Ok(ComposeOutcome::Disconnected);
                     };
                     if subject.is_empty() {
@@ -795,12 +1080,8 @@ fn read_conferences(
             b'Q' => return Ok(ComposeOutcome::Cancelled),
             _ => {
                 if let Some(number) = parse_u64(&input) {
-                    if let Some(found) =
-                        scan.iter().position(|(candidate_conference, message, _)| {
-                            candidate_conference.id == conference.id && message.number == number
-                        })
-                    {
-                        index = found;
+                    if let Ok(found) = backend.message(actor, conference.id, number) {
+                        summary = crate::MessageSummary::from(&found);
                     } else {
                         write_key_line(
                             terminal,
@@ -834,7 +1115,7 @@ fn copy_message_interaction(
         "message-copy-conference-prompt",
         &crate::LocalizationArgs::new().with("maximum", maximum),
     )?;
-    let Some(destination_input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(destination_input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(ComposeOutcome::Disconnected);
     };
     let Some(destination_number) = parse_u16(&destination_input) else {
@@ -866,7 +1147,7 @@ fn copy_message_interaction(
         "message-copy-change-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(change) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+    let Some(change) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
         return Ok(ComposeOutcome::Disconnected);
     };
     let recipient = if first_command(&change) == Some(b'Y') {
@@ -880,7 +1161,7 @@ fn copy_message_interaction(
             "message-copy-recipient-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+        let Some(input) = read_message_input(terminal, MAX_CALLER_NAME_INPUT)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         if input.iter().all(u8::is_ascii_whitespace) {
@@ -961,11 +1242,12 @@ fn follow_message_thread(
     original: &Message,
     mark_received: bool,
 ) -> Result<(), SessionError> {
-    let thread = backend
-        .messages(actor, conference.id)?
-        .into_iter()
-        .filter(|message| message.subject == original.subject)
-        .collect::<Vec<_>>();
+    let thread = backend.message_thread(actor, conference.id, original.number)?;
+    write_key_line(
+        terminal,
+        "message-thread-bound",
+        &crate::LocalizationArgs::new(),
+    )?;
     if thread.len() < 2 {
         write_key_line(
             terminal,
@@ -999,7 +1281,7 @@ fn follow_message_thread(
             "message-thread-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
             return Ok(());
         };
         match first_command(&input) {
@@ -1077,7 +1359,7 @@ fn alter_conference_queue(
             "message-queue-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
             return Ok(());
         };
         match first_command(&input) {
@@ -1148,7 +1430,7 @@ fn search_messages_by_caller(
         "message-search-caller-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(caller_name) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+    let Some(caller_name) = read_message_input(terminal, MAX_CALLER_NAME_INPUT)? else {
         return Ok(());
     };
     if caller_name.is_empty() {
@@ -1171,7 +1453,7 @@ fn search_messages_by_caller(
         "message-search-direction-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+    let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
         return Ok(());
     };
     let direction = match first_command(&input) {
@@ -1214,7 +1496,7 @@ fn search_message_text(
         "message-search-text-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_EDITOR_LINE_BYTES)? else {
+    let Some(input) = read_message_input(terminal, MAX_EDITOR_LINE_BYTES)? else {
         return Ok(());
     };
     let terms = input
@@ -1284,7 +1566,7 @@ fn choose_discovery_conferences(
         "message-search-scope-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+    let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
         return Ok(None);
     };
     match first_command(&input) {
@@ -1335,7 +1617,7 @@ fn present_discovery(
             "message-search-continue-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
             break;
         };
         if first_command(&input) == Some(b'Q') {
@@ -1368,7 +1650,7 @@ fn update_one_queue_conference(
     } else {
         b"Conference Number To Delete: "
     })?;
-    let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(());
     };
     let Some(number) = parse_u16(&input) else {
@@ -1584,7 +1866,7 @@ fn compose_message(
             "message-compose-to-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+        let Some(input) = read_message_input(terminal, MAX_CALLER_NAME_INPUT)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         if input.eq_ignore_ascii_case(b"/A") {
@@ -1632,7 +1914,7 @@ fn compose_message(
                     u64::try_from(ordinal).map_err(|_| MessageError::MessageNumberOverflow)?,
                 ),
             )?;
-            let Some(input) = terminal.read_line(MAX_CALLER_NAME_INPUT)? else {
+            let Some(input) = read_message_input(terminal, MAX_CALLER_NAME_INPUT)? else {
                 return Ok(ComposeOutcome::Disconnected);
             };
             if input.iter().all(u8::is_ascii_whitespace) {
@@ -1684,7 +1966,7 @@ fn compose_message(
         } else {
             b"Make this message non-public/private? [y/N]: "
         })?;
-        let Some(input) = terminal.read_line(8)? else {
+        let Some(input) = read_message_input(terminal, 8)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         match first_command(&input) {
@@ -1704,7 +1986,7 @@ fn compose_message(
             "message-compose-subject-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MESSAGE_SUBJECT_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MESSAGE_SUBJECT_BYTES)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         if input.eq_ignore_ascii_case(b"/A") || input.is_empty() {
@@ -1740,7 +2022,7 @@ fn compose_message(
         "message-compose-save-question",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(answer) = terminal.read_line(8)? else {
+    let Some(answer) = read_message_input(terminal, 8)? else {
         return Ok(ComposeOutcome::Disconnected);
     };
     if first_command(&answer) != Some(b'Y') {
@@ -1840,7 +2122,7 @@ fn show_your_messages(
             "message-yours-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+        let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
             return Ok(ComposeOutcome::Disconnected);
         };
         match first_command(&input) {
@@ -1851,7 +2133,8 @@ fn show_your_messages(
                         "message-preview-question",
                         &crate::LocalizationArgs::new(),
                     )?;
-                    let Some(preview) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+                    let Some(preview) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)?
+                    else {
                         return Ok(ComposeOutcome::Disconnected);
                     };
                     first_command(&preview) != Some(b'Y')
@@ -1905,7 +2188,7 @@ fn edit_message(
     let mut lines = Vec::<EditorLine>::new();
     loop {
         terminal.write_all(format!("{:>2}> ", lines.len() + 1).as_bytes())?;
-        let Some(line) = terminal.read_line(MAX_EDITOR_LINE_BYTES)? else {
+        let Some(line) = read_message_input(terminal, MAX_EDITOR_LINE_BYTES)? else {
             return Ok(EditorOutcome::Disconnected);
         };
         if line.eq_ignore_ascii_case(b"/A") {
@@ -1997,7 +2280,7 @@ fn editor_command_menu(
         "message-editor-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MENU_COMMAND_BYTES)? else {
+    let Some(input) = read_message_input(terminal, MAX_MENU_COMMAND_BYTES)? else {
         return Ok(EditorCommandOutcome::Disconnected);
     };
     match first_command(&input) {
@@ -2077,7 +2360,7 @@ fn replace_editor_line(
         "message-editor-replace-line-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(());
     };
     let Some(index) = parse_line_number(&input, lines.len()) else {
@@ -2101,7 +2384,7 @@ fn replace_editor_line(
         "message-editor-replacement-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(replacement) = terminal.read_line(MAX_EDITOR_LINE_BYTES)? else {
+    let Some(replacement) = read_message_input(terminal, MAX_EDITOR_LINE_BYTES)? else {
         return Ok(());
     };
     let old = std::mem::replace(&mut lines[index].bytes, replacement);
@@ -2127,7 +2410,7 @@ fn edit_editor_lines(
             "message-editor-edit-line-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+        let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
             return Ok(());
         };
         if input.is_empty() {
@@ -2154,7 +2437,7 @@ fn edit_editor_lines(
             "message-editor-edited-text-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(replacement) = terminal.read_line(MAX_EDITOR_LINE_BYTES)? else {
+        let Some(replacement) = read_message_input(terminal, MAX_EDITOR_LINE_BYTES)? else {
             return Ok(());
         };
         let old = std::mem::replace(&mut lines[index].bytes, replacement);
@@ -2187,7 +2470,7 @@ fn insert_editor_line(
         "message-editor-insert-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(());
     };
     let index = if input.is_empty() {
@@ -2227,7 +2510,7 @@ fn delete_editor_lines(
         "message-editor-delete-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(());
     };
     let Some((start, end)) = parse_line_range(&input, lines.len()) else {
@@ -2277,7 +2560,7 @@ fn quote_original(
         "message-editor-quote-range-prompt",
         &crate::LocalizationArgs::new(),
     )?;
-    let Some(input) = terminal.read_line(MAX_MESSAGE_NUMBER_INPUT)? else {
+    let Some(input) = read_message_input(terminal, MAX_MESSAGE_NUMBER_INPUT)? else {
         return Ok(());
     };
     if input.is_empty() {
@@ -2450,7 +2733,7 @@ fn show_personal_message_list(
             "message-personal-read-prompt",
             &crate::LocalizationArgs::new(),
         )?;
-        let Some(input) = terminal.read_line(48)? else {
+        let Some(input) = read_message_input(terminal, 48)? else {
             return Ok(());
         };
         if input.is_empty() {
@@ -2476,6 +2759,9 @@ fn show_personal_message_list(
         };
         let message = backend.message(actor, conference.id, summary.number)?;
         display_message(terminal, conference, &message)?;
+        if terminal.output_aborted() {
+            return Ok(());
+        }
         if received && mark_received {
             backend.mark_read(actor, conference.id, summary.number)?;
         }
@@ -3016,7 +3302,7 @@ mod tests {
     }
 
     #[test]
-    fn same_subject_thread_traversal_and_personal_lists_respect_privacy_and_receipts() {
+    fn native_parent_thread_traversal_and_personal_lists_respect_privacy_and_receipts() {
         let (_temp, mut database, alice, bob) = message_database();
         let conference = database.conference(alice, 1).unwrap();
         let first = post_public(&mut database, alice, &conference, b"Thread Subject");

@@ -173,7 +173,7 @@ scope was added.
 | ID | Initial | Evidence and action | Final |
 |---|---:|---|---:|
 | A-041 | PARTIAL | Implemented the documented This/All/Only Queued conference choices, caller queue editing, mandatory Conference 1, accessible-conference ordering, recipient queue enforcement, persistence, and clean-board Telnet/RAW traversal. | VERIFIED |
-| A-045 | PARTIAL | Replies now prompt before changing the subject, preserve the exact subject by default, retain the parent ID, support CTRL+Q line-range quoting with sender initials, and traverse the visible same-subject thread forward/backward/from its start. | VERIFIED |
+| A-045 | PARTIAL | Replies now prompt before changing the subject, preserve the exact subject by default, retain the parent ID, support CTRL+Q line-range quoting with sender initials, and traverse visible native-parent threads forward/backward/from their start. D3 intentionally retains changed-subject replies and excludes unrelated equal subjects; historical subject grouping remains evidence. | VERIFIED |
 | A-047 | PARTIAL | The bounded line editor now implements Save, Edit, Abort, Continue, Begin Again, Replace, List, Insert, and Delete while preventing quoted-line edits and retaining CP437 bytes and terminal bounds. | VERIFIED |
 | A-048 | PARTIAL | “Your Messages” reports new waiting, already received, sent, and total available; exposes private received/sent lists with status and direct-read prompts; persists idempotent receipts; and supports named-Sysop preview without acknowledging receipt. | VERIFIED |
 

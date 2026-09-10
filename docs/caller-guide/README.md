@@ -128,6 +128,20 @@ commands. Save with `S` and confirm with `Y`; abort if you do not want to post.
 Private messages are visible only to their allowed participants and authorized
 Sysops.
 
+Use `C` to list/select permitted conferences and `B` to browse 20 headers at a
+time. Message numbers belong to the selected conference. `R` offers ordinary
+reading or `N` for new messages across permitted areas. While reading, Enter/N
+advances, `-` goes back, a number selects, `R` replies, `F` follows linked replies,
+and `Q` returns. Changed reply subjects stay linked. A completed read advances
+your saved position; earlier numbers then count as old. Other callers have their
+own positions. Your selected conference survives returning to Main during a call.
+
+To uses a local Handle, not Login or a network address. The displayed Posting as
+name follows the conference's identity policy and is frozen on save. `/A` at To,
+Subject or body entry cancels. Invalid or overlong input can be corrected. If
+access or conference availability changes while you write, saving is refused
+without publishing a partial message. `?` provides help in the Message Menu.
+
 ## Files and searching
 
 <!-- help-topic: caller.files -->

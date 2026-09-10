@@ -296,3 +296,12 @@ contracts are unchanged. [Hub manual](manual/ftn-hub.md).
 ## N7 / en-US 1.24.0
 
 N7 advances en-US to **1.24.0 / 1,291 messages** (42 additions) for file configuration, hatching, request policy, staging, integrity failures and delivery detail. Operator protocol minor 11 adds negotiated `FtnFiles`; its 24-feature bound remains below 32. No new operator capability is required; the existing 21-capability framework applies. [File operator guide](manual/ftn-files.md).
+
+## D3 / en-US 1.37.0
+
+D3 advances the embedded language package from 1.36.0 to **1.37.0 / 1,502
+messages** for message-index headers/date/reply indicators, explicit new-only
+scanning, bounded native-parent threads, recoverable input/access failures and
+caller command help. Format/API 1, presentation-package versions, configuration
+format 2 and schema 37 remain unchanged. Existing language override/fallback
+behavior applies; no command tokens or authorization move into translations.
